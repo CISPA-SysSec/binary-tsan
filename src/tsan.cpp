@@ -1,7 +1,28 @@
 #include <iostream>
-#include <zipr-sdk>
+#include <irdb-transform>
+#include <irdb-core>
 
-extern "C" Zipr_SDK::ZiprPluginInterface_t* getPluginInterface(Zipr_SDK::Zipr_t* p_zipr_main_object) {
+#include <memory>
+
+using namespace IRDB_SDK;
+
+class TSanTransform : public TransformStep_t {
+public:
+    string getStepName(void) const override {
+        return "thread sanitizer";
+    }
+
+    int parseArgs(const vector<string> step_args) override {
+        return 0;
+    }
+
+    int executeStep() override {
+        return 0;
+    }
+};
+
+extern "C" std::shared_ptr<IRDB_SDK::TransformStep_t> getTransformStep(void)
+{
     std::cout <<"Hello world!"<<std::endl;
-    return nullptr;
+    return std::shared_ptr<IRDB_SDK::TransformStep_t>(new TSanTransform());
 }
