@@ -1,0 +1,3 @@
+[submodule "zipr-sdk"]
+	path = zipr-sdk
+	url = https://git.zephyr-software.com/opensrc/zipr-sdk.git
