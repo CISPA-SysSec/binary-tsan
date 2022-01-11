@@ -9,9 +9,6 @@ public:
     std::string getStepName(void) const override;
     int parseArgs(const std::vector<std::string> stepArgs) override;
     int executeStep() override;
-
-private:
-    void addTSanFunctions();
 };
 
 #endif // TSANTRANSFORM_H
