@@ -37,9 +37,16 @@ int TSanTransform::executeStep()
     elfDeps->prependLibraryDepedencies("libgcc_s.so.1");
     elfDeps->prependLibraryDepedencies("libstdc++.so.6");
     elfDeps->prependLibraryDepedencies("libtsan.so.0");
+    auto tsanInit = elfDeps->appendPltEntry("__tsan_init");
     auto tsanWrite = elfDeps->appendPltEntry("__tsan_write4");
 
     Transform_t transform(ir);
+    for (Function_t *f : ir->getFunctions()) {
+        if (f->getName() == "main") {
+            transform.insertAssemblyBefore(f->getEntryPoint(),"call 0", tsanInit);
+        }
+    }
+
     for (const auto instruction : writes) {
 
         Instruction_t *tmp = instruction;
