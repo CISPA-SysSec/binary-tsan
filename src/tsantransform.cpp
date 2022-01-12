@@ -1,6 +1,7 @@
 #include "tsantransform.h"
 
 #include <irdb-elfdep>
+#include <irdb-deep>
 #include <memory>
 
 using namespace IRDB_SDK;
@@ -18,6 +19,10 @@ int TSanTransform::parseArgs(const vector<std::string>)
 int TSanTransform::executeStep()
 {
     FileIR_t *ir = getMainFileIR();
+
+    // compute this before any instructions are added
+    const auto registerAnalysis = DeepAnalysis_t::factory(ir);
+    const auto deadRegisters = registerAnalysis->getDeadRegisters();
 
     const InstructionSet_t instructions = ir->getInstructions(); // make a copy
     std::vector<Instruction_t*> writes;
@@ -48,31 +53,38 @@ int TSanTransform::executeStep()
     }
 
     for (const auto instruction : writes) {
+        std::set<std::string> registersToSave = {"rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9"};
+        const auto dead = deadRegisters->find(instruction);
+        if (dead != deadRegisters->end()) {
+            for (RegisterID_t r : dead->second) {
+                const std::string longName = registerToString(convertRegisterTo64bit(r));
+                registersToSave.erase(longName);
+            }
+        }
+
 
         Instruction_t *tmp = instruction;
-        transform.insertAssemblyBefore(tmp," push rdi");
-        tmp = transform.insertAssemblyAfter(tmp," push rsi ");
-        tmp = transform.insertAssemblyAfter(tmp," push rdx");
-        tmp = transform.insertAssemblyAfter(tmp," push rcx ");
-        tmp = transform.insertAssemblyAfter(tmp," push r8 ");
-        tmp = transform.insertAssemblyAfter(tmp," push r9 ");
+        transform.insertAssemblyBefore(tmp, "push " + *registersToSave.begin());
+        for (std::string reg : registersToSave) {
+            if (reg != *registersToSave.begin()) {
+                tmp = transform.insertAssemblyAfter(tmp, "push " + reg);
+            }
+        }
 
         const auto decoded = DecodedInstruction_t::factory(instruction);
         for (const auto &operand : decoded->getOperands()) {
             if (operand->isWritten() && operand->isMemory()) {
-                tmp = transform.insertAssemblyAfter(tmp, "lea rcx, [" + operand->getString() + "]");
+                tmp = transform.insertAssemblyAfter(tmp, "lea rdi, [" + operand->getString() + "]");
                 break;
             }
         }
 
         tmp = transform.insertAssemblyAfter(tmp, "call 0", tsanWrite);
 
-        tmp = transform.insertAssemblyAfter(tmp," pop r9");
-        tmp = transform.insertAssemblyAfter(tmp," pop r8");
-        tmp = transform.insertAssemblyAfter(tmp," pop rcx");
-        tmp = transform.insertAssemblyAfter(tmp," pop rdx");
-        tmp = transform.insertAssemblyAfter(tmp," pop rsi");
-        tmp = transform.insertAssemblyAfter(tmp," pop rdi");
+        for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
+            tmp = transform.insertAssemblyAfter(tmp, "pop " + *it);
+        }
     }
+
     return 0;
 }
