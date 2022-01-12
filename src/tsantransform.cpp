@@ -39,15 +39,31 @@ int TSanTransform::executeStep()
 
     Transform_t transform(ir);
     for (const auto instruction : writes) {
-        transform.insertAssemblyBefore(instruction, "call 0");
-        instruction->setTarget(tsanWrite);
+
+        Instruction_t *tmp = instruction;
+        transform.insertAssemblyBefore(tmp," push rdi");
+        tmp = transform.insertAssemblyAfter(tmp," push rsi ");
+        tmp = transform.insertAssemblyAfter(tmp," push rdx");
+        tmp = transform.insertAssemblyAfter(tmp," push rcx ");
+        tmp = transform.insertAssemblyAfter(tmp," push r8 ");
+        tmp = transform.insertAssemblyAfter(tmp," push r9 ");
+
         const auto decoded = DecodedInstruction_t::factory(instruction);
         for (const auto &operand : decoded->getOperands()) {
             if (operand->isWritten() && operand->isMemory()) {
-                transform.insertAssemblyBefore(instruction, "lea rcx, [" + operand->getString() + "]");
+                tmp = transform.insertAssemblyAfter(tmp, "lea rcx, [" + operand->getString() + "]");
                 break;
             }
         }
+
+        tmp = transform.insertAssemblyAfter(tmp, "call 0", tsanWrite);
+
+        tmp = transform.insertAssemblyAfter(tmp," pop r9");
+        tmp = transform.insertAssemblyAfter(tmp," pop r8");
+        tmp = transform.insertAssemblyAfter(tmp," pop rcx");
+        tmp = transform.insertAssemblyAfter(tmp," pop rdx");
+        tmp = transform.insertAssemblyAfter(tmp," pop rsi");
+        tmp = transform.insertAssemblyAfter(tmp," pop rdi");
     }
     return 0;
 }
