@@ -34,7 +34,9 @@ int TSanTransform::executeStep()
     }
 
     auto elfDeps = ElfDependencies_t::factory(ir);
-    elfDeps->appendLibraryDepedencies("libtsan.so.0");
+    elfDeps->prependLibraryDepedencies("libgcc_s.so.1");
+    elfDeps->prependLibraryDepedencies("libstdc++.so.6");
+    elfDeps->prependLibraryDepedencies("libtsan.so.0");
     auto tsanWrite = elfDeps->appendPltEntry("__tsan_write4");
 
     Transform_t transform(ir);
