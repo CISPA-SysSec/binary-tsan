@@ -27,43 +27,45 @@ int TSanTransform::executeStep()
     FileIR_t *ir = getMainFileIR();
 
     // compute this before any instructions are added
-    const auto registerAnalysis = DeepAnalysis_t::factory(ir);
-    deadRegisters = registerAnalysis->getDeadRegisters();
+    deadRegisters = std::unique_ptr<DeadRegisterMap_t>(new DeadRegisterMap_t());
+//    const auto registerAnalysis = DeepAnalysis_t::factory(ir);
+//    deadRegisters = registerAnalysis->getDeadRegisters();
 
     registerDependencies();
 
     const std::vector<std::string> noInstrumentFunctions = {"_init", "_start", "__libc_csu_init"};
 
-    const InstructionSet_t instructions = ir->getInstructions(); // make a copy
-    for (Instruction_t *instruction : instructions) {
-        const auto decoded = DecodedInstruction_t::factory(instruction);
-        if (decoded->isBranch() || decoded->isCall()) {
+    for (Function_t *function : ir->getFunctions()) {
+        if (function->getEntryPoint() == nullptr) {
             continue;
         }
-        if (instruction->getFunction() == nullptr) {
-            continue;
-        }
-        const std::string functionName = instruction->getFunction()->getName();
+        const std::string functionName = function->getName();
         const bool ignoreFunction = std::find(noInstrumentFunctions.begin(), noInstrumentFunctions.end(), functionName) != noInstrumentFunctions.end();
         if (ignoreFunction) {
             continue;
         }
-        if (decoded->getMnemonic() == "lea") {
-            continue;
-        }
-        // TODO: instructions that read and write (inc, dec, ...)
-        const DecodedOperandVector_t operands = decoded->getOperands();
-        for (const auto &operand : operands) {
-            if (operand->isMemory() && (operand->isWritten() || operand->isRead())) {
-                std::cout <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
-                instrumentMemoryAccess(instruction, operand);
+
+        const InstructionSet_t instructions = function->getInstructions(); // make a copy
+        for (Instruction_t *instruction : instructions) {
+            const auto decoded = DecodedInstruction_t::factory(instruction);
+            if (decoded->isBranch() || decoded->isCall()) {
+                continue;
+            }
+            if (decoded->getMnemonic() == "lea") {
+                continue;
+            }
+            // TODO: instructions that read and write (inc, dec, ...)
+            const DecodedOperandVector_t operands = decoded->getOperands();
+            for (const auto &operand : operands) {
+                if (operand->isMemory() && (operand->isWritten() || operand->isRead())) {
+                    std::cout <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+                    instrumentMemoryAccess(instruction, operand);
+                }
             }
         }
-    }
 
-    for (Function_t *f : ir->getFunctions()) {
-        if (f->getName() == "main") {
-            insertAssemblyBefore(ir, f->getEntryPoint(),"call 0", tsanInit);
+        if (functionName == "main") {
+            insertAssemblyBefore(ir, function->getEntryPoint(), "call 0", tsanInit);
         }
     }
     return 0;
@@ -71,6 +73,7 @@ int TSanTransform::executeStep()
 
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand)
 {
+    // TODO: if there is a jmp to the mov instruction, is is properly moved?
     FileIR_t *ir = getMainFileIR();
 
     std::set<std::string> registersToSave = {"rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9"};
@@ -117,7 +120,7 @@ void TSanTransform::registerDependencies()
     elfDeps->prependLibraryDepedencies("libtsan.so.0");
     tsanInit = elfDeps->appendPltEntry("__tsan_init");
     tsanFunctionEntry = elfDeps->appendPltEntry("__tsan_func_entry");
-    tsanInit = elfDeps->appendPltEntry("__tsan_func_exit");
+    tsanFunctionExit = elfDeps->appendPltEntry("__tsan_func_exit");
     tsanWrite[1] = elfDeps->appendPltEntry("__tsan_write1");
     tsanWrite[2] = elfDeps->appendPltEntry("__tsan_write2");
     tsanWrite[4] = elfDeps->appendPltEntry("__tsan_write4");
