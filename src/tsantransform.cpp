@@ -44,9 +44,19 @@ int TSanTransform::executeStep()
         if (ignoreFunction) {
             continue;
         }
+        if (function->getInstructions().size() < 3) {
+            continue;
+        }
+
+        const FunctionInfo info = analyseFunction(function);
+
+        bool hasInstrumented = false;
 
         const InstructionSet_t instructions = function->getInstructions(); // make a copy
         for (Instruction_t *instruction : instructions) {
+            if (info.noInstrumentInstructions.find(instruction) != info.noInstrumentInstructions.end()) {
+                continue;
+            }
             const auto decoded = DecodedInstruction_t::factory(instruction);
             if (decoded->isBranch() || decoded->isCall()) {
                 continue;
@@ -60,15 +70,62 @@ int TSanTransform::executeStep()
                 if (operand->isMemory() && (operand->isWritten() || operand->isRead())) {
                     std::cout <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                     instrumentMemoryAccess(instruction, operand);
+                    hasInstrumented = true;
                 }
             }
         }
 
+        Instruction_t *temp = info.properEntryPoint;
         if (functionName == "main") {
-            insertAssemblyBefore(ir, function->getEntryPoint(), "call 0", tsanInit);
+            insertAssemblyBefore(ir, temp, "call 0", tsanInit);
+        }
+        if (hasInstrumented) {
+            temp = insertAssemblyBefore(ir, temp, "call 0", tsanFunctionEntry);
         }
     }
     return 0;
+}
+
+static bool isEntryInstruction(const DecodedInstruction_t *decoded)
+{
+    if (decoded->getMnemonic() == "endbr64" || decoded->getMnemonic() == "endbr32") {
+        return true;
+    }
+    if (decoded->getDisassembly() == "mov rbp, rsp") {
+        return true;
+    }
+    if (decoded->getMnemonic() == "push") {
+        return true;
+    }
+    return false;
+}
+
+FunctionInfo TSanTransform::analyseFunction(IRDB_SDK::Function_t *function)
+{
+    FunctionInfo result;
+
+    Instruction_t *entry = function->getEntryPoint();
+
+    while (true) {
+        const auto decoded = DecodedInstruction_t::factory(entry);
+        if (decoded->getMnemonic() == "sub" && decoded->getOperand(0)->isRegister() &&
+                decoded->getOperand(0)->getString() == "rsp" && decoded->getOperand(1)->isConstant()) {
+
+            result.noInstrumentInstructions.insert(entry);
+            entry = entry->getFallthrough();
+            break;
+
+        } else if (!isEntryInstruction(decoded.get())) {
+            break;
+        }
+
+        result.noInstrumentInstructions.insert(entry);
+        entry = entry->getFallthrough();
+    }
+
+    result.properEntryPoint = entry;
+
+    return result;
 }
 
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand)

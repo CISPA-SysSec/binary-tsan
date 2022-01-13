@@ -6,6 +6,15 @@
 #include <irdb-deep>
 #include <array>
 
+struct FunctionInfo {
+    // the first instruction not doing stack frame stuff etc.
+    IRDB_SDK::Instruction_t *properEntryPoint;
+    // the first instructions of the stack cleanups
+    std::vector<IRDB_SDK::Instruction_t*> exitPoints;
+    // the instructions used for construction and cleanup of the stack
+    std::set<IRDB_SDK::Instruction_t*> noInstrumentInstructions;
+};
+
 class TSanTransform : public IRDB_SDK::TransformStep_t {
 public:
     TSanTransform();
@@ -19,6 +28,7 @@ private:
 
 private:
     std::unique_ptr<IRDB_SDK::DeadRegisterMap_t> deadRegisters;
+    FunctionInfo analyseFunction(IRDB_SDK::Function_t *function);
 
     // tsan functions
     IRDB_SDK::Instruction_t *tsanInit;
