@@ -27,9 +27,8 @@ int TSanTransform::executeStep()
     FileIR_t *ir = getMainFileIR();
 
     // compute this before any instructions are added
-    deadRegisters = std::unique_ptr<DeadRegisterMap_t>(new DeadRegisterMap_t());
-//    const auto registerAnalysis = DeepAnalysis_t::factory(ir);
-//    deadRegisters = registerAnalysis->getDeadRegisters();
+    const auto registerAnalysis = DeepAnalysis_t::factory(ir);
+    deadRegisters = registerAnalysis->getDeadRegisters();
 
     registerDependencies();
 
@@ -137,7 +136,8 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     const auto dead = deadRegisters->find(instruction);
     if (dead != deadRegisters->end()) {
         for (RegisterID_t r : dead->second) {
-            const std::string longName = registerToString(convertRegisterTo64bit(r));
+            std::string longName = registerToString(convertRegisterTo64bit(r));
+            std::transform(longName.begin(), longName.end(), longName.begin(), ::tolower);
             registersToSave.erase(longName);
         }
     }
