@@ -6,7 +6,8 @@
 
 using namespace IRDB_SDK;
 
-TSanTransform::TSanTransform()
+TSanTransform::TSanTransform() :
+    print("../tsan-output")
 {
     std::fill(tsanRead.begin(), tsanRead.end(), nullptr);
     std::fill(tsanWrite.begin(), tsanWrite.end(), nullptr);
@@ -67,7 +68,7 @@ int TSanTransform::executeStep()
             const DecodedOperandVector_t operands = decoded->getOperands();
             for (const auto &operand : operands) {
                 if (operand->isMemory() && (operand->isWritten() || operand->isRead())) {
-                    std::cout <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+                    print <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                     instrumentMemoryAccess(instruction, operand);
                     hasInstrumented = true;
                 }
@@ -155,7 +156,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     const int bytes = operand->getArgumentSizeInBytes();
     if ((operand->isRead() && tsanRead[bytes] == nullptr) ||
             (operand->isWritten() && tsanWrite[bytes] == nullptr)) {
-        std::cout <<"ERROR: invalid operand argument size of "<<bytes<<std::endl;
+        print <<"ERROR: invalid operand argument size of "<<bytes<<std::endl;
         exit(1);
     }
     if (operand->isRead()) {

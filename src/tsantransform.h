@@ -5,6 +5,7 @@
 #include <irdb-core>
 #include <irdb-deep>
 #include <array>
+#include <fstream>
 
 struct FunctionInfo {
     // the first instruction not doing stack frame stuff etc.
@@ -27,6 +28,8 @@ private:
     void instrumentMemoryAccess(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand);
 
 private:
+    std::ofstream print;
+
     std::unique_ptr<IRDB_SDK::DeadRegisterMap_t> deadRegisters;
     FunctionInfo analyseFunction(IRDB_SDK::Function_t *function);
 
