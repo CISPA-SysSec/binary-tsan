@@ -6,6 +6,8 @@
 
 using namespace IRDB_SDK;
 
+#define cout ERROR_USE_PRINT_INSTEAD
+
 TSanTransform::TSanTransform() :
     print("../tsan-output")
 {
@@ -61,7 +63,8 @@ int TSanTransform::executeStep()
             if (decoded->isBranch() || decoded->isCall()) {
                 continue;
             }
-            if (decoded->getMnemonic() == "lea") {
+            const std::string mnemonic = decoded->getMnemonic();
+            if (mnemonic == "lea" || mnemonic == "nop") {
                 continue;
             }
             // TODO: instructions that read and write (inc, dec, ...)
@@ -77,9 +80,11 @@ int TSanTransform::executeStep()
 
         Instruction_t *temp = info.properEntryPoint;
         if (functionName == "main") {
+            // TODO: do not overwrite registers
             insertAssemblyBefore(ir, temp, "call 0", tsanInit);
         }
         if (hasInstrumented) {
+            // TODO: do not overwrite registers, add missing argument
             temp = insertAssemblyBefore(ir, temp, "call 0", tsanFunctionEntry);
         }
     }
@@ -105,6 +110,63 @@ FunctionInfo TSanTransform::analyseFunction(IRDB_SDK::Function_t *function)
     FunctionInfo result;
 
     Instruction_t *entry = function->getEntryPoint();
+
+    // detect stack canaries
+    {
+        const std::string CANARY_CHECK = "fs:[0x28]";
+
+        Instruction_t *canaryStackWrite = nullptr;
+
+        // find the initial read of the canary value and its corresponding write to stack
+        Instruction_t *instruction = entry;
+        for (int i = 0;i<20;i++) {
+            const std::string assembly = instruction->getDisassembly();
+            const auto decoded = DecodedInstruction_t::factory(instruction);
+            if (assembly.find(CANARY_CHECK) != std::string::npos) {
+                if (decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() && decoded->getOperand(0)->isRegister()) {
+                    Instruction_t *next = instruction->getFallthrough();
+                    if (next == nullptr) {
+                        print <<"ERROR: unexpected instruction termination"<<std::endl;
+                        break;
+                    }
+                    const auto nextDecoded = DecodedInstruction_t::factory(next);
+                    if (!nextDecoded->hasOperand(1) || !nextDecoded->getOperand(1)->isRegister() ||
+                            decoded->getOperand(0)->getString() != nextDecoded->getOperand(1)->getString()) {
+                        print <<"ERROR: could not find canary stack write!"<<std::endl;
+                        break;
+                    }
+                    canaryStackWrite = next;
+                }
+                break;
+            }
+            if (decoded->isReturn()) {
+                break;
+            }
+            instruction = instruction->getFallthrough();
+            if (instruction == nullptr) {
+                break;
+            }
+        }
+
+        // find canary read/writes
+        if (canaryStackWrite != nullptr) {
+            print <<"Ignore canary instruction: "<<canaryStackWrite->getDisassembly()<<std::endl;
+            result.noInstrumentInstructions.insert(canaryStackWrite);
+            const auto decodedWrite = DecodedInstruction_t::factory(canaryStackWrite);
+
+            for (Instruction_t *instruction : function->getInstructions()) {
+                const std::string assembly = instruction->getDisassembly();
+                const auto decoded = DecodedInstruction_t::factory(instruction);
+                const bool isCanaryStackRead = decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() &&
+                        decoded->getOperand(1)->getString() == decodedWrite->getOperand(0)->getString();
+                if (assembly.find(CANARY_CHECK) != std::string::npos || isCanaryStackRead) {
+                    print <<"Ignore canary instruction: "<<assembly<<std::endl;
+                    result.noInstrumentInstructions.insert(instruction);
+                    continue;
+                }
+            }
+        }
+    }
 
     while (true) {
         const auto decoded = DecodedInstruction_t::factory(entry);
@@ -133,6 +195,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     // TODO: if there is a jmp to the mov instruction, is is properly moved?
     FileIR_t *ir = getMainFileIR();
 
+    // TODO: xmm registers??
     std::set<std::string> registersToSave = {"rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9"};
     const auto dead = deadRegisters->find(instruction);
     if (dead != deadRegisters->end()) {
