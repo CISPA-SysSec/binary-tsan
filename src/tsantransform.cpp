@@ -238,7 +238,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     FileIR_t *ir = getMainFileIR();
 
     // TODO: xmm registers??
-    std::set<std::string> registersToSave = {"rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9"};
+    std::set<std::string> registersToSave = {"rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11"};
     // TODO: is this before or after the instruction??
     const auto dead = deadRegisters->find(instruction);
     if (dead != deadRegisters->end()) {
