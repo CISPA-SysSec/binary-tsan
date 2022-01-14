@@ -14,6 +14,8 @@ struct FunctionInfo {
     std::vector<IRDB_SDK::Instruction_t*> exitPoints;
     // the instructions used for construction and cleanup of the stack
     std::set<IRDB_SDK::Instruction_t*> noInstrumentInstructions;
+    // non zero only if the size is not present in the Function_t class and could be inferred
+    int inferredStackFrameSize = 0;
 };
 
 class TSanTransform : public IRDB_SDK::TransformStep_t {
@@ -25,10 +27,11 @@ public:
 
 private:
     void registerDependencies();
-    void instrumentMemoryAccess(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand);
+    void instrumentMemoryAccess(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand, int extraStack);
+    int inferredStackFrameSize(const IRDB_SDK::Function_t *function) const;
 
 private:
-    std::ofstream print;
+    mutable std::ofstream print;
 
     std::unique_ptr<IRDB_SDK::DeadRegisterMap_t> deadRegisters;
     FunctionInfo analyseFunction(IRDB_SDK::Function_t *function);

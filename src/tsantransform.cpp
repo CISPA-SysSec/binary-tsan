@@ -72,7 +72,7 @@ int TSanTransform::executeStep()
             for (const auto &operand : operands) {
                 if (operand->isMemory() && (operand->isWritten() || operand->isRead())) {
                     print <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
-                    instrumentMemoryAccess(instruction, operand);
+                    instrumentMemoryAccess(instruction, operand, info.inferredStackFrameSize);
                     hasInstrumented = true;
                 }
             }
@@ -85,7 +85,7 @@ int TSanTransform::executeStep()
         }
         if (hasInstrumented) {
             // TODO: do not overwrite registers, add missing argument
-            temp = insertAssemblyBefore(ir, temp, "call 0", tsanFunctionEntry);
+//            temp = insertAssemblyBefore(ir, temp, "call 0", tsanFunctionEntry);
         }
     }
     return 0;
@@ -105,9 +105,15 @@ static bool isEntryInstruction(const DecodedInstruction_t *decoded)
     return false;
 }
 
-FunctionInfo TSanTransform::analyseFunction(IRDB_SDK::Function_t *function)
+static bool contains(const std::string &str, const std::string &search)
+{
+    return str.find(search) != std::string::npos;
+}
+
+FunctionInfo TSanTransform::analyseFunction(Function_t *function)
 {
     FunctionInfo result;
+    result.inferredStackFrameSize = inferredStackFrameSize(function);
 
     Instruction_t *entry = function->getEntryPoint();
 
@@ -122,7 +128,7 @@ FunctionInfo TSanTransform::analyseFunction(IRDB_SDK::Function_t *function)
         for (int i = 0;i<20;i++) {
             const std::string assembly = instruction->getDisassembly();
             const auto decoded = DecodedInstruction_t::factory(instruction);
-            if (assembly.find(CANARY_CHECK) != std::string::npos) {
+            if (contains(assembly, CANARY_CHECK)) {
                 if (decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() && decoded->getOperand(0)->isRegister()) {
                     Instruction_t *next = instruction->getFallthrough();
                     if (next == nullptr) {
@@ -159,7 +165,7 @@ FunctionInfo TSanTransform::analyseFunction(IRDB_SDK::Function_t *function)
                 const auto decoded = DecodedInstruction_t::factory(instruction);
                 const bool isCanaryStackRead = decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() &&
                         decoded->getOperand(1)->getString() == decodedWrite->getOperand(0)->getString();
-                if (assembly.find(CANARY_CHECK) != std::string::npos || isCanaryStackRead) {
+                if (contains(assembly, CANARY_CHECK) || isCanaryStackRead) {
                     print <<"Ignore canary instruction: "<<assembly<<std::endl;
                     result.noInstrumentInstructions.insert(instruction);
                     continue;
@@ -190,13 +196,50 @@ FunctionInfo TSanTransform::analyseFunction(IRDB_SDK::Function_t *function)
     return result;
 }
 
-void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand)
+int TSanTransform::inferredStackFrameSize(const IRDB_SDK::Function_t *function) const
+{
+    if (function->getStackFrameSize() > 0) {
+        return 0;
+    }
+    int rwSize = 0;
+    for (Instruction_t *instruction : function->getInstructions()) {
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        if (decoded->getMnemonic() != "mov") {
+            continue;
+        }
+        if (!decoded->hasOperand(0) || !decoded->hasOperand(1)) {
+            continue;
+        }
+        const auto op0 = decoded->getOperand(0);
+        const auto op1 = decoded->getOperand(1);
+        const auto acc = op0->isMemory() ? op0 : op1;
+        if (!acc->isMemory()) {
+            continue;
+        }
+        // TODO: rsp based writes
+        const std::string opstr = acc->getString();
+        const bool isStackPointer = contains(opstr, "rbp") || contains(opstr, "ebp");
+        if (!isStackPointer) {
+            continue;
+        }
+        intptr_t offset = static_cast<intptr_t>(acc->getMemoryDisplacement());
+        rwSize = std::max(rwSize, static_cast<int>(-offset) + static_cast<int>(acc->getArgumentSizeInBytes()));
+    }
+    // sanity check
+    if (rwSize > 2000) {
+        rwSize = 0;
+    }
+    return rwSize;
+}
+
+void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, int extraStack)
 {
     // TODO: if there is a jmp to the mov instruction, is is properly moved?
     FileIR_t *ir = getMainFileIR();
 
     // TODO: xmm registers??
     std::set<std::string> registersToSave = {"rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9"};
+    // TODO: is this before or after the instruction??
     const auto dead = deadRegisters->find(instruction);
     if (dead != deadRegisters->end()) {
         for (RegisterID_t r : dead->second) {
@@ -207,14 +250,26 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     }
 
     Instruction_t *tmp = instruction;
-    insertAssemblyBefore(ir, tmp, "push " + *registersToSave.begin());
-    for (std::string reg : registersToSave) {
-        if (reg != *registersToSave.begin()) {
-            tmp = insertAssemblyAfter(ir, tmp, "push " + reg);
+    bool hasInsertedBefore = false;
+    const auto insertAssembly = [ir, &tmp, &hasInsertedBefore](const std::string assembly, Instruction_t *target = nullptr) {
+        if (!hasInsertedBefore) {
+            hasInsertedBefore = true;
+            insertAssemblyBefore(ir, tmp, assembly, target);
+        } else {
+            tmp = insertAssemblyAfter(ir, tmp, assembly, target);
         }
+    };
+
+    // TODO: add this only once per function and not at every access
+    if (extraStack > 0) {
+        insertAssembly("sub rsp, " + std::to_string(extraStack));
+    }
+    for (std::string reg : registersToSave) {
+        insertAssembly("push " + reg);
     }
 
-    tmp = insertAssemblyAfter(ir, tmp, "lea rdi, [" + operand->getString() + "]");
+    // TODO: if the access is relative to the rsp, this does not work (push before)
+    insertAssembly("lea rdi, [" + operand->getString() + "]");
 
     const int bytes = operand->getArgumentSizeInBytes();
     if ((operand->isRead() && tsanRead[bytes] == nullptr) ||
@@ -223,13 +278,16 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         exit(1);
     }
     if (operand->isRead()) {
-        tmp = insertAssemblyAfter(ir, tmp, "call 0", tsanRead[bytes]);
+        insertAssembly("call 0", tsanRead[bytes]);
     } else {
-        tmp = insertAssemblyAfter(ir, tmp, "call 0", tsanWrite[bytes]);
+        insertAssembly("call 0", tsanWrite[bytes]);
     }
 
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
-        tmp = insertAssemblyAfter(ir, tmp, "pop " + *it);
+        insertAssembly("pop " + *it);
+    }
+    if (extraStack > 0) {
+        insertAssembly("add rsp, " + std::to_string(extraStack));
     }
 }
 
