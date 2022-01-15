@@ -67,7 +67,6 @@ int TSanTransform::executeStep()
             if (mnemonic == "lea" || mnemonic == "nop") {
                 continue;
             }
-            // TODO: instructions that read and write (inc, dec, ...)
             const DecodedOperandVector_t operands = decoded->getOperands();
             for (const auto &operand : operands) {
                 if (operand->isMemory() && (operand->isWritten() || operand->isRead())) {
@@ -290,10 +289,12 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     }
 
     // TODO: aligned vs unaligned read/write?
-    if (operand->isRead()) {
-        insertAssembly("call 0", tsanRead[bytes]);
-    } else {
+
+    // For operations that read and write the memory, only emit the write (it is sufficient for race detection)
+    if (operand->isWritten()) {
         insertAssembly("call 0", tsanWrite[bytes]);
+    } else {
+        insertAssembly("call 0", tsanRead[bytes]);
     }
 
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
