@@ -232,6 +232,13 @@ int TSanTransform::inferredStackFrameSize(const IRDB_SDK::Function_t *function) 
     return rwSize;
 }
 
+static std::string toHex(const int num)
+{
+    std::stringstream result;
+    result <<"0x"<<std::hex<<num;
+    return result.str();
+}
+
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, int extraStack)
 {
     // TODO: 16 byte xmm registers
@@ -270,14 +277,17 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     // TODO: add this only once per function and not at every access
     if (extraStack > 0) {
-        insertAssembly("sub rsp, " + std::to_string(extraStack));
+        insertAssembly("sub rsp, " + toHex(extraStack));
     }
     for (std::string reg : registersToSave) {
         insertAssembly("push " + reg);
     }
 
-    // TODO: if the access is relative to the rsp, this does not work (push before)
     insertAssembly("lea rdi, [" + operand->getString() + "]");
+    // TODO: integrate into lea instruction
+    if (contains(operand->getString(), "rsp")) {
+        insertAssembly("add rdi, " + toHex(extraStack + registersToSave.size() * ir->getArchitectureBitWidth() / 8));
+    }
 
     // TODO: aligned vs unaligned read/write?
     if (operand->isRead()) {
@@ -290,7 +300,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         insertAssembly("pop " + *it);
     }
     if (extraStack > 0) {
-        insertAssembly("add rsp, " + std::to_string(extraStack));
+        insertAssembly("add rsp, " + toHex(extraStack));
     }
 }
 
