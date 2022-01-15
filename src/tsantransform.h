@@ -42,8 +42,8 @@ private:
     IRDB_SDK::Instruction_t *tsanFunctionEntry;
     // void()
     IRDB_SDK::Instruction_t *tsanFunctionExit;
-    std::array<IRDB_SDK::Instruction_t*, 8> tsanRead;
-    std::array<IRDB_SDK::Instruction_t*, 8> tsanWrite;
+    std::array<IRDB_SDK::Instruction_t*, 9> tsanRead;
+    std::array<IRDB_SDK::Instruction_t*, 9> tsanWrite;
 };
 
 #endif // TSANTRANSFORM_H

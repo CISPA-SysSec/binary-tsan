@@ -234,7 +234,15 @@ int TSanTransform::inferredStackFrameSize(const IRDB_SDK::Function_t *function) 
 
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, int extraStack)
 {
-    // TODO: if there is a jmp to the mov instruction, is is properly moved?
+    // TODO: 16 byte xmm registers
+    const uint bytes = operand->getArgumentSizeInBytes();
+    if (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
+            (operand->isRead() && tsanRead[bytes] == nullptr) ||
+            (operand->isWritten() && tsanWrite[bytes] == nullptr)) {
+        print <<"WARNING: memory operation of size "<<bytes<<" is not instrumented: "<<instruction->getDisassembly()<<std::endl;
+        return;
+    }
+
     FileIR_t *ir = getMainFileIR();
 
     // TODO: xmm registers??
@@ -271,12 +279,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     // TODO: if the access is relative to the rsp, this does not work (push before)
     insertAssembly("lea rdi, [" + operand->getString() + "]");
 
-    const int bytes = operand->getArgumentSizeInBytes();
-    if ((operand->isRead() && tsanRead[bytes] == nullptr) ||
-            (operand->isWritten() && tsanWrite[bytes] == nullptr)) {
-        print <<"ERROR: invalid operand argument size of "<<bytes<<std::endl;
-        exit(1);
-    }
+    // TODO: aligned vs unaligned read/write?
     if (operand->isRead()) {
         insertAssembly("call 0", tsanRead[bytes]);
     } else {
