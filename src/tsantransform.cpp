@@ -46,9 +46,6 @@ int TSanTransform::executeStep()
         if (ignoreFunction) {
             continue;
         }
-        if (function->getInstructions().size() < 3) {
-            continue;
-        }
 
         const FunctionInfo info = analyseFunction(function);
 
