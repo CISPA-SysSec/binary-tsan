@@ -8,6 +8,17 @@ using namespace IRDB_SDK;
 
 #define cout ERROR_USE_PRINT_INSTEAD
 
+#define MAKE_INSERT_ASSEMBLY(fileIR, i) Instruction_t *tmp = i; \
+    bool hasInsertedBefore = false; \
+    const auto insertAssembly = [fileIR, &tmp, &hasInsertedBefore](const std::string assembly, Instruction_t *target = nullptr) { \
+        if (!hasInsertedBefore) { \
+            hasInsertedBefore = true; \
+            insertAssemblyBefore(fileIR, tmp, assembly, target); \
+        } else { \
+            tmp = insertAssemblyAfter(fileIR, tmp, assembly, target); \
+        } \
+    };
+
 TSanTransform::TSanTransform() :
     print("../tsan-output")
 {
@@ -35,7 +46,7 @@ int TSanTransform::executeStep()
 
     registerDependencies();
 
-    const std::vector<std::string> noInstrumentFunctions = {"_init", "_start", "__libc_csu_init"};
+    const std::vector<std::string> noInstrumentFunctions = {"_init", "_start", "__libc_csu_init", "__tsan_default_options"};
 
     for (Function_t *function : ir->getFunctions()) {
         if (function->getEntryPoint() == nullptr) {
@@ -48,8 +59,6 @@ int TSanTransform::executeStep()
         }
 
         const FunctionInfo info = analyseFunction(function);
-
-        bool hasInstrumented = false;
 
         const InstructionSet_t instructions = function->getInstructions(); // make a copy
         for (Instruction_t *instruction : instructions) {
@@ -69,36 +78,23 @@ int TSanTransform::executeStep()
                 if (operand->isMemory() && (operand->isWritten() || operand->isRead())) {
                     print <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                     instrumentMemoryAccess(instruction, operand, info.inferredStackFrameSize);
-                    hasInstrumented = true;
                 }
             }
         }
 
-        Instruction_t *temp = info.properEntryPoint;
         if (functionName == "main") {
             // TODO: do not overwrite registers
-            insertAssemblyBefore(ir, temp, "call 0", tsanInit);
+//            insertAssemblyBefore(ir, temp, "call 0", tsanInit);
         }
-        if (hasInstrumented) {
-            // TODO: do not overwrite registers, add missing argument
-//            temp = insertAssemblyBefore(ir, temp, "call 0", tsanFunctionEntry);
+        // TODO: omit these when possible
+        if (info.exitPoints.size() > 0) {
+            insertFunctionEntry(info.properEntryPoint);
+        }
+        for (Instruction_t *ret : info.exitPoints) {
+            insertFunctionExit(ret);
         }
     }
     return 0;
-}
-
-static bool isEntryInstruction(const DecodedInstruction_t *decoded)
-{
-    if (decoded->getMnemonic() == "endbr64" || decoded->getMnemonic() == "endbr32") {
-        return true;
-    }
-    if (decoded->getDisassembly() == "mov rbp, rsp") {
-        return true;
-    }
-    if (decoded->getMnemonic() == "push") {
-        return true;
-    }
-    return false;
 }
 
 static bool contains(const std::string &str, const std::string &search)
@@ -106,12 +102,52 @@ static bool contains(const std::string &str, const std::string &search)
     return str.find(search) != std::string::npos;
 }
 
+static std::string toHex(const int num)
+{
+    std::stringstream result;
+    result <<"0x"<<std::hex<<num;
+    return result.str();
+}
+
+void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
+{
+    FileIR_t *ir = getMainFileIR();
+    const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
+    MAKE_INSERT_ASSEMBLY(ir, insertBefore);
+
+    // for this to work without any additional rsp wrangling, it must be inserted at the very start of the function
+    for (std::string reg : registersToSave) {
+        insertAssembly("push " + reg);
+    }
+    if (registersToSave.size() > 0) {
+        insertAssembly("mov rdi, [rsp + " + toHex(registersToSave.size() * ir->getArchitectureBitWidth() / 8) + "]");
+    }
+    insertAssembly("call 0", tsanFunctionEntry);
+    for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
+        insertAssembly("pop " + *it);
+    }
+}
+
+void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
+{
+    FileIR_t *ir = getMainFileIR();
+    const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
+    MAKE_INSERT_ASSEMBLY(ir, insertBefore);
+
+    // must be inserted directly before the return instruction
+    for (std::string reg : registersToSave) {
+        insertAssembly("push " + reg);
+    }
+    insertAssembly("call 0", tsanFunctionExit);
+    for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
+        insertAssembly("pop " + *it);
+    }
+}
+
 FunctionInfo TSanTransform::analyseFunction(Function_t *function)
 {
     FunctionInfo result;
     result.inferredStackFrameSize = inferredStackFrameSize(function);
-
-    Instruction_t *entry = function->getEntryPoint();
 
     // detect stack canaries
     {
@@ -120,7 +156,7 @@ FunctionInfo TSanTransform::analyseFunction(Function_t *function)
         Instruction_t *canaryStackWrite = nullptr;
 
         // find the initial read of the canary value and its corresponding write to stack
-        Instruction_t *instruction = entry;
+        Instruction_t *instruction = function->getEntryPoint();
         for (int i = 0;i<20;i++) {
             const std::string assembly = instruction->getDisassembly();
             const auto decoded = DecodedInstruction_t::factory(instruction);
@@ -170,24 +206,17 @@ FunctionInfo TSanTransform::analyseFunction(Function_t *function)
         }
     }
 
-    while (true) {
-        const auto decoded = DecodedInstruction_t::factory(entry);
-        if (decoded->getMnemonic() == "sub" && decoded->getOperand(0)->isRegister() &&
-                decoded->getOperand(0)->getString() == "rsp" && decoded->getOperand(1)->isConstant()) {
-
-            result.noInstrumentInstructions.insert(entry);
-            entry = entry->getFallthrough();
-            break;
-
-        } else if (!isEntryInstruction(decoded.get())) {
-            break;
-        }
-
-        result.noInstrumentInstructions.insert(entry);
-        entry = entry->getFallthrough();
+    result.properEntryPoint = function->getEntryPoint();
+    if (contains(result.properEntryPoint->getDisassembly(), "endbr")) {
+        result.properEntryPoint = result.properEntryPoint->getFallthrough();
     }
 
-    result.properEntryPoint = entry;
+    for (Instruction_t *instruction : function->getInstructions()) {
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        if (decoded->isReturn()) {
+            result.exitPoints.push_back(instruction);
+        }
+    }
 
     return result;
 }
@@ -228,11 +257,19 @@ int TSanTransform::inferredStackFrameSize(const IRDB_SDK::Function_t *function) 
     return rwSize;
 }
 
-static std::string toHex(const int num)
+std::set<std::string> TSanTransform::getSaveRegisters(Instruction_t *instruction)
 {
-    std::stringstream result;
-    result <<"0x"<<std::hex<<num;
-    return result.str();
+    // TODO: xmm registers??
+    std::set<std::string> registersToSave = {"rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11"};
+    const auto dead = deadRegisters->find(instruction);
+    if (dead != deadRegisters->end()) {
+        for (RegisterID_t r : dead->second) {
+            std::string longName = registerToString(convertRegisterTo64bit(r));
+            std::transform(longName.begin(), longName.end(), longName.begin(), ::tolower);
+            registersToSave.erase(longName);
+        }
+    }
+    return registersToSave;
 }
 
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, int extraStack)
@@ -248,28 +285,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     FileIR_t *ir = getMainFileIR();
 
-    // TODO: xmm registers??
-    std::set<std::string> registersToSave = {"rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11"};
-    // TODO: is this before or after the instruction??
-    const auto dead = deadRegisters->find(instruction);
-    if (dead != deadRegisters->end()) {
-        for (RegisterID_t r : dead->second) {
-            std::string longName = registerToString(convertRegisterTo64bit(r));
-            std::transform(longName.begin(), longName.end(), longName.begin(), ::tolower);
-            registersToSave.erase(longName);
-        }
-    }
+    const std::set<std::string> registersToSave = getSaveRegisters(instruction);
 
-    Instruction_t *tmp = instruction;
-    bool hasInsertedBefore = false;
-    const auto insertAssembly = [ir, &tmp, &hasInsertedBefore](const std::string assembly, Instruction_t *target = nullptr) {
-        if (!hasInsertedBefore) {
-            hasInsertedBefore = true;
-            insertAssemblyBefore(ir, tmp, assembly, target);
-        } else {
-            tmp = insertAssemblyAfter(ir, tmp, assembly, target);
-        }
-    };
+    MAKE_INSERT_ASSEMBLY(ir, instruction);
 
     // TODO: add this only once per function and not at every access
     if (extraStack > 0) {
@@ -285,6 +303,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         insertAssembly("add rdi, " + toHex(extraStack + registersToSave.size() * ir->getArchitectureBitWidth() / 8));
     }
 
+    // TODO: atomic operations??
     // TODO: aligned vs unaligned read/write?
 
     // For operations that read and write the memory, only emit the write (it is sufficient for race detection)

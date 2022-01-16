@@ -29,6 +29,9 @@ private:
     void registerDependencies();
     void instrumentMemoryAccess(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand, int extraStack);
     int inferredStackFrameSize(const IRDB_SDK::Function_t *function) const;
+    void insertFunctionEntry(IRDB_SDK::Instruction_t *insertBefore);
+    void insertFunctionExit(IRDB_SDK::Instruction_t *insertBefore);
+    std::set<std::string> getSaveRegisters(IRDB_SDK::Instruction_t *instruction);
 
 private:
     mutable std::ofstream print;
