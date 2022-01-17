@@ -19,10 +19,11 @@ endif()
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/ps-plugin)
 
-add_subdirectory(src)
+if(NOT ZIPR_LOCATION)
+    message(FATAL_ERROR "Please provide a valid zipr location")
+endif()
 
 # create libraries for the irdb sdk
-set(ZIPR_LOCATION "/home/andi/Masterarbeit/zipr")
 set(IRDBLIB_LOCATION "${ZIPR_LOCATION}/irdb-libs/lib/")
 
 add_library(_irdb-sdk SHARED IMPORTED)
@@ -45,3 +46,6 @@ add_library(irdb-sdk INTERFACE)
 target_link_libraries(irdb-sdk
     INTERFACE _irdb-sdk
 )
+
+
+add_subdirectory(src)
