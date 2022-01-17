@@ -274,7 +274,6 @@ std::set<std::string> TSanTransform::getSaveRegisters(Instruction_t *instruction
 
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, int extraStack)
 {
-    // TODO: 16 byte xmm registers
     const uint bytes = operand->getArgumentSizeInBytes();
     if (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
             (operand->isRead() && tsanRead[bytes] == nullptr) ||
@@ -334,10 +333,12 @@ void TSanTransform::registerDependencies()
     tsanWrite[2] = elfDeps->appendPltEntry("__tsan_write2");
     tsanWrite[4] = elfDeps->appendPltEntry("__tsan_write4");
     tsanWrite[8] = elfDeps->appendPltEntry("__tsan_write8");
+    tsanWrite[16] = elfDeps->appendPltEntry("__tsan_write16");
     tsanRead[1] = elfDeps->appendPltEntry("__tsan_read1");
     tsanRead[2] = elfDeps->appendPltEntry("__tsan_read2");
     tsanRead[4] = elfDeps->appendPltEntry("__tsan_read4");
     tsanRead[8] = elfDeps->appendPltEntry("__tsan_read8");
+    tsanRead[16] = elfDeps->appendPltEntry("__tsan_read16");
 
     getMainFileIR()->assembleRegistry();
 }
