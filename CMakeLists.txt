@@ -24,13 +24,13 @@ add_subdirectory(src)
 # create libraries for zipr and irdb sdks
 set(IRDBLIB_LOCATION "/home/andi/Masterarbeit/zipr/irdb-libs/lib/")
 
-add_library(irdb-sdk SHARED IMPORTED)
-target_include_directories(irdb-sdk INTERFACE "irdb-sdk/include/")
+add_library(_irdb-sdk SHARED IMPORTED)
+target_include_directories(_irdb-sdk INTERFACE "irdb-sdk/include/")
 # just select a library
-set_property(TARGET irdb-sdk PROPERTY IMPORTED_LOCATION
+set_property(TARGET _irdb-sdk PROPERTY IMPORTED_LOCATION
     "${IRDBLIB_LOCATION}/libirdb-core.so"
 )
-set_property(TARGET irdb-sdk PROPERTY INTERFACE_LINK_LIBRARIES
+set_property(TARGET _irdb-sdk PROPERTY INTERFACE_LINK_LIBRARIES
     "${IRDBLIB_LOCATION}/libirdb-core.so"
     "${IRDBLIB_LOCATION}/libirdb-cfg.so"
     "${IRDBLIB_LOCATION}/libirdb-deep.so"
@@ -40,11 +40,7 @@ set_property(TARGET irdb-sdk PROPERTY INTERFACE_LINK_LIBRARIES
     "${IRDBLIB_LOCATION}/libirdb-util.so"
 )
 
-#add_library(irdb-sdk INTERFACE)
-#target_include_directories(irdb-sdk INTERFACE "irdb-sdk/include/")
-
-add_library(zipr-sdk INTERFACE)
-target_link_libraries(zipr-sdk
-    INTERFACE irdb-sdk
+add_library(irdb-sdk INTERFACE)
+target_link_libraries(irdb-sdk
+    INTERFACE _irdb-sdk
 )
-target_include_directories(zipr-sdk INTERFACE "zipr-sdk/include/")
