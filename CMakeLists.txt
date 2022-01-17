@@ -21,23 +21,24 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/ps-plugin)
 
 add_subdirectory(src)
 
-# create libraries for zipr and irdb sdks
-set(IRDBLIB_LOCATION "/home/andi/Masterarbeit/zipr/irdb-libs/lib/")
+# create libraries for the irdb sdk
+set(ZIPR_LOCATION "/home/andi/Masterarbeit/zipr")
+set(IRDBLIB_LOCATION "${ZIPR_LOCATION}/irdb-libs/lib/")
 
 add_library(_irdb-sdk SHARED IMPORTED)
-target_include_directories(_irdb-sdk INTERFACE "irdb-sdk/include/")
+target_include_directories(_irdb-sdk INTERFACE "${ZIPR_LOCATION}/irdb-sdk/include/")
 # just select a library
 set_property(TARGET _irdb-sdk PROPERTY IMPORTED_LOCATION
-    "${IRDBLIB_LOCATION}/libirdb-core.so"
+    "${IRDBLIB_LOCATION}/${CMAKE_SHARED_LIBRARY_PREFIX}irdb-core${CMAKE_SHARED_LIBRARY_SUFFIX}"
 )
 set_property(TARGET _irdb-sdk PROPERTY INTERFACE_LINK_LIBRARIES
-    "${IRDBLIB_LOCATION}/libirdb-core.so"
-    "${IRDBLIB_LOCATION}/libirdb-cfg.so"
-    "${IRDBLIB_LOCATION}/libirdb-deep.so"
-    "${IRDBLIB_LOCATION}/libirdb-elfdep.so"
-    "${IRDBLIB_LOCATION}/libirdb-syscall.so"
-    "${IRDBLIB_LOCATION}/libirdb-transform.so"
-    "${IRDBLIB_LOCATION}/libirdb-util.so"
+    "${IRDBLIB_LOCATION}/${CMAKE_SHARED_LIBRARY_PREFIX}irdb-core${CMAKE_SHARED_LIBRARY_SUFFIX}"
+    "${IRDBLIB_LOCATION}/${CMAKE_SHARED_LIBRARY_PREFIX}irdb-cfg${CMAKE_SHARED_LIBRARY_SUFFIX}"
+    "${IRDBLIB_LOCATION}/${CMAKE_SHARED_LIBRARY_PREFIX}irdb-deep${CMAKE_SHARED_LIBRARY_SUFFIX}"
+    "${IRDBLIB_LOCATION}/${CMAKE_SHARED_LIBRARY_PREFIX}irdb-elfdep${CMAKE_SHARED_LIBRARY_SUFFIX}"
+    "${IRDBLIB_LOCATION}/${CMAKE_SHARED_LIBRARY_PREFIX}irdb-syscall${CMAKE_SHARED_LIBRARY_SUFFIX}"
+    "${IRDBLIB_LOCATION}/${CMAKE_SHARED_LIBRARY_PREFIX}irdb-transform${CMAKE_SHARED_LIBRARY_SUFFIX}"
+    "${IRDBLIB_LOCATION}/${CMAKE_SHARED_LIBRARY_PREFIX}irdb-util${CMAKE_SHARED_LIBRARY_SUFFIX}"
 )
 
 add_library(irdb-sdk INTERFACE)
