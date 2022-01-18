@@ -1,0 +1,20 @@
+#!/bin/bash
+
+printUsage()
+{
+	echo ""
+	echo "Usage: $0 input_file output_file"
+	exit 1
+}
+
+if [ "$#" -ne 2 ]
+then
+	printUsage
+fi
+
+last=$PWD
+cd ${ZIPR_LOCATION}
+. set_env_vars
+export PSPATH=$PSPATH:${PLUGIN_PATH}
+cd $last
+$PSZ $1 $2 -c rida -c move_globals -o --elftables -c tsan

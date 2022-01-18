@@ -17,11 +17,15 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release")
 endif()
 
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/ps-plugin)
+set(PLUGIN_PATH ${CMAKE_BINARY_DIR}/ps-plugin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PLUGIN_PATH})
 
 if(NOT ZIPR_LOCATION)
     message(FATAL_ERROR "Please provide a valid zipr location")
 endif()
+
+# configure scripts
+configure_file(${CMAKE_SOURCE_DIR}/scripts/thread-sanitizer.sh.in ${CMAKE_BINARY_DIR}/thread-sanitizer.sh)
 
 # create libraries for the irdb sdk
 set(IRDBLIB_LOCATION "${ZIPR_LOCATION}/irdb-libs/lib/")
