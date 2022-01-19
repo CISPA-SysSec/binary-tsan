@@ -7,6 +7,16 @@
 #include <array>
 #include <fstream>
 
+// from tsan-interface-atomic.h, do not change
+typedef enum {
+    __tsan_memory_order_relaxed = 0,
+    __tsan_memory_order_consume = 1,
+    __tsan_memory_order_acquire = 2,
+    __tsan_memory_order_release = 3,
+    __tsan_memory_order_acq_rel = 4,
+    __tsan_memory_order_seq_cst = 5
+} __tsan_memory_order;
+
 struct FunctionInfo {
     // the first instruction not doing stack frame stuff etc.
     IRDB_SDK::Instruction_t *properEntryPoint;
@@ -32,6 +42,7 @@ private:
     void insertFunctionEntry(IRDB_SDK::Instruction_t *insertBefore);
     void insertFunctionExit(IRDB_SDK::Instruction_t *insertBefore);
     std::set<std::string> getSaveRegisters(IRDB_SDK::Instruction_t *instruction);
+    static bool isAtomic(IRDB_SDK::Instruction_t *instruction);
 
 private:
     mutable std::ofstream print;
@@ -47,6 +58,9 @@ private:
     IRDB_SDK::Instruction_t *tsanFunctionExit;
     std::array<IRDB_SDK::Instruction_t*, 17> tsanRead;
     std::array<IRDB_SDK::Instruction_t*, 17> tsanWrite;
+    // atomics
+    // int(int*, int, __tsan_memory_order)
+    std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicFetchAdd;
 };
 
 #endif // TSANTRANSFORM_H

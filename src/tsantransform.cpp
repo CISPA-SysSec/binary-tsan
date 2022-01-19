@@ -272,6 +272,22 @@ std::set<std::string> TSanTransform::getSaveRegisters(Instruction_t *instruction
     return registersToSave;
 }
 
+bool TSanTransform::isAtomic(IRDB_SDK::Instruction_t *instruction)
+{
+    const auto decoded = DecodedInstruction_t::factory(instruction);
+    const std::string dataBits = instruction->getDataBits();
+    return std::any_of(dataBits.begin(), dataBits.begin() + decoded->getPrefixCount(), [](char c) {
+        return static_cast<unsigned char>(c) == 0xF0;
+    });
+}
+
+static std::string standard64Bit(const std::string &reg)
+{
+    std::string full = registerToString(convertRegisterTo64bit(strToRegister(reg)));
+    std::transform(full.begin(), full.end(), full.begin(), ::tolower);
+    return full;
+}
+
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, int extraStack)
 {
     const uint bytes = operand->getArgumentSizeInBytes();
@@ -284,7 +300,41 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     FileIR_t *ir = getMainFileIR();
 
-    const std::set<std::string> registersToSave = getSaveRegisters(instruction);
+    std::set<std::string> registersToSave = getSaveRegisters(instruction);
+
+    bool removeOriginal = false;
+    std::vector<std::pair<std::string, Instruction_t*>> atomicInstructionInsert;
+    if (isAtomic(instruction)) {
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        print <<"Found atomic instruction with mnemonic: "<<decoded->getMnemonic()<<std::endl;
+        // TODO: correct register sizes
+        // TODO: 128 bit operations?
+        if (decoded->getMnemonic() == "xadd") {
+            if (!decoded->getOperand(0)->isMemory() || !decoded->getOperand(1)->isRegister()) {
+                print <<"Bad assumption in atomic xadd!!"<<std::endl;
+            } else {
+                std::string rsiPart = "rsi";
+                std::string raxPart = "rax";
+                std::string rdxPart = "rdx";
+                // TODO: more byte sizes
+                if (decoded->getOperand(1)->getArgumentSizeInBytes() == 4) {
+                    rsiPart = "esi";
+                    raxPart = "eax";
+                    rdxPart = "edx";
+                }
+                atomicInstructionInsert.push_back({"mov " + rsiPart + ", " + decoded->getOperand(1)->getString(), nullptr});
+                // TODO: is this the correct memory order? Can we find out which one is the right one?
+                atomicInstructionInsert.push_back({"mov " + rdxPart + ", " + toHex(__tsan_memory_order_acq_rel), nullptr});
+                atomicInstructionInsert.push_back({"call 0", tsanAtomicFetchAdd[bytes]});
+                atomicInstructionInsert.push_back({"mov " + decoded->getOperand(1)->getString() + ", " + raxPart, nullptr});
+                registersToSave.erase(standard64Bit(decoded->getOperand(1)->getString()));
+
+                removeOriginal = true;
+            }
+        } else {
+            print <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
+        }
+    }
 
     MAKE_INSERT_ASSEMBLY(ir, instruction);
 
@@ -296,20 +346,27 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         insertAssembly("push " + reg);
     }
 
+    // TODO: is it possible for things to relative to the rip (position independant code) here?
     insertAssembly("lea rdi, [" + operand->getString() + "]");
     // TODO: integrate into lea instruction
     if (contains(operand->getString(), "rsp")) {
         insertAssembly("add rdi, " + toHex(extraStack + registersToSave.size() * ir->getArchitectureBitWidth() / 8));
     }
 
-    // TODO: atomic operations??
+    // TODO: instruktionen mit rep prefix
     // TODO: aligned vs unaligned read/write?
 
-    // For operations that read and write the memory, only emit the write (it is sufficient for race detection)
-    if (operand->isWritten()) {
-        insertAssembly("call 0", tsanWrite[bytes]);
+    if (atomicInstructionInsert.size() > 0) {
+        for (const auto &[assembly, target] : atomicInstructionInsert) {
+            insertAssembly(assembly, target);
+        }
     } else {
-        insertAssembly("call 0", tsanRead[bytes]);
+        // For operations that read and write the memory, only emit the write (it is sufficient for race detection)
+        if (operand->isWritten()) {
+            insertAssembly("call 0", tsanWrite[bytes]);
+        } else {
+            insertAssembly("call 0", tsanRead[bytes]);
+        }
     }
 
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
@@ -317,6 +374,10 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     }
     if (extraStack > 0) {
         insertAssembly("add rsp, " + toHex(extraStack));
+    }
+
+    if (removeOriginal) {
+        tmp->setFallthrough(tmp->getFallthrough()->getFallthrough());
     }
 }
 
@@ -329,16 +390,11 @@ void TSanTransform::registerDependencies()
     tsanInit = elfDeps->appendPltEntry("__tsan_init");
     tsanFunctionEntry = elfDeps->appendPltEntry("__tsan_func_entry");
     tsanFunctionExit = elfDeps->appendPltEntry("__tsan_func_exit");
-    tsanWrite[1] = elfDeps->appendPltEntry("__tsan_write1");
-    tsanWrite[2] = elfDeps->appendPltEntry("__tsan_write2");
-    tsanWrite[4] = elfDeps->appendPltEntry("__tsan_write4");
-    tsanWrite[8] = elfDeps->appendPltEntry("__tsan_write8");
-    tsanWrite[16] = elfDeps->appendPltEntry("__tsan_write16");
-    tsanRead[1] = elfDeps->appendPltEntry("__tsan_read1");
-    tsanRead[2] = elfDeps->appendPltEntry("__tsan_read2");
-    tsanRead[4] = elfDeps->appendPltEntry("__tsan_read4");
-    tsanRead[8] = elfDeps->appendPltEntry("__tsan_read8");
-    tsanRead[16] = elfDeps->appendPltEntry("__tsan_read16");
+    for (int s : {1, 2, 4, 8, 16}) {
+        tsanWrite[s] = elfDeps->appendPltEntry("__tsan_write" + std::to_string(s));
+        tsanRead[s] = elfDeps->appendPltEntry("__tsan_read" + std::to_string(s));
+        tsanAtomicFetchAdd[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_add");
+    }
 
     getMainFileIR()->assembleRegistry();
 }
