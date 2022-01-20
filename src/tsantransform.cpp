@@ -309,9 +309,10 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         print <<"Found atomic instruction with mnemonic: "<<decoded->getMnemonic()<<std::endl;
         // TODO: correct register sizes
         // TODO: 128 bit operations?
-        if (decoded->getMnemonic() == "xadd") {
-            if (!decoded->getOperand(0)->isMemory() || !decoded->getOperand(1)->isRegister()) {
-                print <<"Bad assumption in atomic xadd!!"<<std::endl;
+        const std::string mnemonic = decoded->getMnemonic();
+        if (mnemonic == "xadd" || mnemonic == "add") {
+            if (!decoded->getOperand(0)->isMemory() || (!decoded->getOperand(1)->isRegister() && !decoded->getOperand(1)->isConstant())) {
+                print <<"Bad assumption in atomic!!"<<std::endl;
             } else {
                 std::string rsiPart = "rsi";
                 std::string raxPart = "rax";
@@ -326,9 +327,11 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
                 // TODO: is this the correct memory order? Can we find out which one is the right one?
                 atomicInstructionInsert.push_back({"mov " + rdxPart + ", " + toHex(__tsan_memory_order_acq_rel), nullptr});
                 atomicInstructionInsert.push_back({"call 0", tsanAtomicFetchAdd[bytes]});
-                atomicInstructionInsert.push_back({"mov " + decoded->getOperand(1)->getString() + ", " + raxPart, nullptr});
-                registersToSave.erase(standard64Bit(decoded->getOperand(1)->getString()));
 
+                if (mnemonic == "xadd") {
+                    atomicInstructionInsert.push_back({"mov " + decoded->getOperand(1)->getString() + ", " + raxPart, nullptr});
+                    registersToSave.erase(standard64Bit(decoded->getOperand(1)->getString()));
+                }
                 removeOriginal = true;
             }
         } else {
