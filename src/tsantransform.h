@@ -6,6 +6,7 @@
 #include <irdb-deep>
 #include <array>
 #include <fstream>
+#include <optional>
 
 // from tsan-interface-atomic.h, do not change
 typedef enum {
@@ -28,6 +29,26 @@ struct FunctionInfo {
     int inferredStackFrameSize = 0;
 };
 
+struct OperationInstrumentation
+{
+    OperationInstrumentation(const std::vector<std::string> &i, IRDB_SDK::Instruction_t *c, bool r,
+                             const std::optional<std::string> &n) :
+        instructions(i),
+        callTarget(c),
+        removeOriginalInstruction(r),
+        noSaveRegister(n)
+    {}
+
+    // just the instructions for the tsan function call.
+    // the memory access location is already loaded into rdi
+    std::vector<std::string> instructions;
+    // is used as the target for any instruction that includes "call"
+    IRDB_SDK::Instruction_t *callTarget;
+    bool removeOriginalInstruction;
+    // if present, do not save and restore this register to/from the stack
+    std::optional<std::string> noSaveRegister;
+};
+
 class TSanTransform : public IRDB_SDK::TransformStep_t {
 public:
     TSanTransform();
@@ -43,6 +64,7 @@ private:
     void insertFunctionExit(IRDB_SDK::Instruction_t *insertBefore);
     std::set<std::string> getSaveRegisters(IRDB_SDK::Instruction_t *instruction);
     static bool isAtomic(IRDB_SDK::Instruction_t *instruction);
+    OperationInstrumentation getInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand) const;
 
 private:
     mutable std::ofstream print;

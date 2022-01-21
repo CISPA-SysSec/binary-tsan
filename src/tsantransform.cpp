@@ -307,6 +307,51 @@ static std::string toBytes(RegisterID reg, int bytes)
     return full;
 }
 
+OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand) const
+{
+    const uint bytes = operand->getArgumentSizeInBytes();
+
+    if (isAtomic(instruction)) {
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        print <<"Found atomic instruction with mnemonic: "<<decoded->getMnemonic()<<std::endl;
+        // TODO: 128 bit operations?
+        const std::string mnemonic = decoded->getMnemonic();
+        const std::string rsiReg = toBytes(RegisterID::rn_RSI, bytes);
+        const std::string rdxReg = toBytes(RegisterID::rn_RDX, bytes);
+        const std::string raxReg = toBytes(RegisterID::rn_RAX, bytes);
+        const std::string memOrder = toHex(__tsan_memory_order_acq_rel);
+
+        const auto op1 = decoded->getOperand(1);
+        // assumption: op0 is memory, op1 is register
+        if (mnemonic == "xadd") {
+            return OperationInstrumentation({
+                    "mov " + rsiReg + ", " + op1->getString(),
+                    "mov " + rdxReg + ", " + memOrder,
+                    "call 0",
+                    "mov " + op1->getString() + ", " + raxReg
+                },
+                tsanAtomicFetchAdd[bytes], true, standard64Bit(op1->getString()));
+        }
+        // assumption: op0 is memory, op1 is register or constant
+        if (mnemonic == "add") {
+            return OperationInstrumentation({
+                    "mov " + rsiReg + ", " + op1->getString(),
+                    "mov " + rdxReg + ", " + memOrder,
+                    "call 0"
+                },
+                tsanAtomicFetchAdd[bytes], true, {});
+        }
+        print <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
+    }
+
+    // For operations that read and write the memory, only emit the write (it is sufficient for race detection)
+    if (operand->isWritten()) {
+        return OperationInstrumentation({"call 0"}, tsanWrite[bytes], false, {});
+    } else {
+        return OperationInstrumentation({"call 0"}, tsanRead[bytes], false, {});
+    }
+}
+
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, int extraStack)
 {
     const uint bytes = operand->getArgumentSizeInBytes();
@@ -321,35 +366,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     std::set<std::string> registersToSave = getSaveRegisters(instruction);
 
-    bool removeOriginal = false;
-    std::vector<std::pair<std::string, Instruction_t*>> atomicInstructionInsert;
-    if (isAtomic(instruction)) {
-        const auto decoded = DecodedInstruction_t::factory(instruction);
-        print <<"Found atomic instruction with mnemonic: "<<decoded->getMnemonic()<<std::endl;
-        // TODO: 128 bit operations?
-        const std::string mnemonic = decoded->getMnemonic();
-        if (mnemonic == "xadd" || mnemonic == "add") {
-            if (!decoded->getOperand(0)->isMemory() || (!decoded->getOperand(1)->isRegister() && !decoded->getOperand(1)->isConstant())) {
-                print <<"Bad assumption in atomic!!"<<std::endl;
-            } else {
-                const auto op1 = decoded->getOperand(1);
-                const std::string rsiReg = toBytes(RegisterID::rn_RSI, op1->getArgumentSizeInBytes());
-                const std::string rdxReg = toBytes(RegisterID::rn_RDX, op1->getArgumentSizeInBytes());
-                const std::string raxReg = toBytes(RegisterID::rn_RAX, op1->getArgumentSizeInBytes());
-                atomicInstructionInsert.push_back({"mov " + rsiReg + ", " + op1->getString(), nullptr});
-                // TODO: is this the correct memory order? Can we find out which one is the right one?
-                atomicInstructionInsert.push_back({"mov " + rdxReg + ", " + toHex(__tsan_memory_order_acq_rel), nullptr});
-                atomicInstructionInsert.push_back({"call 0", tsanAtomicFetchAdd[bytes]});
-
-                if (mnemonic == "xadd") {
-                    atomicInstructionInsert.push_back({"mov " + decoded->getOperand(1)->getString() + ", " + raxReg, nullptr});
-                    registersToSave.erase(standard64Bit(decoded->getOperand(1)->getString()));
-                }
-                removeOriginal = true;
-            }
-        } else {
-            print <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
-        }
+    const OperationInstrumentation instrumentation = getInstrumentation(instruction, operand);
+    if (instrumentation.noSaveRegister.has_value()) {
+        registersToSave.erase(instrumentation.noSaveRegister.value());
     }
 
     MAKE_INSERT_ASSEMBLY(ir, instruction);
@@ -372,17 +391,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     // TODO: instruktionen mit rep prefix
     // TODO: aligned vs unaligned read/write?
 
-    if (atomicInstructionInsert.size() > 0) {
-        for (const auto &[assembly, target] : atomicInstructionInsert) {
-            insertAssembly(assembly, target);
-        }
-    } else {
-        // For operations that read and write the memory, only emit the write (it is sufficient for race detection)
-        if (operand->isWritten()) {
-            insertAssembly("call 0", tsanWrite[bytes]);
-        } else {
-            insertAssembly("call 0", tsanRead[bytes]);
-        }
+    for (const auto &assembly : instrumentation.instructions) {
+        Instruction_t *callTarget = contains(assembly, "call") ? instrumentation.callTarget : nullptr;
+        insertAssembly(assembly, callTarget);
     }
 
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
@@ -392,7 +403,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         insertAssembly("add rsp, " + toHex(extraStack));
     }
 
-    if (removeOriginal) {
+    if (instrumentation.removeOriginalInstruction) {
         tmp->setFallthrough(tmp->getFallthrough()->getFallthrough());
     }
 }
