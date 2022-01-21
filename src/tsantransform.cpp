@@ -318,12 +318,15 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
         const std::string mnemonic = decoded->getMnemonic();
         const std::string rsiReg = toBytes(RegisterID::rn_RSI, bytes);
         const std::string rdxReg = toBytes(RegisterID::rn_RDX, bytes);
+        const std::string rcxReg = toBytes(RegisterID::rn_RCX, bytes);
+        const std::string r8Reg = toBytes(RegisterID::rn_R8, bytes);
         const std::string raxReg = toBytes(RegisterID::rn_RAX, bytes);
         const std::string memOrder = toHex(__tsan_memory_order_acq_rel);
 
         const auto op1 = decoded->getOperand(1);
         // assumption: op0 is memory, op1 is register
         if (mnemonic == "xadd") {
+            // TODO: here and below: what if op1->getString() is rdi? It is overwritten
             return OperationInstrumentation({
                     "mov " + rsiReg + ", " + op1->getString(),
                     "mov " + rdxReg + ", " + memOrder,
@@ -333,13 +336,29 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
                 tsanAtomicFetchAdd[bytes], true, standard64Bit(op1->getString()));
         }
         // assumption: op0 is memory, op1 is register or constant
-        if (mnemonic == "add") {
+        if (mnemonic == "add" || mnemonic == "sub") {
+            Instruction_t *f = mnemonic == "add" ? tsanAtomicFetchAdd[bytes] : tsanAtomicFetchSub[bytes];
             return OperationInstrumentation({
                     "mov " + rsiReg + ", " + op1->getString(),
                     "mov " + rdxReg + ", " + memOrder,
                     "call 0"
                 },
-                tsanAtomicFetchAdd[bytes], true, {});
+                f, true, {});
+        }
+        // assumption: op0 is memory, op1 is register
+        if (mnemonic == "cmpxchg") {
+            // (Slightly modified) documentation of the instruction:
+            // Compares the value in the EAX register with the first operand (destination).
+            // If the two values are equal, the second operand is loaded into the destination operand.
+            // Otherwise, the destination operand is loaded into the EAX register.
+            return OperationInstrumentation({
+                    "mov " + rsiReg + ", " + raxReg,
+                    "mov " + rdxReg + ", " + op1->getString(),
+                    "mov " + rcxReg + ", " + memOrder,
+                    "mov " + r8Reg + ", " + memOrder,
+                    "call 0"
+                },
+                tsanAtomicCompareExchangeVal[bytes], true, {"rax"});
         }
         print <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
     }
@@ -421,6 +440,8 @@ void TSanTransform::registerDependencies()
         tsanWrite[s] = elfDeps->appendPltEntry("__tsan_write" + std::to_string(s));
         tsanRead[s] = elfDeps->appendPltEntry("__tsan_read" + std::to_string(s));
         tsanAtomicFetchAdd[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_add");
+        tsanAtomicFetchSub[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_sub");
+        tsanAtomicCompareExchangeVal[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_compare_exchange_val");
     }
 
     getMainFileIR()->assembleRegistry();

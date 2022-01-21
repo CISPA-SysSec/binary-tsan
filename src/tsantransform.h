@@ -83,6 +83,9 @@ private:
     // atomics
     // int(int*, int, __tsan_memory_order)
     std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicFetchAdd;
+    std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicFetchSub;
+    // int(int*, int, int, __tsan_memory_order, __tsan_memory_order)
+    std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicCompareExchangeVal;
 };
 
 #endif // TSANTRANSFORM_H
