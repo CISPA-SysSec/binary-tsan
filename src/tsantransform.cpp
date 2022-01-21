@@ -323,6 +323,8 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
         const std::string raxReg = toBytes(RegisterID::rn_RAX, bytes);
         const std::string memOrder = toHex(__tsan_memory_order_acq_rel);
 
+        // TODO: maybe just modify the tsan functions to not perform the operation, easier that way?
+        // TODO: if op1 contains the rsp, then it has to be offset
         const auto op1 = decoded->getOperand(1);
         // assumption: op0 is memory, op1 is register
         if (mnemonic == "xadd") {
@@ -342,12 +344,12 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
                     "mov " + rsiReg + ", " + op1->getString(),
                     "mov " + rdxReg + ", " + memOrder,
                     "call 0"
-                },
+                }, // TODO: flags
                 f, true, {});
         }
         // assumption: op0 is memory, op1 is register
         if (mnemonic == "cmpxchg") {
-            // (Slightly modified) documentation of the instruction:
+            // (Slightly modified) documentation of the cmpxchg instruction:
             // Compares the value in the EAX register with the first operand (destination).
             // If the two values are equal, the second operand is loaded into the destination operand.
             // Otherwise, the destination operand is loaded into the EAX register.
@@ -356,7 +358,10 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
                     "mov " + rdxReg + ", " + op1->getString(),
                     "mov " + rcxReg + ", " + memOrder,
                     "mov " + r8Reg + ", " + memOrder,
-                    "call 0"
+                    "push rax",
+                    "call 0",
+                    "pop rsi",
+                    "cmp " + raxReg + ", " + rsiReg // make sure flags are set correctly (cmpxchg would otherwise set them)
                 },
                 tsanAtomicCompareExchangeVal[bytes], true, {"rax"});
         }
@@ -394,7 +399,8 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     // TODO: add this only once per function and not at every access
     if (extraStack > 0) {
-        insertAssembly("sub rsp, " + toHex(extraStack));
+        // use lea instead of add/sub to preserve flags until the instrumentation
+        insertAssembly("lea rsp, [rsp - " + toHex(extraStack) + "]");
     }
     for (std::string reg : registersToSave) {
         insertAssembly("push " + reg);
@@ -404,12 +410,12 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     insertAssembly("lea rdi, [" + operand->getString() + "]");
     // TODO: integrate into lea instruction
     if (contains(operand->getString(), "rsp")) {
-        insertAssembly("add rdi, " + toHex(extraStack + registersToSave.size() * ir->getArchitectureBitWidth() / 8));
+        insertAssembly("lea rdi, [rdi + " + toHex(extraStack + registersToSave.size() * ir->getArchitectureBitWidth() / 8) + "]");
     }
 
     // TODO: instruktionen mit rep prefix
     // TODO: aligned vs unaligned read/write?
-
+    // TODO: what if flags are used accross the desired instruction? They will be destroyed by the instrumentation
     for (const auto &assembly : instrumentation.instructions) {
         Instruction_t *callTarget = contains(assembly, "call") ? instrumentation.callTarget : nullptr;
         insertAssembly(assembly, callTarget);
@@ -419,7 +425,8 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         insertAssembly("pop " + *it);
     }
     if (extraStack > 0) {
-        insertAssembly("add rsp, " + toHex(extraStack));
+        // use lea instead of add/sub to preserve flags created by the instrumentation
+        insertAssembly("lea rsp, [rsp + " + toHex(extraStack) + "]");
     }
 
     if (instrumentation.removeOriginalInstruction) {
