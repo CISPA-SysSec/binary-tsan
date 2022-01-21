@@ -335,7 +335,7 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
                     "call 0",
                     "mov " + op1->getString() + ", " + raxReg
                 },
-                tsanAtomicFetchAdd[bytes], true, standard64Bit(op1->getString()));
+                tsanAtomicFetchAdd[bytes], true, standard64Bit(op1->getString()), false);
         }
         // assumption: op0 is memory, op1 is register or constant
         if (mnemonic == "add" || mnemonic == "sub") {
@@ -345,7 +345,7 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
                     "mov " + rdxReg + ", " + memOrder,
                     "call 0"
                 }, // TODO: flags
-                f, true, {});
+                f, true, {}, false);
         }
         // assumption: op0 is memory, op1 is register
         if (mnemonic == "cmpxchg") {
@@ -363,16 +363,16 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
                     "pop rsi",
                     "cmp " + raxReg + ", " + rsiReg // make sure flags are set correctly (cmpxchg would otherwise set them)
                 },
-                tsanAtomicCompareExchangeVal[bytes], true, {"rax"});
+                tsanAtomicCompareExchangeVal[bytes], true, {"rax"}, false);
         }
         print <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
     }
 
     // For operations that read and write the memory, only emit the write (it is sufficient for race detection)
     if (operand->isWritten()) {
-        return OperationInstrumentation({"call 0"}, tsanWrite[bytes], false, {});
+        return OperationInstrumentation({"call 0"}, tsanWrite[bytes], false, {}, true);
     } else {
-        return OperationInstrumentation({"call 0"}, tsanRead[bytes], false, {});
+        return OperationInstrumentation({"call 0"}, tsanRead[bytes], false, {}, true);
     }
 }
 
@@ -399,8 +399,12 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     // TODO: add this only once per function and not at every access
     if (extraStack > 0) {
-        // use lea instead of add/sub to preserve flags until the instrumentation
+        // use lea instead of add/sub to preserve flags
         insertAssembly("lea rsp, [rsp - " + toHex(extraStack) + "]");
+    }
+    // TODO: only when they are needed (the free register analysis might support this)
+    if (instrumentation.preserveFlags) {
+        insertAssembly("pushf");
     }
     for (std::string reg : registersToSave) {
         insertAssembly("push " + reg);
@@ -415,7 +419,6 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     // TODO: instruktionen mit rep prefix
     // TODO: aligned vs unaligned read/write?
-    // TODO: what if flags are used accross the desired instruction? They will be destroyed by the instrumentation
     for (const auto &assembly : instrumentation.instructions) {
         Instruction_t *callTarget = contains(assembly, "call") ? instrumentation.callTarget : nullptr;
         insertAssembly(assembly, callTarget);
@@ -424,8 +427,11 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
         insertAssembly("pop " + *it);
     }
+    if (instrumentation.preserveFlags) {
+        insertAssembly("popf");
+    }
     if (extraStack > 0) {
-        // use lea instead of add/sub to preserve flags created by the instrumentation
+        // use lea instead of add/sub to preserve flags
         insertAssembly("lea rsp, [rsp + " + toHex(extraStack) + "]");
     }
 

@@ -32,11 +32,12 @@ struct FunctionInfo {
 struct OperationInstrumentation
 {
     OperationInstrumentation(const std::vector<std::string> &i, IRDB_SDK::Instruction_t *c, bool r,
-                             const std::optional<std::string> &n) :
+                             const std::optional<std::string> &n, bool p) :
         instructions(i),
         callTarget(c),
         removeOriginalInstruction(r),
-        noSaveRegister(n)
+        noSaveRegister(n),
+        preserveFlags(p)
     {}
 
     // just the instructions for the tsan function call.
@@ -47,6 +48,8 @@ struct OperationInstrumentation
     bool removeOriginalInstruction;
     // if present, do not save and restore this register to/from the stack
     std::optional<std::string> noSaveRegister;
+    // whether or not to preserve the flags to the stack prior to the instrumentation
+    bool preserveFlags;
 };
 
 class TSanTransform : public IRDB_SDK::TransformStep_t {
