@@ -288,6 +288,25 @@ static std::string standard64Bit(const std::string &reg)
     return full;
 }
 
+static std::string toBytes(RegisterID reg, int bytes)
+{
+    RegisterID correctBytes;
+    if (bytes == 1) {
+        correctBytes = convertRegisterTo8bit(reg);
+    } else if (bytes == 2) {
+        correctBytes = convertRegisterTo16bit(reg);
+    } else if (bytes == 4) {
+        correctBytes = convertRegisterTo32bit(reg);
+    } else if (bytes == 8) {
+        correctBytes = convertRegisterTo64bit(reg);
+    } else {
+        throw std::invalid_argument("Invalid register byte size");
+    }
+    std::string full = registerToString(correctBytes);
+    std::transform(full.begin(), full.end(), full.begin(), ::tolower);
+    return full;
+}
+
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, int extraStack)
 {
     const uint bytes = operand->getArgumentSizeInBytes();
@@ -307,29 +326,23 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     if (isAtomic(instruction)) {
         const auto decoded = DecodedInstruction_t::factory(instruction);
         print <<"Found atomic instruction with mnemonic: "<<decoded->getMnemonic()<<std::endl;
-        // TODO: correct register sizes
         // TODO: 128 bit operations?
         const std::string mnemonic = decoded->getMnemonic();
         if (mnemonic == "xadd" || mnemonic == "add") {
             if (!decoded->getOperand(0)->isMemory() || (!decoded->getOperand(1)->isRegister() && !decoded->getOperand(1)->isConstant())) {
                 print <<"Bad assumption in atomic!!"<<std::endl;
             } else {
-                std::string rsiPart = "rsi";
-                std::string raxPart = "rax";
-                std::string rdxPart = "rdx";
-                // TODO: more byte sizes
-                if (decoded->getOperand(1)->getArgumentSizeInBytes() == 4) {
-                    rsiPart = "esi";
-                    raxPart = "eax";
-                    rdxPart = "edx";
-                }
-                atomicInstructionInsert.push_back({"mov " + rsiPart + ", " + decoded->getOperand(1)->getString(), nullptr});
+                const auto op1 = decoded->getOperand(1);
+                const std::string rsiReg = toBytes(RegisterID::rn_RSI, op1->getArgumentSizeInBytes());
+                const std::string rdxReg = toBytes(RegisterID::rn_RDX, op1->getArgumentSizeInBytes());
+                const std::string raxReg = toBytes(RegisterID::rn_RAX, op1->getArgumentSizeInBytes());
+                atomicInstructionInsert.push_back({"mov " + rsiReg + ", " + op1->getString(), nullptr});
                 // TODO: is this the correct memory order? Can we find out which one is the right one?
-                atomicInstructionInsert.push_back({"mov " + rdxPart + ", " + toHex(__tsan_memory_order_acq_rel), nullptr});
+                atomicInstructionInsert.push_back({"mov " + rdxReg + ", " + toHex(__tsan_memory_order_acq_rel), nullptr});
                 atomicInstructionInsert.push_back({"call 0", tsanAtomicFetchAdd[bytes]});
 
                 if (mnemonic == "xadd") {
-                    atomicInstructionInsert.push_back({"mov " + decoded->getOperand(1)->getString() + ", " + raxPart, nullptr});
+                    atomicInstructionInsert.push_back({"mov " + decoded->getOperand(1)->getString() + ", " + raxReg, nullptr});
                     registersToSave.erase(standard64Bit(decoded->getOperand(1)->getString()));
                 }
                 removeOriginal = true;
