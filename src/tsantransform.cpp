@@ -1,6 +1,7 @@
 #include "tsantransform.h"
 
 #include <irdb-elfdep>
+#include <irdb-cfg>
 #include <memory>
 #include <algorithm>
 
@@ -77,7 +78,7 @@ int TSanTransform::executeStep()
             for (const auto &operand : operands) {
                 if (operand->isMemory() && (operand->isWritten() || operand->isRead())) {
                     print <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
-                    instrumentMemoryAccess(instruction, operand, info.inferredStackFrameSize);
+                    instrumentMemoryAccess(instruction, operand, info);
                 }
             }
         }
@@ -111,6 +112,7 @@ static std::string toHex(const int num)
 
 void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
 {
+    // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)
     FileIR_t *ir = getMainFileIR();
     const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
     MAKE_INSERT_ASSEMBLY(ir, insertBefore);
@@ -149,62 +151,8 @@ FunctionInfo TSanTransform::analyseFunction(Function_t *function)
     FunctionInfo result;
     result.inferredStackFrameSize = inferredStackFrameSize(function);
 
-    // detect stack canaries
-    {
-        const std::string CANARY_CHECK = "fs:[0x28]";
-
-        Instruction_t *canaryStackWrite = nullptr;
-
-        // find the initial read of the canary value and its corresponding write to stack
-        Instruction_t *instruction = function->getEntryPoint();
-        for (int i = 0;i<20;i++) {
-            const std::string assembly = instruction->getDisassembly();
-            const auto decoded = DecodedInstruction_t::factory(instruction);
-            if (contains(assembly, CANARY_CHECK)) {
-                if (decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() && decoded->getOperand(0)->isRegister()) {
-                    Instruction_t *next = instruction->getFallthrough();
-                    if (next == nullptr) {
-                        print <<"ERROR: unexpected instruction termination"<<std::endl;
-                        break;
-                    }
-                    const auto nextDecoded = DecodedInstruction_t::factory(next);
-                    if (!nextDecoded->hasOperand(1) || !nextDecoded->getOperand(1)->isRegister() ||
-                            decoded->getOperand(0)->getString() != nextDecoded->getOperand(1)->getString()) {
-                        print <<"ERROR: could not find canary stack write!"<<std::endl;
-                        break;
-                    }
-                    canaryStackWrite = next;
-                }
-                break;
-            }
-            if (decoded->isReturn()) {
-                break;
-            }
-            instruction = instruction->getFallthrough();
-            if (instruction == nullptr) {
-                break;
-            }
-        }
-
-        // find canary read/writes
-        if (canaryStackWrite != nullptr) {
-            print <<"Ignore canary instruction: "<<canaryStackWrite->getDisassembly()<<std::endl;
-            result.noInstrumentInstructions.insert(canaryStackWrite);
-            const auto decodedWrite = DecodedInstruction_t::factory(canaryStackWrite);
-
-            for (Instruction_t *instruction : function->getInstructions()) {
-                const std::string assembly = instruction->getDisassembly();
-                const auto decoded = DecodedInstruction_t::factory(instruction);
-                const bool isCanaryStackRead = decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() &&
-                        decoded->getOperand(1)->getString() == decodedWrite->getOperand(0)->getString();
-                if (contains(assembly, CANARY_CHECK) || isCanaryStackRead) {
-                    print <<"Ignore canary instruction: "<<assembly<<std::endl;
-                    result.noInstrumentInstructions.insert(instruction);
-                    continue;
-                }
-            }
-        }
-    }
+    result.noInstrumentInstructions = detectStackCanaryInstructions(function);
+    result.inferredAtomicInstructions = detectStaticVariableGuards(function);
 
     result.properEntryPoint = function->getEntryPoint();
     if (contains(result.properEntryPoint->getDisassembly(), "endbr")) {
@@ -218,6 +166,66 @@ FunctionInfo TSanTransform::analyseFunction(Function_t *function)
         }
     }
 
+    return result;
+}
+
+std::set<Instruction_t*> TSanTransform::detectStackCanaryInstructions(Function_t *function) const
+{
+    const std::string CANARY_CHECK = "fs:[0x28]";
+
+    std::set<Instruction_t*> result;
+
+    Instruction_t *canaryStackWrite = nullptr;
+
+    // find the initial read of the canary value and its corresponding write to stack
+    Instruction_t *instruction = function->getEntryPoint();
+    for (int i = 0;i<20;i++) {
+        const std::string assembly = instruction->getDisassembly();
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        if (contains(assembly, CANARY_CHECK)) {
+            if (decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() && decoded->getOperand(0)->isRegister()) {
+                Instruction_t *next = instruction->getFallthrough();
+                if (next == nullptr) {
+                    print <<"ERROR: unexpected instruction termination"<<std::endl;
+                    break;
+                }
+                const auto nextDecoded = DecodedInstruction_t::factory(next);
+                if (!nextDecoded->hasOperand(1) || !nextDecoded->getOperand(1)->isRegister() ||
+                        decoded->getOperand(0)->getString() != nextDecoded->getOperand(1)->getString()) {
+                    print <<"ERROR: could not find canary stack write!"<<std::endl;
+                    break;
+                }
+                canaryStackWrite = next;
+            }
+            break;
+        }
+        if (decoded->isReturn()) {
+            break;
+        }
+        instruction = instruction->getFallthrough();
+        if (instruction == nullptr) {
+            break;
+        }
+    }
+
+    // find canary read/writes
+    if (canaryStackWrite != nullptr) {
+        print <<"Ignore canary instruction: "<<canaryStackWrite->getDisassembly()<<std::endl;
+        result.insert(canaryStackWrite);
+        const auto decodedWrite = DecodedInstruction_t::factory(canaryStackWrite);
+
+        for (Instruction_t *instruction : function->getInstructions()) {
+            const std::string assembly = instruction->getDisassembly();
+            const auto decoded = DecodedInstruction_t::factory(instruction);
+            const bool isCanaryStackRead = decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() &&
+                    decoded->getOperand(1)->getString() == decodedWrite->getOperand(0)->getString();
+            if (contains(assembly, CANARY_CHECK) || isCanaryStackRead) {
+                print <<"Ignore canary instruction: "<<assembly<<std::endl;
+                result.insert(instruction);
+                continue;
+            }
+        }
+    }
     return result;
 }
 
@@ -307,11 +315,91 @@ static std::string toBytes(RegisterID reg, int bytes)
     return full;
 }
 
-OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand) const
+// returns the name of the function that the instruction calls, or an empty string in all other cases
+static std::string targetFunctionName(const Instruction_t *instruction)
+{
+    const auto lastDecoded = DecodedInstruction_t::factory(instruction);
+    if (!lastDecoded->isCall()) {
+        return "";
+    }
+    if (instruction->getTarget() == nullptr) {
+        return "";
+    }
+    const Function_t *callTarget = instruction->getTarget()->getFunction();
+    if (callTarget == nullptr) {
+        return "";
+    }
+    return callTarget->getName();
+}
+
+std::set<Instruction_t*> TSanTransform::detectStaticVariableGuards(IRDB_SDK::Function_t *function) const
+{
+    const auto cfg = ControlFlowGraph_t::factory(function);
+
+    // find locations of all static variable guards
+    std::set<std::string> guardLocations;
+    for (const auto &block : cfg->getBlocks()) {
+        const auto instructions = block->getInstructions();
+        if (instructions.size() < 2) {
+            continue;
+        }
+        // check if there is a static guard aquire
+        const Instruction_t *last = instructions.back();
+        const std::string targetName = targetFunctionName(last);
+        // TODO: is the name the same for all compilers/compiler versions?
+        if (!contains(targetName, "cxa_guard_acquire")) {
+            continue;
+        }
+        // find location of the guard lock variable
+        for (int i = int(instructions.size())-2;i>=0;i--) {
+            const Instruction_t *instruction = instructions[i];
+            const auto decoded = DecodedInstruction_t::factory(instruction);
+            if (!decoded->hasOperand(0) || !decoded->getOperand(0)->isRegister()) {
+                continue;
+            }
+            const std::string writtenRegister = standard64Bit(decoded->getOperand(0)->getString());
+            if (writtenRegister != "rdi") {
+                continue;
+            }
+            if (!decoded->hasOperand(1) || !decoded->getOperand(1)->isConstant()) {
+                break;
+            }
+            // TODO: this only works if the getString function is consistent
+            // if it is created by disecting the disassembly, this is not the case
+            // Therefore, make sure that it is a canonical form
+            const std::string guardLocation = decoded->getOperand(1)->getString();
+            print <<"Found static variable guard location: "<<guardLocation<<std::endl;
+            guardLocations.insert(guardLocation);
+        }
+        if (guardLocations.size() == 0) {
+            print <<"WARNING: could not find static variable guard location!"<<std::endl;
+        }
+    }
+
+    // find all read accesses to the guard variables
+    std::set<Instruction_t*> result;
+    for (Instruction_t *instruction : function->getInstructions()) {
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        if (decoded->getOperands().size() < 2 || !decoded->getOperand(1)->isMemory()) {
+            continue;
+        }
+        const std::string op1Str = decoded->getOperand(1)->getString();
+        const bool isGuardLocation = guardLocations.find(op1Str) != guardLocations.end();
+        if (isGuardLocation) {
+            print <<"Found static variable guard read: "<<instruction->getDisassembly()<<std::endl;
+            result.insert(instruction);
+        }
+    }
+    return result;
+}
+
+OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand,
+                                                           const FunctionInfo &info) const
 {
     const uint bytes = operand->getArgumentSizeInBytes();
 
-    if (isAtomic(instruction)) {
+    const bool atomic = isAtomic(instruction) || info.inferredAtomicInstructions.find(instruction) != info.inferredAtomicInstructions.end();
+    if (atomic) {
         const auto decoded = DecodedInstruction_t::factory(instruction);
         print <<"Found atomic instruction with mnemonic: "<<decoded->getMnemonic()<<std::endl;
         // TODO: 128 bit operations?
@@ -325,6 +413,7 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
 
         // TODO: maybe just modify the tsan functions to not perform the operation, easier that way?
         // TODO: if op1 contains the rsp, then it has to be offset
+        const auto op0 = decoded->getOperand(0);
         const auto op1 = decoded->getOperand(1);
         // assumption: op0 is memory, op1 is register
         if (mnemonic == "xadd") {
@@ -356,7 +445,7 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
             return OperationInstrumentation({
                     "mov " + rsiReg + ", " + raxReg,
                     "mov " + rdxReg + ", " + op1->getString(),
-                    "mov " + rcxReg + ", " + memOrder,
+                    "mov " + rcxReg + ", " + memOrder, // TODO: sizeof __tsan_memory_order_acq_rel on the target machine? Just use full registers here
                     "mov " + r8Reg + ", " + memOrder,
                     "push rax",
                     "call 0",
@@ -364,6 +453,16 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
                     "cmp " + raxReg + ", " + rsiReg // make sure flags are set correctly (cmpxchg would otherwise set them)
                 },
                 tsanAtomicCompareExchangeVal[bytes], true, {"rax"}, false);
+        }
+        if (mnemonic == "mov" && op0->isRegister() && op1->isMemory()) {
+            return OperationInstrumentation({
+                    // TODO: this memory order is only for the static variable guard instruction
+                    // this time, we actually know the correct memory order
+                    "mov rsi, " + toHex(__tsan_memory_order_acquire),
+                    "call 0",
+                    "mov " + op0->getString() + ", " + raxReg
+                },
+                tsanAtomicLoad[bytes], true, standard64Bit(op0->getString()), true);
         }
         print <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
     }
@@ -376,7 +475,7 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
     }
 }
 
-void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, int extraStack)
+void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, const FunctionInfo &info)
 {
     const uint bytes = operand->getArgumentSizeInBytes();
     if (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
@@ -390,7 +489,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     std::set<std::string> registersToSave = getSaveRegisters(instruction);
 
-    const OperationInstrumentation instrumentation = getInstrumentation(instruction, operand);
+    const OperationInstrumentation instrumentation = getInstrumentation(instruction, operand, info);
     if (instrumentation.noSaveRegister.has_value()) {
         registersToSave.erase(instrumentation.noSaveRegister.value());
     }
@@ -398,9 +497,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     MAKE_INSERT_ASSEMBLY(ir, instruction);
 
     // TODO: add this only once per function and not at every access
-    if (extraStack > 0) {
+    if (info.inferredStackFrameSize > 0) {
         // use lea instead of add/sub to preserve flags
-        insertAssembly("lea rsp, [rsp - " + toHex(extraStack) + "]");
+        insertAssembly("lea rsp, [rsp - " + toHex(info.inferredStackFrameSize) + "]");
     }
     // TODO: only when they are needed (the free register analysis might support this)
     if (instrumentation.preserveFlags) {
@@ -414,7 +513,8 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     insertAssembly("lea rdi, [" + operand->getString() + "]");
     // TODO: integrate into lea instruction
     if (contains(operand->getString(), "rsp")) {
-        insertAssembly("lea rdi, [rdi + " + toHex(extraStack + registersToSave.size() * ir->getArchitectureBitWidth() / 8) + "]");
+        const int offset = info.inferredStackFrameSize + registersToSave.size() * ir->getArchitectureBitWidth() / 8;
+        insertAssembly("lea rdi, [rdi + " + toHex(offset) + "]");
     }
 
     // TODO: instruktionen mit rep prefix
@@ -430,9 +530,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     if (instrumentation.preserveFlags) {
         insertAssembly("popf");
     }
-    if (extraStack > 0) {
+    if (info.inferredStackFrameSize > 0) {
         // use lea instead of add/sub to preserve flags
-        insertAssembly("lea rsp, [rsp + " + toHex(extraStack) + "]");
+        insertAssembly("lea rsp, [rsp + " + toHex(info.inferredStackFrameSize) + "]");
     }
 
     if (instrumentation.removeOriginalInstruction) {
@@ -452,6 +552,7 @@ void TSanTransform::registerDependencies()
     for (int s : {1, 2, 4, 8, 16}) {
         tsanWrite[s] = elfDeps->appendPltEntry("__tsan_write" + std::to_string(s));
         tsanRead[s] = elfDeps->appendPltEntry("__tsan_read" + std::to_string(s));
+        tsanAtomicLoad[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_load");
         tsanAtomicFetchAdd[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_add");
         tsanAtomicFetchSub[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_sub");
         tsanAtomicCompareExchangeVal[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_compare_exchange_val");

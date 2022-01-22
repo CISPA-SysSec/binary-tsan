@@ -27,6 +27,8 @@ struct FunctionInfo {
     std::set<IRDB_SDK::Instruction_t*> noInstrumentInstructions;
     // non zero only if the size is not present in the Function_t class and could be inferred
     int inferredStackFrameSize = 0;
+    // instruction like guard variable reads that count as atomic by thread sanitizer standards
+    std::set<IRDB_SDK::Instruction_t*> inferredAtomicInstructions;
 };
 
 struct OperationInstrumentation
@@ -61,13 +63,17 @@ public:
 
 private:
     void registerDependencies();
-    void instrumentMemoryAccess(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand, int extraStack);
+    void instrumentMemoryAccess(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand, const FunctionInfo &info);
     int inferredStackFrameSize(const IRDB_SDK::Function_t *function) const;
     void insertFunctionEntry(IRDB_SDK::Instruction_t *insertBefore);
     void insertFunctionExit(IRDB_SDK::Instruction_t *insertBefore);
     std::set<std::string> getSaveRegisters(IRDB_SDK::Instruction_t *instruction);
     static bool isAtomic(IRDB_SDK::Instruction_t *instruction);
-    OperationInstrumentation getInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand) const;
+    static bool isRepeated(IRDB_SDK::Instruction_t *instruction);
+    OperationInstrumentation getInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand,
+                                                const FunctionInfo &info) const;
+    std::set<IRDB_SDK::Instruction_t*> detectStaticVariableGuards(IRDB_SDK::Function_t *function) const;
+    std::set<IRDB_SDK::Instruction_t*> detectStackCanaryInstructions(IRDB_SDK::Function_t *function) const;
 
 private:
     mutable std::ofstream print;
@@ -84,6 +90,8 @@ private:
     std::array<IRDB_SDK::Instruction_t*, 17> tsanRead;
     std::array<IRDB_SDK::Instruction_t*, 17> tsanWrite;
     // atomics
+    // int(int*, __tsan_memory_order)
+    std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicLoad;
     // int(int*, int, __tsan_memory_order)
     std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicFetchAdd;
     std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicFetchSub;
