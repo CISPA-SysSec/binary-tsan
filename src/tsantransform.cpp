@@ -406,8 +406,6 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
         const std::string mnemonic = decoded->getMnemonic();
         const std::string rsiReg = toBytes(RegisterID::rn_RSI, bytes);
         const std::string rdxReg = toBytes(RegisterID::rn_RDX, bytes);
-        const std::string rcxReg = toBytes(RegisterID::rn_RCX, bytes);
-        const std::string r8Reg = toBytes(RegisterID::rn_R8, bytes);
         const std::string raxReg = toBytes(RegisterID::rn_RAX, bytes);
         const std::string memOrder = toHex(__tsan_memory_order_acq_rel);
 
@@ -420,7 +418,7 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
             // TODO: here and below: what if op1->getString() is rdi? It is overwritten
             return OperationInstrumentation({
                     "mov " + rsiReg + ", " + op1->getString(),
-                    "mov " + rdxReg + ", " + memOrder,
+                    "mov rdx, " + memOrder,
                     "call 0",
                     "mov " + op1->getString() + ", " + raxReg
                 },
@@ -431,7 +429,7 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
             Instruction_t *f = mnemonic == "add" ? tsanAtomicFetchAdd[bytes] : tsanAtomicFetchSub[bytes];
             return OperationInstrumentation({
                     "mov " + rsiReg + ", " + op1->getString(),
-                    "mov " + rdxReg + ", " + memOrder,
+                    "mov rdx, " + memOrder,
                     "call 0"
                 }, // TODO: flags
                 f, true, {}, false);
@@ -445,8 +443,8 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
             return OperationInstrumentation({
                     "mov " + rsiReg + ", " + raxReg,
                     "mov " + rdxReg + ", " + op1->getString(),
-                    "mov " + rcxReg + ", " + memOrder, // TODO: sizeof __tsan_memory_order_acq_rel on the target machine? Just use full registers here
-                    "mov " + r8Reg + ", " + memOrder,
+                    "mov rcx, " + memOrder,
+                    "mov r8, " + memOrder,
                     "push rax",
                     "call 0",
                     "pop rsi",
