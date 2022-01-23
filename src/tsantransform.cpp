@@ -503,6 +503,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     }
     // TODO: only when they are needed (the free register analysis might support this)
     if (instrumentation.preserveFlags) {
+        // if this is changed, change the rsp offset in the lea rdi instruction as well
         insertAssembly("pushf");
     }
     for (std::string reg : registersToSave) {
@@ -513,7 +514,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     insertAssembly("lea rdi, [" + operand->getString() + "]");
     // TODO: integrate into lea instruction
     if (contains(operand->getString(), "rsp")) {
-        const int offset = info.inferredStackFrameSize + registersToSave.size() * ir->getArchitectureBitWidth() / 8;
+        // TODO: is this the correct size for the pushf?
+        const int flagSize = instrumentation.preserveFlags ? 4 : 0;
+        const int offset = info.inferredStackFrameSize + registersToSave.size() * ir->getArchitectureBitWidth() / 8 + flagSize;
         insertAssembly("lea rdi, [rdi + " + toHex(offset) + "]");
     }
 
