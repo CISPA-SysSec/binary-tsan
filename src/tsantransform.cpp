@@ -422,79 +422,93 @@ std::set<Instruction_t*> TSanTransform::detectStaticVariableGuards(Function_t *f
     return result;
 }
 
-OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand,
-                                                           const FunctionInfo &info) const
+std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand) const
 {
     const uint bytes = operand->getArgumentSizeInBytes();
 
+    const auto decoded = DecodedInstruction_t::factory(instruction);
+    print <<"Found atomic instruction with mnemonic: "<<decoded->getMnemonic()<<std::endl;
+    // TODO: 128 bit operations?
+    const std::string mnemonic = decoded->getMnemonic();
+    const std::string rsiReg = toBytes(RegisterID::rn_RSI, bytes);
+    const std::string rdxReg = toBytes(RegisterID::rn_RDX, bytes);
+    const std::string raxReg = toBytes(RegisterID::rn_RAX, bytes);
+    const std::string memOrder = toHex(__tsan_memory_order_acq_rel);
+
+    // TODO: maybe just modify the tsan functions to not perform the operation, easier that way?
+    // TODO: if op1 contains the rsp, then it has to be offset
+    const auto op0 = decoded->getOperand(0);
+    if (!decoded->hasOperand(1)) {
+        return {};
+    }
+    const auto op1 = decoded->getOperand(1);
+    // assumption: op0 is memory, op1 is register
+    if (mnemonic == "xadd") {
+        // TODO: here and below: what if op1->getString() is rdi? It is overwritten
+        return OperationInstrumentation({
+                "mov " + rsiReg + ", " + op1->getString(),
+                "mov rdx, " + memOrder,
+                "call 0",
+                "mov " + op1->getString() + ", " + raxReg
+            },
+            tsanAtomicFetchAdd[bytes], true, standard64Bit(op1->getString()), false);
+    }
+    // assumption: op0 is memory, op1 is register or constant
+    if (mnemonic == "add" || mnemonic == "sub") {
+        Instruction_t *f = mnemonic == "add" ? tsanAtomicFetchAdd[bytes] : tsanAtomicFetchSub[bytes];
+        return OperationInstrumentation({
+                "mov " + rsiReg + ", " + op1->getString(),
+                "mov rdx, " + memOrder,
+                "call 0"
+            }, // TODO: flags
+            f, true, {}, false);
+    }
+    // assumption: op0 is memory, op1 is register
+    if (mnemonic == "cmpxchg") {
+        // (Slightly modified) documentation of the cmpxchg instruction:
+        // Compares the value in the EAX register with the first operand (destination).
+        // If the two values are equal, the second operand is loaded into the destination operand.
+        // Otherwise, the destination operand is loaded into the EAX register.
+        return OperationInstrumentation({
+                "mov " + rsiReg + ", " + raxReg,
+                "mov " + rdxReg + ", " + op1->getString(),
+                "mov rcx, " + memOrder,
+                "mov r8, " + memOrder,
+                "push rax",
+                "call 0",
+                "pop rsi",
+                "cmp " + raxReg + ", " + rsiReg // make sure flags are set correctly (cmpxchg would otherwise set them)
+            },
+            tsanAtomicCompareExchangeVal[bytes], true, {"rax"}, false);
+    }
+    if (mnemonic == "mov" && op0->isRegister() && op1->isMemory()) {
+        return OperationInstrumentation({
+                // TODO: this memory order is only for the static variable guard instruction
+                // this time, we actually know the correct memory order
+                "mov rsi, " + toHex(__tsan_memory_order_acquire),
+                "call 0",
+                "mov " + op0->getString() + ", " + raxReg
+            },
+            tsanAtomicLoad[bytes], true, standard64Bit(op0->getString()), true);
+    }
+    print <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
+//        throw std::invalid_argument("Unhandled atomic instruction");
+    return {};
+}
+
+OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand,
+                                                           const FunctionInfo &info) const
+{
     const bool atomic = isAtomic(instruction) || info.inferredAtomicInstructions.find(instruction) != info.inferredAtomicInstructions.end();
     if (atomic) {
-        const auto decoded = DecodedInstruction_t::factory(instruction);
-        print <<"Found atomic instruction with mnemonic: "<<decoded->getMnemonic()<<std::endl;
-        // TODO: 128 bit operations?
-        const std::string mnemonic = decoded->getMnemonic();
-        const std::string rsiReg = toBytes(RegisterID::rn_RSI, bytes);
-        const std::string rdxReg = toBytes(RegisterID::rn_RDX, bytes);
-        const std::string raxReg = toBytes(RegisterID::rn_RAX, bytes);
-        const std::string memOrder = toHex(__tsan_memory_order_acq_rel);
-
-        // TODO: maybe just modify the tsan functions to not perform the operation, easier that way?
-        // TODO: if op1 contains the rsp, then it has to be offset
-        const auto op0 = decoded->getOperand(0);
-        const auto op1 = decoded->getOperand(1);
-        // assumption: op0 is memory, op1 is register
-        if (mnemonic == "xadd") {
-            // TODO: here and below: what if op1->getString() is rdi? It is overwritten
-            return OperationInstrumentation({
-                    "mov " + rsiReg + ", " + op1->getString(),
-                    "mov rdx, " + memOrder,
-                    "call 0",
-                    "mov " + op1->getString() + ", " + raxReg
-                },
-                tsanAtomicFetchAdd[bytes], true, standard64Bit(op1->getString()), false);
+        auto instrumentation = getAtomicInstrumentation(instruction, operand);
+        if (instrumentation.has_value()) {
+            return *instrumentation;
         }
-        // assumption: op0 is memory, op1 is register or constant
-        if (mnemonic == "add" || mnemonic == "sub") {
-            Instruction_t *f = mnemonic == "add" ? tsanAtomicFetchAdd[bytes] : tsanAtomicFetchSub[bytes];
-            return OperationInstrumentation({
-                    "mov " + rsiReg + ", " + op1->getString(),
-                    "mov rdx, " + memOrder,
-                    "call 0"
-                }, // TODO: flags
-                f, true, {}, false);
-        }
-        // assumption: op0 is memory, op1 is register
-        if (mnemonic == "cmpxchg") {
-            // (Slightly modified) documentation of the cmpxchg instruction:
-            // Compares the value in the EAX register with the first operand (destination).
-            // If the two values are equal, the second operand is loaded into the destination operand.
-            // Otherwise, the destination operand is loaded into the EAX register.
-            return OperationInstrumentation({
-                    "mov " + rsiReg + ", " + raxReg,
-                    "mov " + rdxReg + ", " + op1->getString(),
-                    "mov rcx, " + memOrder,
-                    "mov r8, " + memOrder,
-                    "push rax",
-                    "call 0",
-                    "pop rsi",
-                    "cmp " + raxReg + ", " + rsiReg // make sure flags are set correctly (cmpxchg would otherwise set them)
-                },
-                tsanAtomicCompareExchangeVal[bytes], true, {"rax"}, false);
-        }
-        if (mnemonic == "mov" && op0->isRegister() && op1->isMemory()) {
-            return OperationInstrumentation({
-                    // TODO: this memory order is only for the static variable guard instruction
-                    // this time, we actually know the correct memory order
-                    "mov rsi, " + toHex(__tsan_memory_order_acquire),
-                    "call 0",
-                    "mov " + op0->getString() + ", " + raxReg
-                },
-                tsanAtomicLoad[bytes], true, standard64Bit(op0->getString()), true);
-        }
-        print <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
     }
 
     // For operations that read and write the memory, only emit the write (it is sufficient for race detection)
+    const uint bytes = operand->getArgumentSizeInBytes();
     if (operand->isWritten()) {
         return OperationInstrumentation({"call 0"}, tsanWrite[bytes], false, {}, true);
     } else {
