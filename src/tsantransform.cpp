@@ -37,6 +37,11 @@ int TSanTransform::parseArgs(const vector<std::string>)
     return 0;
 }
 
+static bool contains(const std::string &str, const std::string &search)
+{
+    return str.find(search) != std::string::npos;
+}
+
 int TSanTransform::executeStep()
 {
     FileIR_t *ir = getMainFileIR();
@@ -58,6 +63,9 @@ int TSanTransform::executeStep()
         if (ignoreFunction) {
             continue;
         }
+        if (contains(functionName, "@plt")) {
+            continue;
+        }
 
         const FunctionInfo info = analyseFunction(function);
 
@@ -77,30 +85,24 @@ int TSanTransform::executeStep()
             const DecodedOperandVector_t operands = decoded->getOperands();
             for (const auto &operand : operands) {
                 if (operand->isMemory() && (operand->isWritten() || operand->isRead())) {
-                    print <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+//                    print <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                     instrumentMemoryAccess(instruction, operand, info);
                 }
             }
         }
 
-        if (functionName == "main") {
-            // TODO: do not overwrite registers
-//            insertAssemblyBefore(ir, temp, "call 0", tsanInit);
-        }
-        // TODO: omit these when possible
         if (info.exitPoints.size() > 0) {
-            insertFunctionEntry(info.properEntryPoint);
-        }
-        for (Instruction_t *ret : info.exitPoints) {
-            insertFunctionExit(ret);
+            // TODO: there might be functions with an important variable location memory read in the jump instruction
+            const bool isStub = std::find(info.exitPoints.begin(), info.exitPoints.end(), info.properEntryPoint) != info.exitPoints.end();
+            if (!isStub) {
+                insertFunctionEntry(info.properEntryPoint);
+                for (Instruction_t *ret : info.exitPoints) {
+                    insertFunctionExit(ret);
+                }
+            }
         }
     }
     return 0;
-}
-
-static bool contains(const std::string &str, const std::string &search)
-{
-    return str.find(search) != std::string::npos;
 }
 
 static std::string toHex(const int num)
@@ -159,11 +161,28 @@ FunctionInfo TSanTransform::analyseFunction(Function_t *function)
         result.properEntryPoint = result.properEntryPoint->getFallthrough();
     }
 
-    for (Instruction_t *instruction : function->getInstructions()) {
-        const auto decoded = DecodedInstruction_t::factory(instruction);
-        if (decoded->isReturn()) {
-            result.exitPoints.push_back(instruction);
+    const auto cfg = ControlFlowGraph_t::factory(function);
+    for (const auto block : cfg->getBlocks()) {
+        if (!block->getIsExitBlock()) {
+            continue;
         }
+        Instruction_t *instruction = block->getInstructions().back();
+        if (!instruction->isFunctionExit()) {
+            continue;
+        }
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        if (decoded->isCall()) {
+            continue;
+        }
+        // is the exit instruction after functions calls that do not return (for example exit)
+        if (contains(instruction->getDisassembly(), "nop")) {
+            continue;
+        }
+        if (!decoded->isReturn()) {
+            result.exitPoints.clear();
+            break;
+        }
+        result.exitPoints.push_back(instruction);
     }
 
     return result;
