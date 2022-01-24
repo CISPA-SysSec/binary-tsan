@@ -229,9 +229,18 @@ std::set<Instruction_t*> TSanTransform::detectStackCanaryInstructions(Function_t
     return result;
 }
 
+static bool isLeafFunction(const Function_t *function)
+{
+    const auto instructions = function->getInstructions();
+    return std::none_of(instructions.begin(), instructions.end(), [](const Instruction_t *i) {
+        const auto decoded = DecodedInstruction_t::factory(i);
+        return decoded->isCall();
+    });
+}
+
 int TSanTransform::inferredStackFrameSize(const IRDB_SDK::Function_t *function) const
 {
-    if (function->getStackFrameSize() > 0) {
+    if (!isLeafFunction(function)) {
         return 0;
     }
     int rwSize = 0;
@@ -262,7 +271,8 @@ int TSanTransform::inferredStackFrameSize(const IRDB_SDK::Function_t *function) 
     if (rwSize > 2000) {
         rwSize = 0;
     }
-    return rwSize;
+    // add a large offset to be sure
+    return rwSize + 256;
 }
 
 std::set<std::string> TSanTransform::getSaveRegisters(Instruction_t *instruction)
@@ -332,7 +342,7 @@ static std::string targetFunctionName(const Instruction_t *instruction)
     return callTarget->getName();
 }
 
-std::set<Instruction_t*> TSanTransform::detectStaticVariableGuards(IRDB_SDK::Function_t *function) const
+std::set<Instruction_t*> TSanTransform::detectStaticVariableGuards(Function_t *function) const
 {
     const auto cfg = ControlFlowGraph_t::factory(function);
 
