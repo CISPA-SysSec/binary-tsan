@@ -496,6 +496,19 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     return {};
 }
 
+static uint instrumentationByteSize(const std::shared_ptr<DecodedOperand_t> &operand)
+{
+    const uint bytes = operand->getArgumentSizeInBytes();
+    // Instructions with 10 byte operands are most likely extended precision floating point operations.
+    // For alignment, compilers usually allocate either 12 or 16 byte for them.
+    // Since we do not know what is the case, downgrade it to 8 byte.
+    // This is correct, but could theoretically miss some rather contrived race conditions.
+    if (bytes == 10) {
+        return 8;
+    }
+    return bytes;
+}
+
 OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand,
                                                            const FunctionInfo &info) const
 {
@@ -508,7 +521,7 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
     }
 
     // For operations that read and write the memory, only emit the write (it is sufficient for race detection)
-    const uint bytes = operand->getArgumentSizeInBytes();
+    const uint bytes = instrumentationByteSize(operand);
     if (operand->isWritten()) {
         return OperationInstrumentation({"call 0"}, tsanWrite[bytes], false, {}, true);
     } else {
@@ -518,7 +531,7 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
 
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, const FunctionInfo &info)
 {
-    const uint bytes = operand->getArgumentSizeInBytes();
+    const uint bytes = instrumentationByteSize(operand);
     if (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
             (operand->isRead() && tsanRead[bytes] == nullptr) ||
             (operand->isWritten() && tsanWrite[bytes] == nullptr)) {
