@@ -86,6 +86,10 @@ int TSanTransform::executeStep()
             for (const auto &operand : operands) {
                 if (operand->isMemory() && (operand->isWritten() || operand->isRead())) {
 //                    print <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+                    if (isDataConstant(ir, instruction, operand)) {
+                        print <<"Omit constant access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+                        break;
+                    }
                     instrumentMemoryAccess(instruction, operand, info);
                 }
             }
@@ -103,6 +107,31 @@ int TSanTransform::executeStep()
         }
     }
     return 0;
+}
+
+bool TSanTransform::isDataConstant(FileIR_t *ir, Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand)
+{
+    if (operand->hasBaseRegister()) {
+        return false;
+    }
+    const auto decoded = DecodedInstruction_t::factory(instruction);
+    const auto additionalOffset = operand->isPcrel() ? decoded->length() : 0;
+    const auto realOffset = operand->getMemoryDisplacement() + additionalOffset;
+    for (DataScoop_t *s : ir->getDataScoops()) {
+        if (s->getStart()->getVirtualOffset() == 0) {
+            continue;
+        }
+        if (s->isWriteable() || s->isExecuteable()) {
+            continue;
+        }
+        if (realOffset > s->getStart()->getVirtualOffset() && realOffset < s->getEnd()->getVirtualOffset()) {
+            if (operand->isWritten()) {
+                throw std::logic_error("read only memory seems to be written");
+            }
+            return true;
+        }
+    }
+    return false;
 }
 
 static std::string toHex(const int num)
