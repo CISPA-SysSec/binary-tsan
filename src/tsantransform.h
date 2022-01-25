@@ -77,6 +77,7 @@ private:
     std::optional<OperationInstrumentation> getAtomicInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand) const;
     std::set<IRDB_SDK::Instruction_t*> detectStaticVariableGuards(IRDB_SDK::Function_t *function) const;
     std::set<IRDB_SDK::Instruction_t*> detectStackCanaryInstructions(IRDB_SDK::Function_t *function) const;
+    bool doesStackLeaveFunction(IRDB_SDK::Function_t *function) const;
 
 private:
     mutable std::ofstream print;

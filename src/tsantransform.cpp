@@ -69,6 +69,8 @@ int TSanTransform::executeStep()
 
         const FunctionInfo info = analyseFunction(function);
 
+        const bool isStackLocal = !doesStackLeaveFunction(function);
+
         const InstructionSet_t instructions = function->getInstructions(); // make a copy
         for (Instruction_t *instruction : instructions) {
             if (info.noInstrumentInstructions.find(instruction) != info.noInstrumentInstructions.end()) {
@@ -85,11 +87,16 @@ int TSanTransform::executeStep()
             const DecodedOperandVector_t operands = decoded->getOperands();
             for (const auto &operand : operands) {
                 if (operand->isMemory() && (operand->isWritten() || operand->isRead())) {
-//                    print <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+                    // TODO: under the right condition rbp based operands can also be ignored
+                    if (isStackLocal && (contains(operand->getString(), "rsp") || contains(operand->getString(), "esp"))) {
+                        print <<"Omit stack access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+                        break;
+                    }
                     if (isDataConstant(ir, instruction, operand)) {
                         print <<"Omit constant access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                         break;
                     }
+                    print <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                     instrumentMemoryAccess(instruction, operand, info);
                 }
             }
@@ -388,6 +395,47 @@ static std::string targetFunctionName(const Instruction_t *instruction)
         return "";
     }
     return callTarget->getName();
+}
+
+bool TSanTransform::doesStackLeaveFunction(IRDB_SDK::Function_t *function) const
+{
+    bool rbpHasRsp = false;
+    bool rbpUsed = false;
+    for (const Instruction_t *instruction : function->getInstructions()) {
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        if (!decoded->hasOperand(1)) {
+            continue;
+        }
+        const std::string disassembly = instruction->getDisassembly();
+        if (disassembly == "mov rbp, rsp" || disassembly == "mov ebp, esp") {
+            rbpHasRsp = true;
+            continue;
+        }
+        const auto op1 = decoded->getOperand(1);
+        const std::string op1String = op1->getString();
+
+        if (decoded->getMnemonic() == "lea") {
+            if (contains(op1String, "rsp") || contains(op1String, "esp")) {
+                return true;
+            }
+            if (contains(op1String, "rbp") || contains(op1String, "ebp")) {
+                rbpUsed = true;
+            }
+        }
+        if (op1->isRegister()) {
+            const std::string reg1 = standard64Bit(op1String);
+            if (reg1 == "rsp") {
+                return true;
+            }
+            if (reg1 == "rbp") {
+                rbpUsed = true;
+            }
+        }
+    }
+    if (rbpUsed && rbpHasRsp) {
+        return true;
+    }
+    return false;
 }
 
 std::set<Instruction_t*> TSanTransform::detectStaticVariableGuards(Function_t *function) const
