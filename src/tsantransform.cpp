@@ -454,8 +454,19 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
             tsanAtomicFetchAdd[bytes], true, standard64Bit(op1->getString()), false);
     }
     // assumption: op0 is memory, op1 is register or constant
-    if (mnemonic == "add" || mnemonic == "sub") {
-        Instruction_t *f = mnemonic == "add" ? tsanAtomicFetchAdd[bytes] : tsanAtomicFetchSub[bytes];
+    if (mnemonic == "add" || mnemonic == "sub" || mnemonic == "and" || mnemonic == "or" || mnemonic == "xor") {
+        Instruction_t *f = nullptr;
+        if (mnemonic == "add") {
+            f = tsanAtomicFetchAdd[bytes];
+        } else if (mnemonic == "sub") {
+            f = tsanAtomicFetchSub[bytes];
+        } else if (mnemonic == "and") {
+            f = tsanAtomicFetchAnd[bytes];
+        } else if (mnemonic == "or") {
+            f = tsanAtomicFetchOr[bytes];
+        } else if (mnemonic == "xor") {
+            f = tsanAtomicFetchXor[bytes];
+        }
         return OperationInstrumentation({
                 "mov " + rsiReg + ", " + op1->getString(),
                 "mov rdx, " + memOrder,
@@ -612,6 +623,9 @@ void TSanTransform::registerDependencies()
         tsanAtomicLoad[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_load");
         tsanAtomicFetchAdd[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_add");
         tsanAtomicFetchSub[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_sub");
+        tsanAtomicFetchAnd[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_and");
+        tsanAtomicFetchOr[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_or");
+        tsanAtomicFetchXor[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_xor");
         tsanAtomicCompareExchangeVal[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_compare_exchange_val");
     }
 
