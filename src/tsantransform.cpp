@@ -107,12 +107,14 @@ int TSanTransform::executeStep()
             // TODO: there might be functions with an important variable location memory read in the jump instruction
             const bool isStub = std::find(info.exitPoints.begin(), info.exitPoints.end(), info.properEntryPoint) != info.exitPoints.end();
             if (!isStub) {
+                // TODO: what if the first instruction is atomic and thus removed?
                 insertFunctionEntry(info.properEntryPoint);
                 for (Instruction_t *ret : info.exitPoints) {
                     insertFunctionExit(ret);
                 }
             }
         }
+        getMainFileIR()->assembleRegistry();
     }
     return 0;
 }
