@@ -17,4 +17,4 @@ cd ${ZIPR_LOCATION}
 . set_env_vars
 export PSPATH=$PSPATH:${PLUGIN_PATH}
 cd $last
-$PSZ $1 $2 -c rida -c move_globals -o --elftables -c tsan
+$PSZ $1 $2 -c rida -c move_globals -o --elftables-only -o --no-use-stars -c tsan

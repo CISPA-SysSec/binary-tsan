@@ -47,8 +47,9 @@ int TSanTransform::executeStep()
     FileIR_t *ir = getMainFileIR();
 
     // compute this before any instructions are added
-    const auto registerAnalysis = DeepAnalysis_t::factory(ir);
-    deadRegisters = registerAnalysis->getDeadRegisters();
+//    const auto registerAnalysis = DeepAnalysis_t::factory(ir);
+//    deadRegisters = registerAnalysis->getDeadRegisters();
+    deadRegisters = std::make_unique<DeadRegisterMap_t>(DeadRegisterMap_t());
 
     registerDependencies();
 
