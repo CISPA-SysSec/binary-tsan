@@ -11,12 +11,15 @@ using namespace IRDB_SDK;
 
 #define MAKE_INSERT_ASSEMBLY(fileIR, i) Instruction_t *tmp = i; \
     bool hasInsertedBefore = false; \
-    const auto insertAssembly = [fileIR, &tmp, &hasInsertedBefore](const std::string assembly, Instruction_t *target = nullptr) { \
+    Function_t *_origFunction = i->getFunction(); \
+    const auto insertAssembly = [fileIR, &tmp, &hasInsertedBefore, _origFunction](const std::string assembly, Instruction_t *target = nullptr) { \
         if (!hasInsertedBefore) { \
             hasInsertedBefore = true; \
-            insertAssemblyBefore(fileIR, tmp, assembly, target); \
+            auto in = insertAssemblyBefore(fileIR, tmp, assembly, target); \
+            in->setFunction(_origFunction); \
         } else { \
             tmp = insertAssemblyAfter(fileIR, tmp, assembly, target); \
+            tmp->setFunction(_origFunction); \
         } \
     };
 
