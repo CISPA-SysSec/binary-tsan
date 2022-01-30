@@ -54,12 +54,12 @@ struct OperationInstrumentation
     bool preserveFlags;
 };
 
-class TSanTransform : public IRDB_SDK::TransformStep_t {
+class TSanTransform : public IRDB_SDK::Transform_t {
 public:
-    TSanTransform();
-    std::string getStepName(void) const override;
-    int parseArgs(const std::vector<std::string> stepArgs) override;
-    int executeStep() override;
+    TSanTransform(IRDB_SDK::FileIR_t * file);
+
+    bool parseArgs(const std::vector<std::string> stepArgs);
+    bool executeStep();
 
 private:
     void registerDependencies();

@@ -15,29 +15,25 @@ using namespace IRDB_SDK;
     const auto insertAssembly = [fileIR, &tmp, &hasInsertedBefore, _origFunction](const std::string assembly, Instruction_t *target = nullptr) { \
         if (!hasInsertedBefore) { \
             hasInsertedBefore = true; \
-            auto in = insertAssemblyBefore(fileIR, tmp, assembly, target); \
+            auto in = IRDB_SDK::insertAssemblyBefore(fileIR, tmp, assembly, target); \
             in->setFunction(_origFunction); \
         } else { \
-            tmp = insertAssemblyAfter(fileIR, tmp, assembly, target); \
+            tmp = IRDB_SDK::insertAssemblyAfter(fileIR, tmp, assembly, target); \
             tmp->setFunction(_origFunction); \
         } \
     };
 
-TSanTransform::TSanTransform() :
+TSanTransform::TSanTransform(FileIR_t *file) :
+    Transform_t(file),
     print("../tsan-output")
 {
     std::fill(tsanRead.begin(), tsanRead.end(), nullptr);
     std::fill(tsanWrite.begin(), tsanWrite.end(), nullptr);
 }
 
-std::string TSanTransform::getStepName(void) const
+bool TSanTransform::parseArgs(const vector<std::string>)
 {
-    return "thread sanitizer";
-}
-
-int TSanTransform::parseArgs(const vector<std::string>)
-{
-    return 0;
+    return true;
 }
 
 static bool contains(const std::string &str, const std::string &search)
@@ -45,9 +41,9 @@ static bool contains(const std::string &str, const std::string &search)
     return str.find(search) != std::string::npos;
 }
 
-int TSanTransform::executeStep()
+bool TSanTransform::executeStep()
 {
-    FileIR_t *ir = getMainFileIR();
+    FileIR_t *ir = getFileIR();
 
     // compute this before any instructions are added
 //    const auto registerAnalysis = DeepAnalysis_t::factory(ir);
@@ -117,9 +113,9 @@ int TSanTransform::executeStep()
                 }
             }
         }
-        getMainFileIR()->assembleRegistry();
+        getFileIR()->assembleRegistry();
     }
-    return 0;
+    return true;
 }
 
 bool TSanTransform::isDataConstant(FileIR_t *ir, Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand)
@@ -157,7 +153,7 @@ static std::string toHex(const int num)
 void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
 {
     // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)
-    FileIR_t *ir = getMainFileIR();
+    FileIR_t *ir = getFileIR();
     const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
     MAKE_INSERT_ASSEMBLY(ir, insertBefore);
 
@@ -176,7 +172,7 @@ void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
 
 void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
 {
-    FileIR_t *ir = getMainFileIR();
+    FileIR_t *ir = getFileIR();
     const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
     MAKE_INSERT_ASSEMBLY(ir, insertBefore);
 
@@ -338,7 +334,6 @@ int TSanTransform::inferredStackFrameSize(const IRDB_SDK::Function_t *function) 
 
 std::set<std::string> TSanTransform::getSaveRegisters(Instruction_t *instruction)
 {
-    // TODO: xmm registers??
     std::set<std::string> registersToSave = {"rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11"};
     const auto dead = deadRegisters->find(instruction);
     if (dead != deadRegisters->end()) {
@@ -409,6 +404,7 @@ bool TSanTransform::doesStackLeaveFunction(IRDB_SDK::Function_t *function) const
     bool rbpUsed = false;
     for (const Instruction_t *instruction : function->getInstructions()) {
         const auto decoded = DecodedInstruction_t::factory(instruction);
+        // TODO: check for read and written operand more clearly
         if (!decoded->hasOperand(1)) {
             continue;
         }
@@ -633,7 +629,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         return;
     }
 
-    FileIR_t *ir = getMainFileIR();
+    FileIR_t *ir = getFileIR();
 
     std::set<std::string> registersToSave = getSaveRegisters(instruction);
 
@@ -693,7 +689,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
 void TSanTransform::registerDependencies()
 {
-    auto elfDeps = ElfDependencies_t::factory(getMainFileIR());
+    auto elfDeps = ElfDependencies_t::factory(getFileIR());
     elfDeps->prependLibraryDepedencies("libgcc_s.so.1");
     elfDeps->prependLibraryDepedencies("libstdc++.so.6");
     elfDeps->prependLibraryDepedencies("libtsan.so.0");
@@ -712,5 +708,5 @@ void TSanTransform::registerDependencies()
         tsanAtomicCompareExchangeVal[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_compare_exchange_val");
     }
 
-    getMainFileIR()->assembleRegistry();
+    getFileIR()->assembleRegistry();
 }

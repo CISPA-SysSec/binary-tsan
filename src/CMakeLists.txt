@@ -1,4 +1,4 @@
-add_library(tsan SHARED
+add_executable(tsan
     tsan.cpp
     tsantransform.cpp
     tsantransform.h
@@ -6,3 +6,5 @@ add_library(tsan SHARED
 target_link_libraries(tsan
     PRIVATE irdb-sdk
 )
+# the .exe postfix is required by the zipr framework
+set_target_properties(tsan PROPERTIES OUTPUT_NAME "tsan.exe")

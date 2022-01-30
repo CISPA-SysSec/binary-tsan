@@ -18,7 +18,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 set(PLUGIN_PATH ${CMAKE_BINARY_DIR}/ps-plugin)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PLUGIN_PATH})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PLUGIN_PATH})
 
 if(NOT ZIPR_LOCATION)
     message(FATAL_ERROR "Please provide a valid zipr location")
