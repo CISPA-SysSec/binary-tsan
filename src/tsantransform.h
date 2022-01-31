@@ -58,7 +58,7 @@ class TSanTransform : public IRDB_SDK::Transform_t {
 public:
     TSanTransform(IRDB_SDK::FileIR_t * file);
 
-    bool parseArgs(const std::vector<std::string> stepArgs);
+    bool parseArgs(const std::vector<std::string> &options);
     bool executeStep();
 
 private:
@@ -81,6 +81,9 @@ private:
 
 private:
     mutable std::ofstream print;
+
+    // options
+    bool useStarsAnalysis = false;
 
     std::unique_ptr<IRDB_SDK::DeadRegisterMap_t> deadRegisters;
     FunctionInfo analyseFunction(IRDB_SDK::Function_t *function);

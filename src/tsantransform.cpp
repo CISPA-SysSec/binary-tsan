@@ -31,8 +31,18 @@ TSanTransform::TSanTransform(FileIR_t *file) :
     std::fill(tsanWrite.begin(), tsanWrite.end(), nullptr);
 }
 
-bool TSanTransform::parseArgs(const vector<std::string>)
+bool TSanTransform::parseArgs(const std::vector<std::string> &options)
 {
+    for (const std::string &option : options) {
+        if (option == "--use-stars") {
+            useStarsAnalysis = true;
+        } else if (option == "--no-use-stars") {
+            useStarsAnalysis = false;
+        } else {
+            print <<"Unrecognized option: "<<option<<std::endl;
+            return false;
+        }
+    }
     return true;
 }
 
@@ -46,9 +56,12 @@ bool TSanTransform::executeStep()
     FileIR_t *ir = getFileIR();
 
     // compute this before any instructions are added
-//    const auto registerAnalysis = DeepAnalysis_t::factory(ir);
-//    deadRegisters = registerAnalysis->getDeadRegisters();
-    deadRegisters = std::make_unique<DeadRegisterMap_t>(DeadRegisterMap_t());
+    if (useStarsAnalysis) {
+        const auto registerAnalysis = DeepAnalysis_t::factory(ir);
+        deadRegisters = registerAnalysis->getDeadRegisters();
+    } else {
+        deadRegisters = std::make_unique<DeadRegisterMap_t>(DeadRegisterMap_t());
+    }
 
     registerDependencies();
 
