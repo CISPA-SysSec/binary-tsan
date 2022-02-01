@@ -725,7 +725,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         }
         if (assembly == MOVE_OPERAND_RDI) {
             if (operand->isPcrel()) {
-                insertAssembly("lea rdi, [rel " + operand->getString() + "]");
+                const auto decoded = DecodedInstruction_t::factory(instruction);
+                auto offset = operand->getMemoryDisplacement() + decoded->length() - 7;
+                insertAssembly("lea rdi, [rel " + toHex(offset) + "]");
                 ir->addNewRelocation(tmp, 0, "pcrel");
             } else {
                 insertAssembly("lea rdi, [" + operand->getString() + "]");
