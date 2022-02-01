@@ -724,8 +724,12 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
             continue;
         }
         if (assembly == MOVE_OPERAND_RDI) {
-            // TODO: is it possible for things to relative to the rip (position independant code) here?
-            insertAssembly("lea rdi, [" + operand->getString() + "]");
+            if (operand->isPcrel()) {
+                insertAssembly("lea rdi, [rel " + operand->getString() + "]");
+                ir->addNewRelocation(tmp, 0, "pcrel");
+            } else {
+                insertAssembly("lea rdi, [" + operand->getString() + "]");
+            }
             // TODO: integrate into lea instruction
             if (contains(operand->getString(), "rsp")) {
                 // TODO: is this the correct size for the pushf?
