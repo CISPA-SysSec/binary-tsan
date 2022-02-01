@@ -514,6 +514,40 @@ std::set<Instruction_t*> TSanTransform::detectStaticVariableGuards(Function_t *f
     return result;
 }
 
+static RegisterID getScratchRegister(const std::string &operand, const std::vector<RegisterID> &possibleRegisters)
+{
+    for (const RegisterID &reg : possibleRegisters) {
+        bool hasReg = false;
+        for (int opSize : {8, 4, 2, 1}) {
+            const std::string regString = toBytes(reg, opSize);
+            if (contains(operand, regString)) {
+                hasReg = true;
+                break;
+            }
+        }
+        if (!hasReg) {
+            return reg;
+        }
+    }
+    // if three or more registers are given, this can never happen
+    return RegisterID::rn_RAX;
+}
+
+static std::string replaceRegister(const std::string &operand, const RegisterID original, const RegisterID replace)
+{
+    for (int opSize : {8, 4, 2, 1}) {
+        const std::string origString = toBytes(original, opSize);
+        const auto it = operand.find(origString);
+        if (it != std::string::npos) {
+            const std::string replaceString = toBytes(replace, opSize);
+            std::string modified = operand;
+            modified.replace(it, it + origString.size(), replaceString);
+            return modified;
+        }
+    }
+    return operand;
+}
+
 std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand) const
 {
     const uint bytes = operand->getArgumentSizeInBytes();
@@ -523,6 +557,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     // TODO: 128 bit operations?
     const std::string mnemonic = decoded->getMnemonic();
     const std::string rsiReg = toBytes(RegisterID::rn_RSI, bytes);
+    const std::string rdiReg = toBytes(RegisterID::rn_RDI, bytes);
     const std::string rdxReg = toBytes(RegisterID::rn_RDX, bytes);
     const std::string raxReg = toBytes(RegisterID::rn_RAX, bytes);
     const std::string memOrder = toHex(__tsan_memory_order_acq_rel);
@@ -534,11 +569,18 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
         return {};
     }
     const auto op1 = decoded->getOperand(1);
+
+    const RegisterID scratch = getScratchRegister(op1->getString(), {RegisterID::rn_R8, RegisterID::rn_R9, RegisterID::rn_R10});
+    const std::string scratchReg = toBytes(scratch, 8);
+    const bool opHasRdi = contains(op1->getString(), rdiReg);
+    const std::string replacedOp1 = replaceRegister(op1->getString(), RegisterID::rn_RDI, scratch);
+
     // assumption: op0 is memory, op1 is register
     if (mnemonic == "xadd") {
-        // TODO: here and below: what if op1->getString() is rdi? It is overwritten
         return OperationInstrumentation({
-                "mov " + rsiReg + ", " + op1->getString(),
+                opHasRdi ? "mov " + scratchReg + ", rdi" : "",
+                MOVE_OPERAND_RDI,
+                "mov " + rsiReg + ", " + replacedOp1,
                 "mov rdx, " + memOrder,
                 "call 0",
                 "mov " + op1->getString() + ", " + raxReg
@@ -560,7 +602,9 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
             f = tsanAtomicFetchXor[bytes];
         }
         return OperationInstrumentation({
-                "mov " + rsiReg + ", " + op1->getString(),
+                opHasRdi ? "mov " + scratchReg + ", rdi" : "",
+                MOVE_OPERAND_RDI,
+                "mov " + rsiReg + ", " + replacedOp1,
                 "mov rdx, " + memOrder,
                 "call 0"
             }, // TODO: flags
@@ -573,8 +617,10 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
         // If the two values are equal, the second operand is loaded into the destination operand.
         // Otherwise, the destination operand is loaded into the EAX register.
         return OperationInstrumentation({
+                opHasRdi ? "mov " + scratchReg + ", rdi" : "",
+                MOVE_OPERAND_RDI,
+                "mov " + rdxReg + ", " + replacedOp1,
                 "mov " + rsiReg + ", " + raxReg,
-                "mov " + rdxReg + ", " + op1->getString(),
                 "mov rcx, " + memOrder,
                 "mov r8, " + memOrder,
                 "push rax",
@@ -646,7 +692,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     std::set<std::string> registersToSave = getSaveRegisters(instruction);
 
-    const OperationInstrumentation instrumentation = getInstrumentation(instruction, operand, info);
+    OperationInstrumentation instrumentation = getInstrumentation(instruction, operand, info);
     if (instrumentation.noSaveRegister.has_value()) {
         registersToSave.erase(instrumentation.noSaveRegister.value());
     }
@@ -667,21 +713,30 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         insertAssembly("push " + reg);
     }
 
-    // TODO: is it possible for things to relative to the rip (position independant code) here?
-    insertAssembly("lea rdi, [" + operand->getString() + "]");
-    // TODO: integrate into lea instruction
-    if (contains(operand->getString(), "rsp")) {
-        // TODO: is this the correct size for the pushf?
-        const int flagSize = instrumentation.preserveFlags ? 4 : 0;
-        const int offset = info.inferredStackFrameSize + registersToSave.size() * ir->getArchitectureBitWidth() / 8 + flagSize;
-        insertAssembly("lea rdi, [rdi + " + toHex(offset) + "]");
+    if (std::find(instrumentation.instructions.begin(), instrumentation.instructions.end(), MOVE_OPERAND_RDI) == instrumentation.instructions.end()) {
+        instrumentation.instructions.insert(instrumentation.instructions.begin(), MOVE_OPERAND_RDI);
     }
 
     // TODO: instruktionen mit rep prefix
     // TODO: aligned vs unaligned read/write?
     for (const auto &assembly : instrumentation.instructions) {
-        Instruction_t *callTarget = contains(assembly, "call") ? instrumentation.callTarget : nullptr;
-        insertAssembly(assembly, callTarget);
+        if (assembly.size() == 0) {
+            continue;
+        }
+        if (assembly == MOVE_OPERAND_RDI) {
+            // TODO: is it possible for things to relative to the rip (position independant code) here?
+            insertAssembly("lea rdi, [" + operand->getString() + "]");
+            // TODO: integrate into lea instruction
+            if (contains(operand->getString(), "rsp")) {
+                // TODO: is this the correct size for the pushf?
+                const int flagSize = instrumentation.preserveFlags ? 4 : 0;
+                const int offset = info.inferredStackFrameSize + registersToSave.size() * ir->getArchitectureBitWidth() / 8 + flagSize;
+                insertAssembly("lea rdi, [rdi + " + toHex(offset) + "]");
+            }
+        } else {
+            Instruction_t *callTarget = contains(assembly, "call") ? instrumentation.callTarget : nullptr;
+            insertAssembly(assembly, callTarget);
+        }
     }
 
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {

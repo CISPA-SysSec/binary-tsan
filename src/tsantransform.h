@@ -107,6 +107,8 @@ private:
     std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicFetchXor;
     // int(int*, int, int, __tsan_memory_order, __tsan_memory_order)
     std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicCompareExchangeVal;
+
+    const std::string MOVE_OPERAND_RDI = "__move_operand_to_rdi";
 };
 
 #endif // TSANTRANSFORM_H

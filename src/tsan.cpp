@@ -53,6 +53,7 @@ int main(int argc, char* argv[]) {
         if (success) {
             std::cout << "Writing changes for " << url << std::endl;
 
+            // TODO: check for successfull writeback
             // Stand alone trnasforms must manually write the IR back to the IRDB and commit the transactions
             firp->writeToDB();
 
