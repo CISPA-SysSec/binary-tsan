@@ -78,6 +78,7 @@ private:
     std::set<IRDB_SDK::Instruction_t*> detectStaticVariableGuards(IRDB_SDK::Function_t *function) const;
     std::set<IRDB_SDK::Instruction_t*> detectStackCanaryInstructions(IRDB_SDK::Function_t *function) const;
     bool doesStackLeaveFunction(IRDB_SDK::Function_t *function) const;
+    FunctionInfo analyseFunction(IRDB_SDK::Function_t *function);
 
 private:
     mutable std::ofstream print;
@@ -86,7 +87,6 @@ private:
     bool useStarsAnalysis = false;
 
     std::unique_ptr<IRDB_SDK::DeadRegisterMap_t> deadRegisters;
-    FunctionInfo analyseFunction(IRDB_SDK::Function_t *function);
 
     // tsan functions
     IRDB_SDK::Instruction_t *tsanInit;
