@@ -5,6 +5,9 @@
 #include <memory>
 #include <algorithm>
 
+#include "pointeranalysis.h"
+#include "fixedpointanalysis.h"
+
 using namespace IRDB_SDK;
 
 #define cout ERROR_USE_PRINT_INSTEAD
@@ -148,6 +151,7 @@ bool TSanTransform::isDataConstant(FileIR_t *ir, Instruction_t *instruction, con
         }
         if (realOffset > s->getStart()->getVirtualOffset() && realOffset < s->getEnd()->getVirtualOffset()) {
             if (operand->isWritten()) {
+                return false;
                 throw std::logic_error("read only memory seems to be written");
             }
             return true;
@@ -205,7 +209,11 @@ FunctionInfo TSanTransform::analyseFunction(Function_t *function)
     result.inferredStackFrameSize = inferredStackFrameSize(function);
 
     result.noInstrumentInstructions = detectStackCanaryInstructions(function);
-    result.inferredAtomicInstructions = detectStaticVariableGuards(function);
+
+    result.inferredAtomicInstructions = inferAtomicInstructions(function);
+    for (auto guardInstruction : detectStaticVariableGuards(function)) {
+        result.inferredAtomicInstructions[guardInstruction] = __tsan_memory_order_acquire;
+    }
 
     result.properEntryPoint = function->getEntryPoint();
     if (contains(result.properEntryPoint->getDisassembly(), "endbr")) {
@@ -236,6 +244,71 @@ FunctionInfo TSanTransform::analyseFunction(Function_t *function)
         result.exitPoints.push_back(instruction);
     }
 
+    return result;
+}
+
+std::map<Instruction_t *, __tsan_memory_order> TSanTransform::inferAtomicInstructions(IRDB_SDK::Function_t *function) const
+{
+    const auto instructions = function->getInstructions();
+    const bool hasAtomic = std::any_of(instructions.begin(), instructions.end(), isAtomic);
+    if (!hasAtomic) {
+        return {};
+    }
+
+    PointerAnalysis functionEntry = PointerAnalysis::functionEntry();
+    auto analysis = FixedPointAnalysis::run<PointerAnalysis>(function, functionEntry);
+
+    std::map<int, std::vector<Instruction_t*>> sameLocation;
+    for (Instruction_t *instruction : function->getInstructions()) {
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        if (decoded->getMnemonic() == "nop" || decoded->getMnemonic() == "lea") {
+            continue;
+        }
+        for (const auto &operand : decoded->getOperands()) {
+            if (operand->isMemory() && operand->hasBaseRegister() && !operand->hasIndexRegister() && !operand->hasMemoryDisplacement()) {
+                const RegisterID reg = strToRegister(operand->getString());
+                if (!is64bitRegister(reg)) {
+                    continue;
+                }
+                auto analysisResult = analysis[instruction].getMemoryLocations();
+                if (analysisResult.find(reg) != analysisResult.end()) {
+                    const int location = analysisResult[reg];
+                    sameLocation[location].push_back(instruction);
+                }
+            }
+        }
+    }
+
+    std::map<Instruction_t *, __tsan_memory_order> result;
+
+    bool hasPrinted = false;
+    for (const auto &[pos, sameLocInstructions] : sameLocation) {
+        const std::size_t atomicCount = std::count_if(sameLocInstructions.begin(), sameLocInstructions.end(), isAtomic);
+        if (atomicCount == 0 || atomicCount == sameLocInstructions.size()) {
+            continue;
+        }
+        if (!hasPrinted) {
+             print <<"Inferred atomics in function "<<function->getName()<<std::endl;
+             hasPrinted = true;
+        }
+        print <<"Same memory location set:"<<std::endl;
+        for (auto instruction : sameLocInstructions) {
+
+            if (!isAtomic(instruction)) {
+                const auto decoded = DecodedInstruction_t::factory(instruction);
+                if (decoded->getMnemonic() == "mov") {
+                    result[instruction] = __tsan_memory_order_relaxed;
+//                    print <<"Inferred atomic instruction: "<<instruction->getDisassembly()<<std::endl;
+                } else {
+                    print <<"WARNING: found non-atomic instruction to atomic like memory: "<<instruction->getDisassembly()<<std::endl;
+                }
+            }
+
+            const std::string atomicStr = isAtomic(instruction) ? "lock " : "";
+            print <<atomicStr<<instruction->getDisassembly()<<std::endl;
+        }
+        print <<std::endl;
+    }
     return result;
 }
 
@@ -548,7 +621,8 @@ static std::string replaceRegister(const std::string &operand, const RegisterID 
     return operand;
 }
 
-std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand) const
+std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand,
+                                                                                const __tsan_memory_order memoryOrder) const
 {
     const uint bytes = operand->getArgumentSizeInBytes();
 
@@ -560,7 +634,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     const std::string rdiReg = toBytes(RegisterID::rn_RDI, bytes);
     const std::string rdxReg = toBytes(RegisterID::rn_RDX, bytes);
     const std::string raxReg = toBytes(RegisterID::rn_RAX, bytes);
-    const std::string memOrder = toHex(__tsan_memory_order_acq_rel);
+    const std::string memOrder = toHex(memoryOrder);
 
     // TODO: maybe just modify the tsan functions to not perform the operation, easier that way?
     // TODO: if op1 contains the rsp, then it has to be offset
@@ -570,17 +644,18 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     }
     const auto op1 = decoded->getOperand(1);
 
-    const RegisterID scratch = getScratchRegister(op1->getString(), {RegisterID::rn_R8, RegisterID::rn_R9, RegisterID::rn_R10});
+    const auto nonMemoryOperand = op0->isMemory() ? op1 : op0;
+    const RegisterID scratch = getScratchRegister(nonMemoryOperand->getString(), {RegisterID::rn_R8, RegisterID::rn_R9, RegisterID::rn_R10});
     const std::string scratchReg = toBytes(scratch, 8);
-    const bool opHasRdi = contains(op1->getString(), rdiReg);
-    const std::string replacedOp1 = replaceRegister(op1->getString(), RegisterID::rn_RDI, scratch);
+    const bool opHasRdi = contains(nonMemoryOperand->getString(), rdiReg);
+    const std::string replacedNonMemoryOperand = replaceRegister(nonMemoryOperand->getString(), RegisterID::rn_RDI, scratch);
 
     // assumption: op0 is memory, op1 is register
     if (mnemonic == "xadd") {
         return OperationInstrumentation({
                 opHasRdi ? "mov " + scratchReg + ", rdi" : "",
                 MOVE_OPERAND_RDI,
-                "mov " + rsiReg + ", " + replacedOp1,
+                "mov " + rsiReg + ", " + replacedNonMemoryOperand,
                 "mov rdx, " + memOrder,
                 "call 0",
                 "mov " + op1->getString() + ", " + raxReg
@@ -604,7 +679,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
         return OperationInstrumentation({
                 opHasRdi ? "mov " + scratchReg + ", rdi" : "",
                 MOVE_OPERAND_RDI,
-                "mov " + rsiReg + ", " + replacedOp1,
+                "mov " + rsiReg + ", " + replacedNonMemoryOperand,
                 "mov rdx, " + memOrder,
                 "call 0"
             }, // TODO: flags
@@ -619,7 +694,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
         return OperationInstrumentation({
                 opHasRdi ? "mov " + scratchReg + ", rdi" : "",
                 MOVE_OPERAND_RDI,
-                "mov " + rdxReg + ", " + replacedOp1,
+                "mov " + rdxReg + ", " + replacedNonMemoryOperand,
                 "mov " + rsiReg + ", " + raxReg,
                 "mov rcx, " + memOrder,
                 "mov r8, " + memOrder,
@@ -630,15 +705,24 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
             },
             tsanAtomicCompareExchangeVal[bytes], true, {"rax"}, false);
     }
-    if (mnemonic == "mov" && op0->isRegister() && op1->isMemory()) {
-        return OperationInstrumentation({
-                // TODO: this memory order is only for the static variable guard instruction
-                // this time, we actually know the correct memory order
-                "mov rsi, " + toHex(__tsan_memory_order_acquire),
-                "call 0",
-                "mov " + op0->getString() + ", " + raxReg
-            },
-            tsanAtomicLoad[bytes], true, standard64Bit(op0->getString()), true);
+    if (mnemonic == "mov") {
+        if (op0->isRegister() && op1->isMemory()) {
+            return OperationInstrumentation({
+                    "mov rsi, " + memOrder,
+                    "call 0",
+                    "mov " + op0->getString() + ", " + raxReg
+                },
+                tsanAtomicLoad[bytes], true, standard64Bit(op0->getString()), true);
+        } else if ((op1->isRegister() || op1->isConstant()) && op0->isMemory()) {
+            return OperationInstrumentation({
+                    opHasRdi ? "mov " + scratchReg + ", rdi" : "",
+                    MOVE_OPERAND_RDI,
+                    "mov " + rsiReg + ", " + replacedNonMemoryOperand,
+                    "mov rdx, " + memOrder,
+                    "call 0"
+                },
+                tsanAtomicStore[bytes], true, {}, true);
+        }
     }
     print <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
 //        throw std::invalid_argument("Unhandled atomic instruction");
@@ -661,9 +745,12 @@ static uint instrumentationByteSize(const std::shared_ptr<DecodedOperand_t> &ope
 OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand,
                                                            const FunctionInfo &info) const
 {
-    const bool atomic = isAtomic(instruction) || info.inferredAtomicInstructions.find(instruction) != info.inferredAtomicInstructions.end();
+    const auto inferredIt = info.inferredAtomicInstructions.find(instruction);
+    const bool isInferredAtomic = inferredIt != info.inferredAtomicInstructions.end();
+    const bool atomic = isAtomic(instruction) || isInferredAtomic;
     if (atomic) {
-        auto instrumentation = getAtomicInstrumentation(instruction, operand);
+        const __tsan_memory_order memOrder = isInferredAtomic ? inferredIt->second : __tsan_memory_order_acq_rel;
+        auto instrumentation = getAtomicInstrumentation(instruction, operand, memOrder);
         if (instrumentation.has_value()) {
             return *instrumentation;
         }
@@ -725,6 +812,8 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         }
         if (assembly == MOVE_OPERAND_RDI) {
             if (operand->isPcrel()) {
+                // The memory displacement is relative the rip at the start of the NEXT instruction
+                // The lea instruction should have 7 bytes (if the memory displacement is encoded with 4 byte)
                 const auto decoded = DecodedInstruction_t::factory(instruction);
                 auto offset = operand->getMemoryDisplacement() + decoded->length() - 7;
                 insertAssembly("lea rdi, [rel " + toHex(offset) + "]");
@@ -774,6 +863,7 @@ void TSanTransform::registerDependencies()
         tsanWrite[s] = elfDeps->appendPltEntry("__tsan_write" + std::to_string(s));
         tsanRead[s] = elfDeps->appendPltEntry("__tsan_read" + std::to_string(s));
         tsanAtomicLoad[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_load");
+        tsanAtomicStore[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_store");
         tsanAtomicFetchAdd[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_add");
         tsanAtomicFetchSub[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_sub");
         tsanAtomicFetchAnd[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_and");
