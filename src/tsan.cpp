@@ -65,9 +65,11 @@ int main(int argc, char* argv[]) {
     } catch (const IRDB_SDK::DatabaseError_t &db_error) {
         // log any databse errors that might come up in the transform process
         std::cout << program_name << ": Unexpected database error: " << db_error << "file url: " << url << std::endl;
+        return 2;
     } catch (...) {
         // log any other errors
         std::cout<< program_name << ": Unexpected error file url: " << url << std::endl;
+        return 2;
     }
 
     // return success code to driver (as a shell-style return value).  0=success, 1=warnings, 2=errors
