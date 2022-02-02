@@ -2,6 +2,10 @@ add_executable(tsan
     tsan.cpp
     tsantransform.cpp
     tsantransform.h
+    pointeranalysis.cpp
+    pointeranalysis.h
+    fixedpointanalysis.cpp
+    fixedpointanalysis.h
 )
 target_link_libraries(tsan
     PRIVATE irdb-sdk
