@@ -724,6 +724,17 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
                 tsanAtomicStore[bytes], true, {}, true);
         }
     }
+    if (mnemonic == "xchg") {
+        return OperationInstrumentation({
+                opHasRdi ? "mov " + scratchReg + ", rdi" : "",
+                MOVE_OPERAND_RDI,
+                "mov " + rsiReg + ", " + replacedNonMemoryOperand,
+                "mov rdx, " + memOrder,
+                "call 0",
+                "mov " + nonMemoryOperand->getString() + ", " + raxReg
+            },
+            tsanAtomicExchange[bytes], true, {standard64Bit(nonMemoryOperand->getString())}, true);
+    }
     print <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
 //        throw std::invalid_argument("Unhandled atomic instruction");
     return {};
@@ -747,7 +758,10 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
 {
     const auto inferredIt = info.inferredAtomicInstructions.find(instruction);
     const bool isInferredAtomic = inferredIt != info.inferredAtomicInstructions.end();
-    const bool atomic = isAtomic(instruction) || isInferredAtomic;
+    const auto decoded = DecodedInstruction_t::factory(instruction);
+    // the xchg instruction is always atomic, even without the lock prefix
+    const bool isExchange = decoded->getMnemonic() == "xchg";
+    const bool atomic = isAtomic(instruction) || isInferredAtomic || isExchange;
     if (atomic) {
         const __tsan_memory_order memOrder = isInferredAtomic ? inferredIt->second : __tsan_memory_order_acq_rel;
         auto instrumentation = getAtomicInstrumentation(instruction, operand, memOrder);
@@ -864,6 +878,7 @@ void TSanTransform::registerDependencies()
         tsanRead[s] = elfDeps->appendPltEntry("__tsan_read" + std::to_string(s));
         tsanAtomicLoad[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_load");
         tsanAtomicStore[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_store");
+        tsanAtomicExchange[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_exchange");
         tsanAtomicFetchAdd[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_add");
         tsanAtomicFetchSub[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_sub");
         tsanAtomicFetchAnd[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_and");

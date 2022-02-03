@@ -103,6 +103,7 @@ private:
     std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicLoad;
     // int(int*, int, __tsan_memory_order)
     std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicStore;
+    std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicExchange;
     // int(int*, int, __tsan_memory_order)
     std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicFetchAdd;
     std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicFetchSub;
