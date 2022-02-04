@@ -4,6 +4,7 @@ add_library(instructionmap SHARED
 )
 target_link_libraries(instructionmap
     PRIVATE zipr-sdk
+    PRIVATE common
 )
 # the .zpi postfix is required by the zipr framework
 set_target_properties(instructionmap PROPERTIES LIBRARY_OUTPUT_NAME "instructionmap.zpi")

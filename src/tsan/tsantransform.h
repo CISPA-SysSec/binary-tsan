@@ -57,6 +57,7 @@ struct OperationInstrumentation
 class TSanTransform : public IRDB_SDK::Transform_t {
 public:
     TSanTransform(IRDB_SDK::FileIR_t * file);
+    virtual ~TSanTransform();
 
     bool parseArgs(const std::vector<std::string> &options);
     bool executeStep();
@@ -85,10 +86,18 @@ private:
 private:
     mutable std::ofstream print;
 
+    struct InstrumentationMap {
+        IRDB_SDK::Instruction_t *instrumentation;
+        IRDB_SDK::VirtualOffset_t originalPosition;
+        std::string originalDisassembly;
+    };
+
     // options
     bool useStarsAnalysis = false;
 
     std::unique_ptr<IRDB_SDK::DeadRegisterMap_t> deadRegisters;
+
+    std::vector<InstrumentationMap> instrumentationAttribution;
 
     // tsan functions
     IRDB_SDK::Instruction_t *tsanInit;

@@ -7,6 +7,8 @@
 
 #include "pointeranalysis.h"
 #include "fixedpointanalysis.h"
+#include "simplefile.h"
+#include "attribution.h"
 
 using namespace IRDB_SDK;
 
@@ -32,6 +34,23 @@ TSanTransform::TSanTransform(FileIR_t *file) :
 {
     std::fill(tsanRead.begin(), tsanRead.end(), nullptr);
     std::fill(tsanWrite.begin(), tsanWrite.end(), nullptr);
+}
+
+TSanTransform::~TSanTransform()
+{
+    // TODO: define the filename in the common module
+    std::vector<Attribution> attributions;
+    attributions.reserve(instrumentationAttribution.size());
+
+    for (const auto &instrumentationMap : instrumentationAttribution) {
+        Attribution attribution;
+        attribution.originalAddress = instrumentationMap.originalPosition;
+        attribution.instrumentedAddress = instrumentationMap.instrumentation->getBaseID();
+        strncpy(attribution.disassembly, instrumentationMap.originalDisassembly.data(), sizeof(attribution.disassembly)-1);
+        attributions.push_back(attribution);
+    }
+
+    writeSimpleDataToFile(attributions, "tsan-attribution.dat");
 }
 
 bool TSanTransform::parseArgs(const std::vector<std::string> &options)
@@ -800,6 +819,10 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
 
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, const FunctionInfo &info)
 {
+    const VirtualOffset_t originalInstructionOffset = instruction->getAddress()->getVirtualOffset();
+    // TODO: lock/rep prefix
+    const std::string originalInstructionDisassembly = instruction->getDisassembly();
+
     if (isRepeated(instruction)) {
 //        print <<"Repeated: "<<instruction->getDisassembly()<<std::endl;
 //        throw std::invalid_argument("Repeated!");
@@ -866,8 +889,17 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
                 insertAssembly("lea rdi, [rdi + " + toHex(offset) + "]");
             }
         } else {
-            Instruction_t *callTarget = contains(assembly, "call") ? instrumentation.callTarget : nullptr;
+            const bool isCall = contains(assembly, "call");
+            Instruction_t *callTarget = isCall ? instrumentation.callTarget : nullptr;
             insertAssembly(assembly, callTarget);
+
+            if (isCall) {
+                InstrumentationMap im;
+                im.instrumentation = tmp;
+                im.originalPosition = originalInstructionOffset;
+                im.originalDisassembly = originalInstructionDisassembly;
+                instrumentationAttribution.push_back(im);
+            }
         }
     }
 

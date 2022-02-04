@@ -13,7 +13,7 @@ if not os.path.isdir(binaryFolder):
     exit(1)
 
 
-LIBRARY_WHITELIST = ["libglib-2.0.so", "libxcb.so", "libdbus-1.so", "libQt5Core.so", "libQt5DBus.so"]
+LIBRARY_WHITELIST = ["libglib-2.0.so", "libxcb.so", "libdbus-1.so", "libQt5Core.so", "libQt5DBus.so", "libQt5Widgets.so", "libQt5XcbQpa.so"]
 
 ADDITIONAL_DEPENDENCIES = [ ["libQt5Core.so", ["libQt5DBus.so.5"]] ]
 
@@ -90,6 +90,7 @@ for lib in toInstrument:
 toInstrument = list(dict.fromkeys(toInstrument))
 
 for library in toInstrument:
+    origLibrary = library.split("/")[-1]
     library = os.path.realpath(library)
     print("Instrument library " + library)
     
@@ -104,13 +105,15 @@ for library in toInstrument:
         shutil.copy(library, copiedLibraryPath)
         
         exitcode = os.system(threadSanitizerScript + " " + copiedLibraryPath + " " + instrumentedOutput)
+        if os.path.isfile("tsan-instrumentation-attribution.dat"):
+            os.rename("tsan-instrumentation-attribution.dat", origLibrary + ".attribution")
         
         # delete copy of the original library
         os.remove(copiedLibraryPath)
         
         if exitcode != 0:
             print("\t-> Instrumenting the library failed, it will not be used")
-            exit(1)
+            #exit(1)
             continue
         
     # create symbolic link for the different subversions
@@ -134,6 +137,8 @@ shutil.copy(inputBinary, inputBinaryTemp)
 
 # instrument the binary
 exitcode = os.system(threadSanitizerScript + " " + inputBinaryTemp + " " + outputBinary)
+if os.path.isfile("tsan-instrumentation-attribution.dat"):
+    os.rename("tsan-instrumentation-attribution.dat", outputBinary + ".attribution")
 
 os.remove(inputBinaryTemp)
 
@@ -143,3 +148,5 @@ if exitcode != 0:
 
 print("\n\nInstrumenting successfull, please run the target binary like this:")
 print("LD_LIBRARY_PATH=" + instrumentedBinariesFolder + " ./" + outputBinary)
+print("or")
+print("LD_LIBRARY_PATH=" + instrumentedBinariesFolder + " unbuffer ./" + outputBinary + " 2>&1 | " + binaryFolder + "/ps-plugin/translate-stacktrace")
