@@ -20,6 +20,9 @@ endif()
 set(PLUGIN_PATH ${CMAKE_BINARY_DIR}/ps-plugin)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PLUGIN_PATH})
 
+set(ZIPR_PLUGIN_PATH ${CMAKE_BINARY_DIR}/zipr-plugin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${ZIPR_PLUGIN_PATH})
+
 if(NOT ZIPR_LOCATION)
     message(FATAL_ERROR "Please provide a valid zipr location")
 endif()
@@ -50,6 +53,12 @@ add_library(irdb-sdk INTERFACE)
 target_link_libraries(irdb-sdk
     INTERFACE _irdb-sdk
 )
+
+add_library(zipr-sdk INTERFACE)
+target_link_libraries(zipr-sdk
+    INTERFACE irdb-sdk
+)
+target_include_directories(zipr-sdk INTERFACE "${ZIPR_LOCATION}/zipr-sdk/include/")
 
 
 add_subdirectory(src)

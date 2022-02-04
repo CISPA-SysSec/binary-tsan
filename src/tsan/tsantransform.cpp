@@ -83,6 +83,10 @@ bool TSanTransform::executeStep()
             continue;
         }
 
+//        if (function->getName() != "_ZN10QSemaphore7acquireEi") {
+//            continue;
+//        }
+
         const FunctionInfo info = analyseFunction(function);
 
         const bool isStackLocal = !doesStackLeaveFunction(function);
@@ -105,14 +109,14 @@ bool TSanTransform::executeStep()
                 if (operand->isMemory() && (operand->isWritten() || operand->isRead())) {
                     // TODO: under the right condition rbp based operands can also be ignored
                     if (isStackLocal && (contains(operand->getString(), "rsp") || contains(operand->getString(), "esp"))) {
-                        print <<"Omit stack access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+//                        print <<"Omit stack access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                         break;
                     }
                     if (isDataConstant(ir, instruction, operand)) {
-                        print <<"Omit constant access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+//                        print <<"Omit constant access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                         break;
                     }
-                    print <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+//                    print <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                     instrumentMemoryAccess(instruction, operand, info);
                 }
             }
@@ -136,6 +140,7 @@ bool TSanTransform::executeStep()
 
 bool TSanTransform::isDataConstant(FileIR_t *ir, Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand)
 {
+    // TODO: exeiop->sections.findByAddress(referenced_address);
     if (operand->hasBaseRegister()) {
         return false;
     }
@@ -296,6 +301,7 @@ std::map<Instruction_t *, __tsan_memory_order> TSanTransform::inferAtomicInstruc
 
             if (!isAtomic(instruction)) {
                 const auto decoded = DecodedInstruction_t::factory(instruction);
+                // TODO: auch xchg??
                 if (decoded->getMnemonic() == "mov") {
                     result[instruction] = __tsan_memory_order_relaxed;
 //                    print <<"Inferred atomic instruction: "<<instruction->getDisassembly()<<std::endl;
@@ -353,7 +359,7 @@ std::set<Instruction_t*> TSanTransform::detectStackCanaryInstructions(Function_t
 
     // find canary read/writes
     if (canaryStackWrite != nullptr) {
-        print <<"Ignore canary instruction: "<<canaryStackWrite->getDisassembly()<<std::endl;
+//        print <<"Ignore canary instruction: "<<canaryStackWrite->getDisassembly()<<std::endl;
         result.insert(canaryStackWrite);
         const auto decodedWrite = DecodedInstruction_t::factory(canaryStackWrite);
 
@@ -363,7 +369,7 @@ std::set<Instruction_t*> TSanTransform::detectStackCanaryInstructions(Function_t
             const bool isCanaryStackRead = decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() &&
                     decoded->getOperand(1)->getString() == decodedWrite->getOperand(0)->getString();
             if (contains(assembly, CANARY_CHECK) || isCanaryStackRead) {
-                print <<"Ignore canary instruction: "<<assembly<<std::endl;
+//                print <<"Ignore canary instruction: "<<assembly<<std::endl;
                 result.insert(instruction);
                 continue;
             }
@@ -383,6 +389,7 @@ static bool isLeafFunction(const Function_t *function)
 
 int TSanTransform::inferredStackFrameSize(const IRDB_SDK::Function_t *function) const
 {
+    // TODO: if the function does not use the stack at all, return 0 (to avoid moving the stack for the tsan function call)
     if (!isLeafFunction(function)) {
         return 0;
     }
@@ -439,6 +446,16 @@ bool TSanTransform::isAtomic(IRDB_SDK::Instruction_t *instruction)
     return std::any_of(dataBits.begin(), dataBits.begin() + decoded->getPrefixCount(), [](char c) {
         return static_cast<unsigned char>(c) == 0xF0;
     });
+}
+
+bool TSanTransform::isRepeated(IRDB_SDK::Instruction_t *instruction)
+{
+    const auto decoded = DecodedInstruction_t::factory(instruction);
+    // some vector instructions have the rep prefix even if they are not repeated
+    if (decoded->hasOperand(1) && decoded->getOperand(1)->getArgumentSizeInBytes() == 16) {
+        return false;
+    }
+    return decoded->hasRelevantRepPrefix() || decoded->hasRelevantRepnePrefix();
 }
 
 static std::string standard64Bit(const std::string &reg)
@@ -562,7 +579,7 @@ std::set<Instruction_t*> TSanTransform::detectStaticVariableGuards(Function_t *f
             // if it is created by disecting the disassembly, this is not the case
             // Therefore, make sure that it is a canonical form
             const std::string guardLocation = decoded->getOperand(1)->getString();
-            print <<"Found static variable guard location: "<<guardLocation<<std::endl;
+//            print <<"Found static variable guard location: "<<guardLocation<<std::endl;
             guardLocations.insert(guardLocation);
         }
         if (guardLocations.size() == 0) {
@@ -580,7 +597,7 @@ std::set<Instruction_t*> TSanTransform::detectStaticVariableGuards(Function_t *f
         const std::string op1Str = decoded->getOperand(1)->getString();
         const bool isGuardLocation = guardLocations.find(op1Str) != guardLocations.end();
         if (isGuardLocation) {
-            print <<"Found static variable guard read: "<<instruction->getDisassembly()<<std::endl;
+//            print <<"Found static variable guard read: "<<instruction->getDisassembly()<<std::endl;
             result.insert(instruction);
         }
     }
@@ -624,10 +641,12 @@ static std::string replaceRegister(const std::string &operand, const RegisterID 
 std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand,
                                                                                 const __tsan_memory_order memoryOrder) const
 {
+    // https://wiki.osdev.org/X86-64_Instruction_Encoding
+    // possible: ADC, ADD, AND, BTC, BTR, BTS, CMPXCHG, CMPXCHG8B, CMPXCHG16B, DEC, INC, NEG, NOT, OR, SBB, SUB, XADD, XCHG and XOR.
     const uint bytes = operand->getArgumentSizeInBytes();
 
     const auto decoded = DecodedInstruction_t::factory(instruction);
-    print <<"Found atomic instruction with mnemonic: "<<decoded->getMnemonic()<<std::endl;
+//    print <<"Found atomic instruction with mnemonic: "<<decoded->getMnemonic()<<std::endl;
     // TODO: 128 bit operations?
     const std::string mnemonic = decoded->getMnemonic();
     const std::string rsiReg = toBytes(RegisterID::rn_RSI, bytes);
@@ -640,6 +659,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     // TODO: if op1 contains the rsp, then it has to be offset
     const auto op0 = decoded->getOperand(0);
     if (!decoded->hasOperand(1)) {
+        // TODO: handle inc, dec
         return {};
     }
     const auto op1 = decoded->getOperand(1);
@@ -650,7 +670,6 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     const bool opHasRdi = contains(nonMemoryOperand->getString(), rdiReg);
     const std::string replacedNonMemoryOperand = replaceRegister(nonMemoryOperand->getString(), RegisterID::rn_RDI, scratch);
 
-    // assumption: op0 is memory, op1 is register
     if (mnemonic == "xadd") {
         return OperationInstrumentation({
                 opHasRdi ? "mov " + scratchReg + ", rdi" : "",
@@ -736,7 +755,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
             tsanAtomicExchange[bytes], true, {standard64Bit(nonMemoryOperand->getString())}, true);
     }
     print <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
-//        throw std::invalid_argument("Unhandled atomic instruction");
+//    throw std::invalid_argument("Unhandled atomic instruction");
     return {};
 }
 
@@ -781,6 +800,10 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
 
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, const FunctionInfo &info)
 {
+    if (isRepeated(instruction)) {
+//        print <<"Repeated: "<<instruction->getDisassembly()<<std::endl;
+//        throw std::invalid_argument("Repeated!");
+    }
     const uint bytes = instrumentationByteSize(operand);
     if (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
             (operand->isRead() && tsanRead[bytes] == nullptr) ||
