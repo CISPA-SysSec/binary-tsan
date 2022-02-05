@@ -8,7 +8,6 @@
 #include "pointeranalysis.h"
 #include "fixedpointanalysis.h"
 #include "simplefile.h"
-#include "protobuf/instrumentationmap.pb.h"
 
 using namespace IRDB_SDK;
 
@@ -40,10 +39,7 @@ TSanTransform::~TSanTransform()
 {
     InternalInstrumentationMap instrumentationMap;
     for (const auto &instr : instrumentationAttribution) {
-        InstrumentationInfo info;
-        info.set_original_address(instr.originalPosition);
-        info.set_disassembly(instr.originalDisassembly);
-        instrumentationMap.mutable_instrumentation()->insert({instr.instrumentation->getBaseID(), info});
+        instrumentationMap.mutable_instrumentation()->insert({instr.instrumentation->getBaseID(), instr.info});
     }
 
     // TODO: define the filename in the common module
@@ -93,7 +89,7 @@ bool TSanTransform::executeStep()
 
     registerDependencies();
 
-    const std::vector<std::string> noInstrumentFunctions = {"_init", "_start", "__libc_csu_init", "__tsan_default_options"};
+    const std::vector<std::string> noInstrumentFunctions = {"_init", "_start", "__libc_csu_init", "__tsan_default_options", "_fini", "__libc_csu_fini"};
 
     for (Function_t *function : ir->getFunctions()) {
         if (function->getEntryPoint() == nullptr) {
@@ -108,10 +104,6 @@ bool TSanTransform::executeStep()
             continue;
         }
 
-//        if (function->getName() != "_ZN10QSemaphore7acquireEi") {
-//            continue;
-//        }
-
         const FunctionInfo info = analyseFunction(function);
 
         const bool isStackLocal = !doesStackLeaveFunction(function);
@@ -122,6 +114,15 @@ bool TSanTransform::executeStep()
                 continue;
             }
             const auto decoded = DecodedInstruction_t::factory(instruction);
+            if (decoded->isCall()) {
+                InstrumentationInfo instrumentationInfo;
+                instrumentationInfo.set_original_address(instruction->getAddress()->getVirtualOffset());
+                instrumentationInfo.set_function_has_entry_exit(info.addEntryExitInstrumentation);
+                Instrumentation im;
+                im.instrumentation = instruction;
+                im.info = instrumentationInfo;
+                instrumentationAttribution.push_back(im);
+            }
             if (decoded->isBranch() || decoded->isCall()) {
                 continue;
             }
@@ -147,15 +148,11 @@ bool TSanTransform::executeStep()
             }
         }
 
-        if (info.exitPoints.size() > 0) {
-            // TODO: there might be functions with an important variable location memory read in the jump instruction
-            const bool isStub = std::find(info.exitPoints.begin(), info.exitPoints.end(), info.properEntryPoint) != info.exitPoints.end();
-            if (!isStub) {
-                // TODO: what if the first instruction is atomic and thus removed?
-                insertFunctionEntry(info.properEntryPoint);
-                for (Instruction_t *ret : info.exitPoints) {
-                    insertFunctionExit(ret);
-                }
+        if (info.addEntryExitInstrumentation) {
+            // TODO: what if the first instruction is atomic and thus removed?
+            insertFunctionEntry(info.properEntryPoint);
+            for (Instruction_t *ret : info.exitPoints) {
+                insertFunctionExit(ret);
             }
         }
         getFileIR()->assembleRegistry();
@@ -272,6 +269,15 @@ FunctionInfo TSanTransform::analyseFunction(Function_t *function)
             break;
         }
         result.exitPoints.push_back(instruction);
+    }
+
+    result.addEntryExitInstrumentation = false;
+    if (result.exitPoints.size() > 0) {
+        // TODO: there might be functions with an important variable location memory read in the jump instruction
+        const bool isStub = std::find(result.exitPoints.begin(), result.exitPoints.end(), result.properEntryPoint) != result.exitPoints.end();
+        if (!isStub) {
+            result.addEntryExitInstrumentation = true;
+        }
     }
 
     return result;
@@ -823,8 +829,10 @@ static std::string disassembly(const Instruction_t *instruction)
 
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, const FunctionInfo &info)
 {
-    const VirtualOffset_t originalInstructionOffset = instruction->getAddress()->getVirtualOffset();
-    const std::string originalInstructionDisassembly = disassembly(instruction);
+    InstrumentationInfo instrumentationInfo;
+    instrumentationInfo.set_original_address(instruction->getAddress()->getVirtualOffset());
+    instrumentationInfo.set_disassembly(disassembly(instruction));
+    instrumentationInfo.set_function_has_entry_exit(info.addEntryExitInstrumentation);
 
     if (isRepeated(instruction)) {
 //        print <<"Repeated: "<<instruction->getDisassembly()<<std::endl;
@@ -899,8 +907,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
             if (isCall) {
                 Instrumentation im;
                 im.instrumentation = tmp;
-                im.originalPosition = originalInstructionOffset;
-                im.originalDisassembly = originalInstructionDisassembly;
+                im.info = instrumentationInfo;
                 instrumentationAttribution.push_back(im);
             }
         }
@@ -928,7 +935,6 @@ void TSanTransform::registerDependencies()
     elfDeps->prependLibraryDepedencies("libgcc_s.so.1");
     elfDeps->prependLibraryDepedencies("libstdc++.so.6");
     elfDeps->prependLibraryDepedencies("libtsan.so.0");
-    tsanInit = elfDeps->appendPltEntry("__tsan_init");
     tsanFunctionEntry = elfDeps->appendPltEntry("__tsan_func_entry");
     tsanFunctionExit = elfDeps->appendPltEntry("__tsan_func_exit");
     for (int s : {1, 2, 4, 8, 16}) {

@@ -68,6 +68,11 @@ int main()
                     const std::string disassembly = addrIt->second.disassembly();
                     const std::string assemblyStr = disassembly.size() > 0 ? ": " + disassembly : "";
                     std::cout <<"(" << sourceObject << "+0x" << std::hex << addr << " -> originally 0x" << addrIt->second.original_address() << assemblyStr <<")"<<std::endl;
+
+                    if (addrIt->second.has_function_has_entry_exit() && !addrIt->second.function_has_entry_exit()) {
+                        std::cout <<"    *** Missing stack trace entry(/ies) ***"<<std::endl;
+                    }
+
                     continue;
                 }
             }

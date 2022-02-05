@@ -8,6 +8,8 @@
 #include <fstream>
 #include <optional>
 
+#include "protobuf/instrumentationmap.pb.h"
+
 // from tsan-interface-atomic.h, do not change
 typedef enum {
     __tsan_memory_order_relaxed = 0,
@@ -29,6 +31,7 @@ struct FunctionInfo {
     int inferredStackFrameSize = 0;
     // instruction like guard variable reads that count as atomic by thread sanitizer standards
     std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> inferredAtomicInstructions;
+    bool addEntryExitInstrumentation;
 };
 
 struct OperationInstrumentation
@@ -87,8 +90,7 @@ private:
 
     struct Instrumentation {
         IRDB_SDK::Instruction_t *instrumentation;
-        IRDB_SDK::VirtualOffset_t originalPosition;
-        std::string originalDisassembly;
+        InstrumentationInfo info;
     };
 
     // options
@@ -99,7 +101,6 @@ private:
     std::vector<Instrumentation> instrumentationAttribution;
 
     // tsan functions
-    IRDB_SDK::Instruction_t *tsanInit;
     // void(void*)
     IRDB_SDK::Instruction_t *tsanFunctionEntry;
     // void()
