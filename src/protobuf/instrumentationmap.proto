@@ -1,0 +1,19 @@
+syntax = "proto2";
+
+// for communication between the zipr plugin and the real-time stack-trace annotator
+message InstrumentationInfo {
+    required uint64 original_address = 1;
+    optional string disassembly = 2;
+};
+
+message InstrumentationMap {
+    // instrumented address -> original instruction info
+    map<uint64, InstrumentationInfo> instrumentation = 1;
+}
+
+
+// for communication between the irdb plugin and the zipr plugin, the final instrumentation location is not yet resolved
+message InternalInstrumentationMap {
+    // instrumented instruction database id -> original instruction info
+    map<uint64, InstrumentationInfo> instrumentation = 1;
+}

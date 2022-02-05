@@ -5,6 +5,8 @@ This project contains a binary only thread sanitizer based on the binary rewriti
 
 ## Compile and Run
 
+For dependencies, apart from the ones required by zipr, this framework also uses protobuf.
+
 To compile the thread sanitizer, you must have a fully compiled instance of zipr on your computer.
 It can currently be found here: https://git.zephyr-software.com/opensrc/zipr.
 

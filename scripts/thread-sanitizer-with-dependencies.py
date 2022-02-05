@@ -105,8 +105,8 @@ for library in toInstrument:
         shutil.copy(library, copiedLibraryPath)
         
         exitcode = os.system(threadSanitizerScript + " " + copiedLibraryPath + " " + instrumentedOutput)
-        if os.path.isfile("tsan-instrumentation-attribution.dat"):
-            os.rename("tsan-instrumentation-attribution.dat", origLibrary + ".attribution")
+        if os.path.isfile("tsan-instrumentation-info.dat"):
+            os.rename("tsan-instrumentation-info.dat", origLibrary + ".instrinfo")
         
         # delete copy of the original library
         os.remove(copiedLibraryPath)
@@ -137,8 +137,8 @@ shutil.copy(inputBinary, inputBinaryTemp)
 
 # instrument the binary
 exitcode = os.system(threadSanitizerScript + " " + inputBinaryTemp + " " + outputBinary)
-if os.path.isfile("tsan-instrumentation-attribution.dat"):
-    os.rename("tsan-instrumentation-attribution.dat", outputBinary + ".attribution")
+if os.path.isfile("tsan-instrumentation-info.dat"):
+    os.rename("tsan-instrumentation-info.dat", outputBinary + ".instrinfo")
 
 os.remove(inputBinaryTemp)
 

@@ -3,43 +3,37 @@
 #include <cstring>
 
 #include "simplefile.h"
-#include "attribution.h"
+#include "protobuf/instrumentationmap.pb.h"
 
 using namespace IRDB_SDK;
 using namespace Zipr_SDK;
 
 void InstructionMap::doCallbackLinkingEnd()
 {
-    std::vector<Attribution> instrumentationAttribution = readSimpleDataFromFile<Attribution>("tsan-attribution.dat");
+    InternalInstrumentationMap internalMap;
+    readProtobufFromFile(internalMap, "tsan-attribution.dat");
 
-    std::map<DatabaseID_t, Attribution> attributionMap;
-    for (const auto &attribution : instrumentationAttribution) {
-        attributionMap[attribution.instrumentedAddress] = attribution;
-    }
-
-    std::vector<Attribution> instrumentationLocation;
+    InstrumentationMap resultMap;
     for (const auto &[instruction, addr] : instructionLocations) {
-        auto it = attributionMap.find(instruction->getBaseID());
-        if (it != attributionMap.end()) {
-            const RangeAddress_t endAddr = addr + instruction->getDataBits().size() - 1;
-            Attribution a = it->second;
-            a.instrumentedAddress = endAddr;
-            instrumentationLocation.push_back(a);
+        const RangeAddress_t endAddr = addr + instruction->getDataBits().size() - 1;
+        auto it = internalMap.instrumentation().find(instruction->getBaseID());
+        if (it != internalMap.instrumentation().end()) {
+            InstrumentationInfo info;
+            info.set_original_address(it->second.original_address());
+            info.set_disassembly(it->second.disassembly());
+            resultMap.mutable_instrumentation()->insert({endAddr, info});
         } else {
             const auto decoded = DecodedInstruction_t::factory(instruction);
             if (decoded->isCall()) {
-                const RangeAddress_t endAddr = addr + instruction->getDataBits().size() - 1;
-                Attribution a;
-                a.instrumentedAddress = endAddr;
-                a.originalAddress = instruction->getAddress()->getVirtualOffset();
-                a.disassembly[0] = 0;
-                instrumentationLocation.push_back(a);
+                InstrumentationInfo info;
+                info.set_original_address(instruction->getAddress()->getVirtualOffset());
+                resultMap.mutable_instrumentation()->insert({endAddr, info});
             }
         }
     }
 
-    writeSimpleDataToFile(instrumentationLocation, "tsan-instrumentation-attribution.dat");
-    writeSimpleDataToFile(instrumentationLocation, "../tsan-instrumentation-attribution.dat");
+    writeProtobufToFile(resultMap, "tsan-instrumentation-info.dat");
+    writeProtobufToFile(resultMap, "../tsan-instrumentation-info.dat");
 }
 
 extern "C" ZiprPluginInterface_t* GetPluginInterface(Zipr_t* zipr)

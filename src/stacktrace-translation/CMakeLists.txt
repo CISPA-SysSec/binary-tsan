@@ -3,4 +3,5 @@ add_executable(translate-stacktrace
 )
 target_link_libraries(translate-stacktrace
     PRIVATE common
+    PRIVATE protobuf-files
 )

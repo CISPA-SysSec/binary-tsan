@@ -10,6 +10,7 @@ add_executable(tsan
 target_link_libraries(tsan
     PRIVATE irdb-sdk
     PRIVATE common
+    PRIVATE protobuf-files
 )
 # the .exe postfix is required by the zipr framework
 set_target_properties(tsan PROPERTIES OUTPUT_NAME "tsan.exe")

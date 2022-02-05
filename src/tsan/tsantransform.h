@@ -69,7 +69,6 @@ private:
     void insertFunctionEntry(IRDB_SDK::Instruction_t *insertBefore);
     void insertFunctionExit(IRDB_SDK::Instruction_t *insertBefore);
     std::set<std::string> getSaveRegisters(IRDB_SDK::Instruction_t *instruction);
-    static bool isAtomic(IRDB_SDK::Instruction_t *instruction);
     static bool isRepeated(IRDB_SDK::Instruction_t *instruction);
     static bool isDataConstant(IRDB_SDK::FileIR_t *ir, IRDB_SDK::Instruction_t *instruction,
                                const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand);
@@ -86,7 +85,7 @@ private:
 private:
     mutable std::ofstream print;
 
-    struct InstrumentationMap {
+    struct Instrumentation {
         IRDB_SDK::Instruction_t *instrumentation;
         IRDB_SDK::VirtualOffset_t originalPosition;
         std::string originalDisassembly;
@@ -97,7 +96,7 @@ private:
 
     std::unique_ptr<IRDB_SDK::DeadRegisterMap_t> deadRegisters;
 
-    std::vector<InstrumentationMap> instrumentationAttribution;
+    std::vector<Instrumentation> instrumentationAttribution;
 
     // tsan functions
     IRDB_SDK::Instruction_t *tsanInit;

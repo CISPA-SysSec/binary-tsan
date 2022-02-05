@@ -60,5 +60,7 @@ target_link_libraries(zipr-sdk
 )
 target_include_directories(zipr-sdk INTERFACE "${ZIPR_LOCATION}/zipr-sdk/include/")
 
+# TODO: make it optional and disable the necessary code if not found
+find_package(Protobuf 3.3.0 REQUIRED)
 
 add_subdirectory(src)

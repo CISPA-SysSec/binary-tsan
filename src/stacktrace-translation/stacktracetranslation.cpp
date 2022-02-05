@@ -4,8 +4,8 @@
 #include <map>
 #include <algorithm>
 
+#include "protobuf/instrumentationmap.pb.h"
 #include "simplefile.h"
-#include "attribution.h"
 
 static bool contains(const std::string &str, const std::string &search)
 {
@@ -29,7 +29,8 @@ static std::vector<std::string> split(const std::string &txt, char ch)
 
 int main()
 {
-    std::map<std::string, std::map<uintptr_t, Attribution>> attributions;
+
+    std::map<std::string, InstrumentationMap> instrumentation;
 
     for (std::string line; std::getline(std::cin, line);) {
         const auto parts = split(line, ' ');
@@ -47,28 +48,26 @@ int main()
             const std::string sourceObject = originParts[0];
             const uintptr_t addr = std::stoul(originParts[1], nullptr, 16);
 
-            if (attributions.find(sourceObject) == attributions.end()) {
-                const std::string filename = sourceObject + ".attribution";
-                const auto data = readSimpleDataFromFile<Attribution>(filename);
-                if (data.size() > 0) {
-                    std::map<uintptr_t, Attribution> attribution;
-                    for (const auto &a : data) {
-                        attribution[a.instrumentedAddress] = a;
-                    }
-                    attributions[sourceObject] = attribution;
+            if (instrumentation.find(sourceObject) == instrumentation.end()) {
+                const std::string filename = sourceObject + ".instrinfo";
+                InstrumentationMap instrumentationMap;
+                const bool success = readProtobufFromFile(instrumentationMap, filename);
+                if (success) {
+                    instrumentation[sourceObject] = instrumentationMap;
                 }
             }
 
-            const auto it = attributions.find(sourceObject);
-            if (it != attributions.end()) {
-                const auto addrIt = it->second.find(addr);
-                if (addrIt != it->second.end()) {
+            const auto it = instrumentation.find(sourceObject);
+            if (it != instrumentation.end()) {
+                const auto &instr = it->second.instrumentation();
+                const auto addrIt = instr.find(addr);
+                if (addrIt != instr.end()) {
                     for (int i = 0;i<int(parts.size())-1;i++) {
                         std::cout <<parts[i]<<" ";
                     }
-                    const std::string disassembly = std::string(addrIt->second.disassembly);
+                    const std::string disassembly = addrIt->second.disassembly();
                     const std::string assemblyStr = disassembly.size() > 0 ? ": " + disassembly : "";
-                    std::cout <<"(" << sourceObject << "+0x" << std::hex << addr << " -> originally 0x" << addrIt->second.originalAddress << assemblyStr <<")"<<std::endl;
+                    std::cout <<"(" << sourceObject << "+0x" << std::hex << addr << " -> originally 0x" << addrIt->second.original_address() << assemblyStr <<")"<<std::endl;
                     continue;
                 }
             }

@@ -8,7 +8,7 @@
 #include "pointeranalysis.h"
 #include "fixedpointanalysis.h"
 #include "simplefile.h"
-#include "attribution.h"
+#include "protobuf/instrumentationmap.pb.h"
 
 using namespace IRDB_SDK;
 
@@ -38,19 +38,16 @@ TSanTransform::TSanTransform(FileIR_t *file) :
 
 TSanTransform::~TSanTransform()
 {
-    // TODO: define the filename in the common module
-    std::vector<Attribution> attributions;
-    attributions.reserve(instrumentationAttribution.size());
-
-    for (const auto &instrumentationMap : instrumentationAttribution) {
-        Attribution attribution;
-        attribution.originalAddress = instrumentationMap.originalPosition;
-        attribution.instrumentedAddress = instrumentationMap.instrumentation->getBaseID();
-        strncpy(attribution.disassembly, instrumentationMap.originalDisassembly.data(), sizeof(attribution.disassembly)-1);
-        attributions.push_back(attribution);
+    InternalInstrumentationMap instrumentationMap;
+    for (const auto &instr : instrumentationAttribution) {
+        InstrumentationInfo info;
+        info.set_original_address(instr.originalPosition);
+        info.set_disassembly(instr.originalDisassembly);
+        instrumentationMap.mutable_instrumentation()->insert({instr.instrumentation->getBaseID(), info});
     }
 
-    writeSimpleDataToFile(attributions, "tsan-attribution.dat");
+    // TODO: define the filename in the common module
+    writeProtobufToFile(instrumentationMap, "tsan-attribution.dat");
 }
 
 bool TSanTransform::parseArgs(const std::vector<std::string> &options)
@@ -71,6 +68,15 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
 static bool contains(const std::string &str, const std::string &search)
 {
     return str.find(search) != std::string::npos;
+}
+
+static bool isAtomic(const Instruction_t *instruction)
+{
+    const auto decoded = DecodedInstruction_t::factory(instruction);
+    const std::string dataBits = instruction->getDataBits();
+    return std::any_of(dataBits.begin(), dataBits.begin() + decoded->getPrefixCount(), [](char c) {
+        return static_cast<unsigned char>(c) == 0xF0;
+    });
 }
 
 bool TSanTransform::executeStep()
@@ -458,15 +464,6 @@ std::set<std::string> TSanTransform::getSaveRegisters(Instruction_t *instruction
     return registersToSave;
 }
 
-bool TSanTransform::isAtomic(IRDB_SDK::Instruction_t *instruction)
-{
-    const auto decoded = DecodedInstruction_t::factory(instruction);
-    const std::string dataBits = instruction->getDataBits();
-    return std::any_of(dataBits.begin(), dataBits.begin() + decoded->getPrefixCount(), [](char c) {
-        return static_cast<unsigned char>(c) == 0xF0;
-    });
-}
-
 bool TSanTransform::isRepeated(IRDB_SDK::Instruction_t *instruction)
 {
     const auto decoded = DecodedInstruction_t::factory(instruction);
@@ -817,11 +814,17 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
     }
 }
 
+static std::string disassembly(const Instruction_t *instruction)
+{
+    // TODO: rep prefix
+    const std::string prefix = isAtomic(instruction) ? "lock " : "";
+    return prefix + instruction->getDisassembly();
+}
+
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, const FunctionInfo &info)
 {
     const VirtualOffset_t originalInstructionOffset = instruction->getAddress()->getVirtualOffset();
-    // TODO: lock/rep prefix
-    const std::string originalInstructionDisassembly = instruction->getDisassembly();
+    const std::string originalInstructionDisassembly = disassembly(instruction);
 
     if (isRepeated(instruction)) {
 //        print <<"Repeated: "<<instruction->getDisassembly()<<std::endl;
@@ -894,7 +897,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
             insertAssembly(assembly, callTarget);
 
             if (isCall) {
-                InstrumentationMap im;
+                Instrumentation im;
                 im.instrumentation = tmp;
                 im.originalPosition = originalInstructionOffset;
                 im.originalDisassembly = originalInstructionDisassembly;
