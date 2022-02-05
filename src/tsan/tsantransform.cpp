@@ -264,7 +264,8 @@ FunctionInfo TSanTransform::analyseFunction(Function_t *function)
         if (contains(instruction->getDisassembly(), "nop")) {
             continue;
         }
-        if (!decoded->isReturn()) {
+        const bool isSimpleConstJump = decoded->isUnconditionalBranch() && (decoded->getOperand(0)->isConstant() || decoded->getOperand(0)->isPcrel());
+        if (!decoded->isReturn() && !isSimpleConstJump) {
             result.exitPoints.clear();
             break;
         }
