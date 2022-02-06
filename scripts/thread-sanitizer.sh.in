@@ -18,4 +18,4 @@ cd ${ZIPR_LOCATION}
 export PSPATH=$PSPATH:${PLUGIN_PATH}
 export ZIPR_PLUGIN_PATH=$ZIPR_PLUGIN_PATH:${ZIPR_PLUGIN_PATH}
 cd $last
-$PSZ $1 $2 -c rida -c move_globals -o --elftables-only -o --no-use-stars -c tsan -o --no-use-stars -o zipr:seed=42
+$PSZ $1 $2 -c rida -c move_globals -o --elftables-only -o --no-use-stars -c tsan -o --no-use-stars --step-option zipr:"--zipr:seed 42"
