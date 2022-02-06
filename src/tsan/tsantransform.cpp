@@ -11,8 +11,6 @@
 
 using namespace IRDB_SDK;
 
-#define cout ERROR_USE_PRINT_INSTEAD
-
 #define MAKE_INSERT_ASSEMBLY(fileIR, i) Instruction_t *tmp = i; \
     bool hasInsertedBefore = false; \
     Function_t *_origFunction = i->getFunction(); \
@@ -28,8 +26,7 @@ using namespace IRDB_SDK;
     };
 
 TSanTransform::TSanTransform(FileIR_t *file) :
-    Transform_t(file),
-    print("../tsan-output")
+    Transform_t(file)
 {
     std::fill(tsanRead.begin(), tsanRead.end(), nullptr);
     std::fill(tsanWrite.begin(), tsanWrite.end(), nullptr);
@@ -54,7 +51,7 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
         } else if (option == "--no-use-stars") {
             useStarsAnalysis = false;
         } else {
-            print <<"Unrecognized option: "<<option<<std::endl;
+            std::cout <<"Unrecognized option: "<<option<<std::endl;
             return false;
         }
     }
@@ -135,14 +132,14 @@ bool TSanTransform::executeStep()
                 if (operand->isMemory() && (operand->isWritten() || operand->isRead())) {
                     // TODO: under the right condition rbp based operands can also be ignored
                     if (isStackLocal && (contains(operand->getString(), "rsp") || contains(operand->getString(), "esp"))) {
-//                        print <<"Omit stack access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+//                        std::cout <<"Omit stack access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                         break;
                     }
                     if (isDataConstant(ir, instruction, operand)) {
-//                        print <<"Omit constant access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+//                        std::cout <<"Omit constant access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                         break;
                     }
-//                    print <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+//                    std::cout <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                     instrumentMemoryAccess(instruction, operand, info);
                 }
             }
@@ -264,7 +261,8 @@ FunctionInfo TSanTransform::analyseFunction(Function_t *function)
         if (contains(instruction->getDisassembly(), "nop")) {
             continue;
         }
-        const bool isSimpleConstJump = decoded->isUnconditionalBranch() && (decoded->getOperand(0)->isConstant() || decoded->getOperand(0)->isPcrel());
+        // TODO: causes problems in libQt5Core
+        const bool isSimpleConstJump = false;//decoded->isUnconditionalBranch() && (decoded->getOperand(0)->isConstant() || decoded->getOperand(0)->isPcrel());
         if (!decoded->isReturn() && !isSimpleConstJump) {
             result.exitPoints.clear();
             break;
@@ -325,10 +323,10 @@ std::map<Instruction_t *, __tsan_memory_order> TSanTransform::inferAtomicInstruc
             continue;
         }
         if (!hasPrinted) {
-             print <<"Inferred atomics in function "<<function->getName()<<std::endl;
+             std::cout <<"Inferred atomics in function "<<function->getName()<<std::endl;
              hasPrinted = true;
         }
-        print <<"Same memory location set:"<<std::endl;
+        std::cout <<"Same memory location set:"<<std::endl;
         for (auto instruction : sameLocInstructions) {
 
             if (!isAtomic(instruction)) {
@@ -336,16 +334,16 @@ std::map<Instruction_t *, __tsan_memory_order> TSanTransform::inferAtomicInstruc
                 // TODO: auch xchg??
                 if (decoded->getMnemonic() == "mov") {
                     result[instruction] = __tsan_memory_order_relaxed;
-//                    print <<"Inferred atomic instruction: "<<instruction->getDisassembly()<<std::endl;
+//                    std::cout <<"Inferred atomic instruction: "<<instruction->getDisassembly()<<std::endl;
                 } else {
-                    print <<"WARNING: found non-atomic instruction to atomic like memory: "<<instruction->getDisassembly()<<std::endl;
+                    std::cout <<"WARNING: found non-atomic instruction to atomic like memory: "<<instruction->getDisassembly()<<std::endl;
                 }
             }
 
             const std::string atomicStr = isAtomic(instruction) ? "lock " : "";
-            print <<atomicStr<<instruction->getDisassembly()<<std::endl;
+            std::cout <<atomicStr<<instruction->getDisassembly()<<std::endl;
         }
-        print <<std::endl;
+        std::cout <<std::endl;
     }
     return result;
 }
@@ -367,13 +365,13 @@ std::set<Instruction_t*> TSanTransform::detectStackCanaryInstructions(Function_t
             if (decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() && decoded->getOperand(0)->isRegister()) {
                 Instruction_t *next = instruction->getFallthrough();
                 if (next == nullptr) {
-                    print <<"ERROR: unexpected instruction termination"<<std::endl;
+                    std::cout <<"ERROR: unexpected instruction termination"<<std::endl;
                     break;
                 }
                 const auto nextDecoded = DecodedInstruction_t::factory(next);
                 if (!nextDecoded->hasOperand(1) || !nextDecoded->getOperand(1)->isRegister() ||
                         decoded->getOperand(0)->getString() != nextDecoded->getOperand(1)->getString()) {
-                    print <<"ERROR: could not find canary stack write!"<<std::endl;
+                    std::cout <<"ERROR: could not find canary stack write!"<<std::endl;
                     break;
                 }
                 canaryStackWrite = next;
@@ -391,7 +389,7 @@ std::set<Instruction_t*> TSanTransform::detectStackCanaryInstructions(Function_t
 
     // find canary read/writes
     if (canaryStackWrite != nullptr) {
-//        print <<"Ignore canary instruction: "<<canaryStackWrite->getDisassembly()<<std::endl;
+//        std::cout <<"Ignore canary instruction: "<<canaryStackWrite->getDisassembly()<<std::endl;
         result.insert(canaryStackWrite);
         const auto decodedWrite = DecodedInstruction_t::factory(canaryStackWrite);
 
@@ -401,7 +399,7 @@ std::set<Instruction_t*> TSanTransform::detectStackCanaryInstructions(Function_t
             const bool isCanaryStackRead = decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() &&
                     decoded->getOperand(1)->getString() == decodedWrite->getOperand(0)->getString();
             if (contains(assembly, CANARY_CHECK) || isCanaryStackRead) {
-//                print <<"Ignore canary instruction: "<<assembly<<std::endl;
+//                std::cout <<"Ignore canary instruction: "<<assembly<<std::endl;
                 result.insert(instruction);
                 continue;
             }
@@ -602,11 +600,11 @@ std::set<Instruction_t*> TSanTransform::detectStaticVariableGuards(Function_t *f
             // if it is created by disecting the disassembly, this is not the case
             // Therefore, make sure that it is a canonical form
             const std::string guardLocation = decoded->getOperand(1)->getString();
-//            print <<"Found static variable guard location: "<<guardLocation<<std::endl;
+//            std::cout <<"Found static variable guard location: "<<guardLocation<<std::endl;
             guardLocations.insert(guardLocation);
         }
         if (guardLocations.size() == 0) {
-            print <<"WARNING: could not find static variable guard location!"<<std::endl;
+            std::cout <<"WARNING: could not find static variable guard location!"<<std::endl;
         }
     }
 
@@ -620,7 +618,7 @@ std::set<Instruction_t*> TSanTransform::detectStaticVariableGuards(Function_t *f
         const std::string op1Str = decoded->getOperand(1)->getString();
         const bool isGuardLocation = guardLocations.find(op1Str) != guardLocations.end();
         if (isGuardLocation) {
-//            print <<"Found static variable guard read: "<<instruction->getDisassembly()<<std::endl;
+//            std::cout <<"Found static variable guard read: "<<instruction->getDisassembly()<<std::endl;
             result.insert(instruction);
         }
     }
@@ -669,7 +667,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     const uint bytes = operand->getArgumentSizeInBytes();
 
     const auto decoded = DecodedInstruction_t::factory(instruction);
-//    print <<"Found atomic instruction with mnemonic: "<<decoded->getMnemonic()<<std::endl;
+//    std::cout <<"Found atomic instruction with mnemonic: "<<decoded->getMnemonic()<<std::endl;
     // TODO: 128 bit operations?
     const std::string mnemonic = decoded->getMnemonic();
     const std::string rsiReg = toBytes(RegisterID::rn_RSI, bytes);
@@ -683,6 +681,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     const auto op0 = decoded->getOperand(0);
     if (!decoded->hasOperand(1)) {
         // TODO: handle inc, dec
+        std::cout <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
         return {};
     }
     const auto op1 = decoded->getOperand(1);
@@ -777,7 +776,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
             },
             tsanAtomicExchange[bytes], true, {standard64Bit(nonMemoryOperand->getString())}, true);
     }
-    print <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
+    std::cout <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
 //    throw std::invalid_argument("Unhandled atomic instruction");
     return {};
 }
@@ -836,14 +835,14 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     instrumentationInfo.set_function_has_entry_exit(info.addEntryExitInstrumentation);
 
     if (isRepeated(instruction)) {
-//        print <<"Repeated: "<<instruction->getDisassembly()<<std::endl;
+//        std::cout <<"Repeated: "<<instruction->getDisassembly()<<std::endl;
 //        throw std::invalid_argument("Repeated!");
     }
     const uint bytes = instrumentationByteSize(operand);
     if (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
             (operand->isRead() && tsanRead[bytes] == nullptr) ||
             (operand->isWritten() && tsanWrite[bytes] == nullptr)) {
-        print <<"WARNING: memory operation of size "<<bytes<<" is not instrumented: "<<instruction->getDisassembly()<<std::endl;
+        std::cout <<"WARNING: memory operation of size "<<bytes<<" is not instrumented: "<<instruction->getDisassembly()<<std::endl;
         return;
     }
 

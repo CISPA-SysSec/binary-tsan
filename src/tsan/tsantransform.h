@@ -86,8 +86,6 @@ private:
     std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> inferAtomicInstructions(IRDB_SDK::Function_t *function) const;
 
 private:
-    mutable std::ofstream print;
-
     struct Instrumentation {
         IRDB_SDK::Instruction_t *instrumentation;
         InstrumentationInfo info;
