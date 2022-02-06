@@ -11,19 +11,40 @@
 
 using namespace IRDB_SDK;
 
-#define MAKE_INSERT_ASSEMBLY(fileIR, i) Instruction_t *tmp = i; \
-    bool hasInsertedBefore = false; \
-    Function_t *_origFunction = i->getFunction(); \
-    const auto insertAssembly = [fileIR, &tmp, &hasInsertedBefore, _origFunction](const std::string assembly, Instruction_t *target = nullptr) { \
-        if (!hasInsertedBefore) { \
-            hasInsertedBefore = true; \
-            auto in = IRDB_SDK::insertAssemblyBefore(fileIR, tmp, assembly, target); \
-            in->setFunction(_origFunction); \
-        } else { \
-            tmp = IRDB_SDK::insertAssemblyAfter(fileIR, tmp, assembly, target); \
-            tmp->setFunction(_origFunction); \
-        } \
-    };
+class InstructionInserter
+{
+public:
+    InstructionInserter(FileIR_t *file, Instruction_t *insertBefore) :
+        file(file),
+        function(insertBefore->getFunction()),
+        insertionPoint(insertBefore)
+    { }
+
+    // returns the newly created instruction
+    Instruction_t *insertAssembly(const std::string &assembly, Instruction_t *target = nullptr) {
+        if (!hasInsertedBefore) {
+            hasInsertedBefore = true;
+            auto in = IRDB_SDK::insertAssemblyBefore(file, insertionPoint, assembly, target);
+            in->setFunction(function);
+            return in;
+        } else {
+            insertionPoint = IRDB_SDK::insertAssemblyAfter(file, insertionPoint, assembly, target);
+            insertionPoint->setFunction(function);
+            return insertionPoint;
+        }
+    }
+
+    // only valid if at least one instruction has been inserted
+    Instruction_t *getLastInserted() const {
+        return insertionPoint;
+    }
+
+private:
+    FileIR_t *file;
+    bool hasInsertedBefore = false;
+    Function_t *function;
+    Instruction_t *insertionPoint;
+};
 
 TSanTransform::TSanTransform(FileIR_t *file) :
     Transform_t(file)
@@ -196,18 +217,18 @@ void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
     // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)
     FileIR_t *ir = getFileIR();
     const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
-    MAKE_INSERT_ASSEMBLY(ir, insertBefore);
+    InstructionInserter inserter(ir, insertBefore);
 
     // for this to work without any additional rsp wrangling, it must be inserted at the very start of the function
     for (std::string reg : registersToSave) {
-        insertAssembly("push " + reg);
+        inserter.insertAssembly("push " + reg);
     }
     if (registersToSave.size() > 0) {
-        insertAssembly("mov rdi, [rsp + " + toHex(registersToSave.size() * ir->getArchitectureBitWidth() / 8) + "]");
+        inserter.insertAssembly("mov rdi, [rsp + " + toHex(registersToSave.size() * ir->getArchitectureBitWidth() / 8) + "]");
     }
-    insertAssembly("call 0", tsanFunctionEntry);
+    inserter.insertAssembly("call 0", tsanFunctionEntry);
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
-        insertAssembly("pop " + *it);
+        inserter.insertAssembly("pop " + *it);
     }
 }
 
@@ -215,15 +236,15 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
 {
     FileIR_t *ir = getFileIR();
     const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
-    MAKE_INSERT_ASSEMBLY(ir, insertBefore);
+    InstructionInserter inserter(ir, insertBefore);
 
     // must be inserted directly before the return instruction
     for (std::string reg : registersToSave) {
-        insertAssembly("push " + reg);
+        inserter.insertAssembly("push " + reg);
     }
-    insertAssembly("call 0", tsanFunctionExit);
+    inserter.insertAssembly("call 0", tsanFunctionExit);
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
-        insertAssembly("pop " + *it);
+        inserter.insertAssembly("pop " + *it);
     }
 }
 
@@ -855,20 +876,20 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         registersToSave.erase(instrumentation.noSaveRegister.value());
     }
 
-    MAKE_INSERT_ASSEMBLY(ir, instruction);
+    InstructionInserter inserter(ir, instruction);
 
     // TODO: add this only once per function and not at every access
     if (info.inferredStackFrameSize > 0) {
         // use lea instead of add/sub to preserve flags
-        insertAssembly("lea rsp, [rsp - " + toHex(info.inferredStackFrameSize) + "]");
+        inserter.insertAssembly("lea rsp, [rsp - " + toHex(info.inferredStackFrameSize) + "]");
     }
     // TODO: only when they are needed (the free register analysis might support this)
     if (instrumentation.preserveFlags) {
         // if this is changed, change the rsp offset in the lea rdi instruction as well
-        insertAssembly("pushf");
+        inserter.insertAssembly("pushf");
     }
     for (std::string reg : registersToSave) {
-        insertAssembly("push " + reg);
+        inserter.insertAssembly("push " + reg);
     }
 
     if (std::find(instrumentation.instructions.begin(), instrumentation.instructions.end(), MOVE_OPERAND_RDI) == instrumentation.instructions.end()) {
@@ -887,26 +908,26 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
                 // The lea instruction should have 7 bytes (if the memory displacement is encoded with 4 byte)
                 const auto decoded = DecodedInstruction_t::factory(instruction);
                 auto offset = operand->getMemoryDisplacement() + decoded->length() - 7;
-                insertAssembly("lea rdi, [rel " + toHex(offset) + "]");
-                ir->addNewRelocation(tmp, 0, "pcrel");
+                auto inserted = inserter.insertAssembly("lea rdi, [rel " + toHex(offset) + "]");
+                ir->addNewRelocation(inserted, 0, "pcrel");
             } else {
-                insertAssembly("lea rdi, [" + operand->getString() + "]");
+                inserter.insertAssembly("lea rdi, [" + operand->getString() + "]");
             }
             // TODO: integrate into lea instruction
             if (contains(operand->getString(), "rsp")) {
                 // TODO: is this the correct size for the pushf?
                 const int flagSize = instrumentation.preserveFlags ? 4 : 0;
                 const int offset = info.inferredStackFrameSize + registersToSave.size() * ir->getArchitectureBitWidth() / 8 + flagSize;
-                insertAssembly("lea rdi, [rdi + " + toHex(offset) + "]");
+                inserter.insertAssembly("lea rdi, [rdi + " + toHex(offset) + "]");
             }
         } else {
             const bool isCall = contains(assembly, "call");
             Instruction_t *callTarget = isCall ? instrumentation.callTarget : nullptr;
-            insertAssembly(assembly, callTarget);
+            auto inserted = inserter.insertAssembly(assembly, callTarget);
 
             if (isCall) {
                 Instrumentation im;
-                im.instrumentation = tmp;
+                im.instrumentation = inserted;
                 im.info = instrumentationInfo;
                 instrumentationAttribution.push_back(im);
             }
@@ -914,18 +935,19 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     }
 
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
-        insertAssembly("pop " + *it);
+        inserter.insertAssembly("pop " + *it);
     }
     if (instrumentation.preserveFlags) {
-        insertAssembly("popf");
+        inserter.insertAssembly("popf");
     }
     if (info.inferredStackFrameSize > 0) {
         // use lea instead of add/sub to preserve flags
-        insertAssembly("lea rsp, [rsp + " + toHex(info.inferredStackFrameSize) + "]");
+        inserter.insertAssembly("lea rsp, [rsp + " + toHex(info.inferredStackFrameSize) + "]");
     }
 
     if (instrumentation.removeOriginalInstruction) {
-        tmp->setFallthrough(tmp->getFallthrough()->getFallthrough());
+        auto inserted = inserter.getLastInserted();
+        inserted->setFallthrough(inserted->getFallthrough()->getFallthrough());
     }
 }
 
