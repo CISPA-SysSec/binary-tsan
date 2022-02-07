@@ -6,6 +6,8 @@ add_executable(tsan
     pointeranalysis.h
     fixedpointanalysis.cpp
     fixedpointanalysis.h
+    analysis.cpp
+    analysis.h
 )
 target_link_libraries(tsan
     PRIVATE irdb-sdk

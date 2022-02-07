@@ -9,30 +9,7 @@
 #include <optional>
 
 #include "protobuf/instrumentationmap.pb.h"
-
-// from tsan-interface-atomic.h, do not change
-typedef enum {
-    __tsan_memory_order_relaxed = 0,
-    __tsan_memory_order_consume = 1,
-    __tsan_memory_order_acquire = 2,
-    __tsan_memory_order_release = 3,
-    __tsan_memory_order_acq_rel = 4,
-    __tsan_memory_order_seq_cst = 5
-} __tsan_memory_order;
-
-struct FunctionInfo {
-    // the first instruction not doing stack frame stuff etc.
-    IRDB_SDK::Instruction_t *properEntryPoint;
-    // the first instructions of the stack cleanups
-    std::vector<IRDB_SDK::Instruction_t*> exitPoints;
-    // the instructions used for construction and cleanup of the stack
-    std::set<IRDB_SDK::Instruction_t*> noInstrumentInstructions;
-    // non zero only if the size is not present in the Function_t class and could be inferred
-    int inferredStackFrameSize = 0;
-    // instruction like guard variable reads that count as atomic by thread sanitizer standards
-    std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> inferredAtomicInstructions;
-    bool addEntryExitInstrumentation;
-};
+#include "analysis.h"
 
 struct OperationInstrumentation
 {
@@ -68,7 +45,6 @@ public:
 private:
     void registerDependencies();
     void instrumentMemoryAccess(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand, const FunctionInfo &info);
-    int inferredStackFrameSize(const IRDB_SDK::Function_t *function) const;
     void insertFunctionEntry(IRDB_SDK::Instruction_t *insertBefore);
     void insertFunctionExit(IRDB_SDK::Instruction_t *insertBefore);
     std::set<std::string> getSaveRegisters(IRDB_SDK::Instruction_t *instruction);
@@ -79,11 +55,6 @@ private:
                                                 const FunctionInfo &info) const;
     std::optional<OperationInstrumentation> getAtomicInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand,
                                                                      const __tsan_memory_order memoryOrder) const;
-    std::set<IRDB_SDK::Instruction_t*> detectStaticVariableGuards(IRDB_SDK::Function_t *function) const;
-    std::set<IRDB_SDK::Instruction_t*> detectStackCanaryInstructions(IRDB_SDK::Function_t *function) const;
-    bool doesStackLeaveFunction(IRDB_SDK::Function_t *function) const;
-    FunctionInfo analyseFunction(IRDB_SDK::Function_t *function);
-    std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> inferAtomicInstructions(IRDB_SDK::Function_t *function) const;
 
 private:
     struct Instrumentation {
@@ -95,6 +66,8 @@ private:
     bool useStarsAnalysis = false;
 
     std::unique_ptr<IRDB_SDK::DeadRegisterMap_t> deadRegisters;
+
+    Analysis functionAnalysis;
 
     std::vector<Instrumentation> instrumentationAttribution;
 
