@@ -9,16 +9,22 @@
 
 using namespace IRDB_SDK;
 
-FunctionInfo Analysis::analyseFunction(Function_t *function)
+FunctionInfo Analysis::analyseFunction(FileIR_t *ir, Function_t *function)
 {
+    totalAnalysedFunctions++;
+    totalAnalysedInstructions += function->getInstructions().size();
+
     FunctionInfo result;
     result.inferredStackFrameSize = inferredStackFrameSize(function);
 
-    result.noInstrumentInstructions = detectStackCanaryInstructions(function);
+    std::set<Instruction_t*> notInstrumented = detectStackCanaryInstructions(function);
+    stackCanaryInstructions += notInstrumented.size();
 
     result.inferredAtomicInstructions = inferAtomicInstructions(function);
+    pointerInferredAtomics += result.inferredAtomicInstructions.size();
     for (auto guardInstruction : detectStaticVariableGuards(function)) {
         result.inferredAtomicInstructions[guardInstruction] = __tsan_memory_order_acquire;
+        staticVariableGuards++;
     }
 
     result.properEntryPoint = function->getEntryPoint();
@@ -58,12 +64,67 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
         const bool isStub = std::find(result.exitPoints.begin(), result.exitPoints.end(), result.properEntryPoint) != result.exitPoints.end();
         if (!isStub) {
             result.addEntryExitInstrumentation = true;
+            entryExitInstrumentedFunctions++;
         }
     }
 
-    result.stackLeavesFunction = doesStackLeaveFunction(function);
+    const bool stackLeavesFunction = doesStackLeaveFunction(function);
 
+    for (Instruction_t *instruction : function->getInstructions()) {
+        if (notInstrumented.find(instruction) != notInstrumented.end()) {
+            totalNotInstrumented++;
+            continue;
+        }
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        const DecodedOperandVector_t operands = decoded->getOperands();
+        for (const auto &operand : operands) {
+            if (!operand->isMemory()) {
+                continue;
+            }
+            // TODO: under the right condition rbp based operands can also be ignored
+            if (!stackLeavesFunction && (contains(operand->getString(), "rsp") || contains(operand->getString(), "esp"))) {
+                stackLocalVariables++;
+                totalNotInstrumented++;
+                break;
+            }
+            if (isDataConstant(ir, instruction, operand)) {
+                constantMemoryRead++;
+                totalNotInstrumented++;
+                break;
+            }
+            result.instructionsToInstrument.insert(instruction);
+            totalInstrumentedInstructions++;
+            break;
+        }
+    }
     return result;
+}
+
+bool Analysis::isDataConstant(FileIR_t *ir, Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand)
+{
+    // TODO: exeiop->sections.findByAddress(referenced_address);
+    if (operand->hasBaseRegister()) {
+        return false;
+    }
+    const auto decoded = DecodedInstruction_t::factory(instruction);
+    const auto additionalOffset = operand->isPcrel() ? decoded->length() : 0;
+    const auto realOffset = operand->getMemoryDisplacement() + additionalOffset;
+    for (DataScoop_t *s : ir->getDataScoops()) {
+        if (s->getStart()->getVirtualOffset() == 0) {
+            continue;
+        }
+        if (s->isWriteable() || s->isExecuteable()) {
+            continue;
+        }
+        if (realOffset > s->getStart()->getVirtualOffset() && realOffset < s->getEnd()->getVirtualOffset()) {
+            if (operand->isWritten()) {
+                return false;
+                throw std::logic_error("read only memory seems to be written");
+            }
+            return true;
+        }
+    }
+    return false;
 }
 
 std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions(IRDB_SDK::Function_t *function) const
@@ -340,4 +401,23 @@ std::set<Instruction_t*> Analysis::detectStaticVariableGuards(Function_t *functi
         }
     }
     return result;
+}
+
+void Analysis::printStatistics() const
+{
+    std::cout <<std::endl<<"Statistics:"<<std::endl;
+    std::cout <<"Analyzed Functions: "<<totalAnalysedFunctions<<std::endl;
+    std::cout <<"\t* Entry/Exit instrumented: "<<totalAnalysedFunctions<<std::endl;
+    std::cout <<std::endl;
+    std::cout <<"Analyzed Instructions: "<<totalAnalysedInstructions<<std::endl;
+    std::cout <<"\t* New Instrumentation Instructions: "<<instrumentationInstructions<<std::endl;
+    std::cout <<"\t* Instrumented Instructions: "<<totalInstrumentedInstructions<<std::endl;
+    std::cout <<"\t* Not instrumented: "<<totalNotInstrumented<<std::endl;
+    // these might have some overlap, but it should not be too bad
+    std::cout <<"\t\t- Stack Canaries: "<<stackCanaryInstructions<<std::endl;
+    std::cout <<"\t\t- Stack Local Variables: "<<stackLocalVariables<<std::endl;
+    std::cout <<"\t\t- Constant Memory Read: "<<constantMemoryRead<<std::endl;
+    std::cout <<"\t* Inferred Atomics:"<<std::endl;
+    std::cout <<"\t\t- Pointer Inference: "<<pointerInferredAtomics<<std::endl;
+    std::cout <<"\t\t- Static Variable Guards: "<<staticVariableGuards<<std::endl;
 }

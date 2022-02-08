@@ -12,14 +12,16 @@ using namespace IRDB_SDK;
 class InstructionInserter
 {
 public:
-    InstructionInserter(FileIR_t *file, Instruction_t *insertBefore) :
+    InstructionInserter(FileIR_t *file, Instruction_t *insertBefore, Analysis &analysis) :
         file(file),
         function(insertBefore->getFunction()),
-        insertionPoint(insertBefore)
+        insertionPoint(insertBefore),
+        analysis(analysis)
     { }
 
     // returns the newly created instruction
     Instruction_t *insertAssembly(const std::string &assembly, Instruction_t *target = nullptr) {
+        analysis.countAddInstrumentationInstruction();
         if (!hasInsertedBefore) {
             hasInsertedBefore = true;
             auto in = IRDB_SDK::insertAssemblyBefore(file, insertionPoint, assembly, target);
@@ -42,6 +44,7 @@ private:
     bool hasInsertedBefore = false;
     Function_t *function;
     Instruction_t *insertionPoint;
+    Analysis &analysis;
 };
 
 TSanTransform::TSanTransform(FileIR_t *file) :
@@ -106,13 +109,10 @@ bool TSanTransform::executeStep()
             continue;
         }
 
-        const FunctionInfo info = functionAnalysis.analyseFunction(function);
+        const FunctionInfo info = functionAnalysis.analyseFunction(ir, function);
 
-        const InstructionSet_t instructions = function->getInstructions(); // make a copy
-        for (Instruction_t *instruction : instructions) {
-            if (info.noInstrumentInstructions.find(instruction) != info.noInstrumentInstructions.end()) {
-                continue;
-            }
+        // for the stack frame translation
+        for (Instruction_t *instruction : function->getInstructions()) {
             const auto decoded = DecodedInstruction_t::factory(instruction);
             if (decoded->isCall()) {
                 InstrumentationInfo instrumentationInfo;
@@ -123,25 +123,13 @@ bool TSanTransform::executeStep()
                 im.info = instrumentationInfo;
                 instrumentationAttribution.push_back(im);
             }
-            if (decoded->isBranch() || decoded->isCall()) {
-                continue;
-            }
-            const std::string mnemonic = decoded->getMnemonic();
-            if (mnemonic == "lea" || mnemonic == "nop") {
-                continue;
-            }
+        }
+
+        for (Instruction_t *instruction : info.instructionsToInstrument) {
+            const auto decoded = DecodedInstruction_t::factory(instruction);
             const DecodedOperandVector_t operands = decoded->getOperands();
             for (const auto &operand : operands) {
-                if (operand->isMemory() && (operand->isWritten() || operand->isRead())) {
-                    // TODO: under the right condition rbp based operands can also be ignored
-                    if (!info.stackLeavesFunction && (contains(operand->getString(), "rsp") || contains(operand->getString(), "esp"))) {
-//                        std::cout <<"Omit stack access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
-                        break;
-                    }
-                    if (isDataConstant(ir, instruction, operand)) {
-//                        std::cout <<"Omit constant access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
-                        break;
-                    }
+                if (operand->isMemory()) {
 //                    std::cout <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                     instrumentMemoryAccess(instruction, operand, info);
                 }
@@ -157,34 +145,10 @@ bool TSanTransform::executeStep()
         }
         getFileIR()->assembleRegistry();
     }
-    return true;
-}
 
-bool TSanTransform::isDataConstant(FileIR_t *ir, Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand)
-{
-    // TODO: exeiop->sections.findByAddress(referenced_address);
-    if (operand->hasBaseRegister()) {
-        return false;
-    }
-    const auto decoded = DecodedInstruction_t::factory(instruction);
-    const auto additionalOffset = operand->isPcrel() ? decoded->length() : 0;
-    const auto realOffset = operand->getMemoryDisplacement() + additionalOffset;
-    for (DataScoop_t *s : ir->getDataScoops()) {
-        if (s->getStart()->getVirtualOffset() == 0) {
-            continue;
-        }
-        if (s->isWriteable() || s->isExecuteable()) {
-            continue;
-        }
-        if (realOffset > s->getStart()->getVirtualOffset() && realOffset < s->getEnd()->getVirtualOffset()) {
-            if (operand->isWritten()) {
-                return false;
-                throw std::logic_error("read only memory seems to be written");
-            }
-            return true;
-        }
-    }
-    return false;
+    functionAnalysis.printStatistics();
+
+    return true;
 }
 
 static std::string toHex(const int num)
@@ -199,7 +163,7 @@ void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
     // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)
     FileIR_t *ir = getFileIR();
     const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
-    InstructionInserter inserter(ir, insertBefore);
+    InstructionInserter inserter(ir, insertBefore, functionAnalysis);
 
     // for this to work without any additional rsp wrangling, it must be inserted at the very start of the function
     for (std::string reg : registersToSave) {
@@ -218,7 +182,7 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
 {
     FileIR_t *ir = getFileIR();
     const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
-    InstructionInserter inserter(ir, insertBefore);
+    InstructionInserter inserter(ir, insertBefore, functionAnalysis);
 
     // must be inserted directly before the return instruction
     for (std::string reg : registersToSave) {
@@ -484,7 +448,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         registersToSave.erase(instrumentation.noSaveRegister.value());
     }
 
-    InstructionInserter inserter(ir, instruction);
+    InstructionInserter inserter(ir, instruction, functionAnalysis);
 
     // TODO: add this only once per function and not at every access
     if (info.inferredStackFrameSize > 0) {

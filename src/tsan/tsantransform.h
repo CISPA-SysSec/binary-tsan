@@ -49,8 +49,6 @@ private:
     void insertFunctionExit(IRDB_SDK::Instruction_t *insertBefore);
     std::set<std::string> getSaveRegisters(IRDB_SDK::Instruction_t *instruction);
     static bool isRepeated(IRDB_SDK::Instruction_t *instruction);
-    static bool isDataConstant(IRDB_SDK::FileIR_t *ir, IRDB_SDK::Instruction_t *instruction,
-                               const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand);
     OperationInstrumentation getInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand,
                                                 const FunctionInfo &info) const;
     std::optional<OperationInstrumentation> getAtomicInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand,
