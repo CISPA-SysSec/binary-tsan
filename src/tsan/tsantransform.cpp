@@ -413,13 +413,6 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
     }
 }
 
-static std::string disassembly(const Instruction_t *instruction)
-{
-    // TODO: rep prefix
-    const std::string prefix = isAtomic(instruction) ? "lock " : "";
-    return prefix + instruction->getDisassembly();
-}
-
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, const FunctionInfo &info)
 {
     InstrumentationInfo instrumentationInfo;

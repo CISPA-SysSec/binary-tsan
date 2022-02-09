@@ -63,4 +63,16 @@ inline std::string targetFunctionName(const IRDB_SDK::Instruction_t *instruction
     return callTarget->getName();
 }
 
+inline std::string disassembly(const IRDB_SDK::Instruction_t *instruction)
+{
+    const auto decoded = IRDB_SDK::DecodedInstruction_t::factory(instruction);
+    if (decoded->isCall()) {
+        const std::string target = targetFunctionName(instruction);
+        return "call " + target;
+    }
+    // TODO: rep prefix
+    const std::string prefix = isAtomic(instruction) ? "lock " : "";
+    return prefix + instruction->getDisassembly();
+}
+
 #endif // HELPER_H
