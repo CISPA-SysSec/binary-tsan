@@ -71,11 +71,19 @@ FunctionInfo Analysis::analyseFunction(FileIR_t *ir, Function_t *function)
     const bool stackLeavesFunction = doesStackLeaveFunction(function);
 
     for (Instruction_t *instruction : function->getInstructions()) {
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        if (decoded->isBranch() || decoded->isCall()) {
+            continue;
+        }
+        const std::string mnemonic = decoded->getMnemonic();
+        if (mnemonic == "lea" || mnemonic == "nop") {
+            continue;
+        }
         if (notInstrumented.find(instruction) != notInstrumented.end()) {
             totalNotInstrumented++;
             continue;
         }
-        const auto decoded = DecodedInstruction_t::factory(instruction);
+
         const DecodedOperandVector_t operands = decoded->getOperands();
         for (const auto &operand : operands) {
             if (!operand->isMemory()) {
@@ -407,7 +415,7 @@ void Analysis::printStatistics() const
 {
     std::cout <<std::endl<<"Statistics:"<<std::endl;
     std::cout <<"Analyzed Functions: "<<totalAnalysedFunctions<<std::endl;
-    std::cout <<"\t* Entry/Exit instrumented: "<<totalAnalysedFunctions<<std::endl;
+    std::cout <<"\t* Entry/Exit instrumented: "<<entryExitInstrumentedFunctions<<std::endl;
     std::cout <<std::endl;
     std::cout <<"Analyzed Instructions: "<<totalAnalysedInstructions<<std::endl;
     std::cout <<"\t* New Instrumentation Instructions: "<<instrumentationInstructions<<std::endl;
