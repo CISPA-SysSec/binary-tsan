@@ -10,6 +10,8 @@ add_executable(tsan
     fixedpointanalysis.h
     analysis.cpp
     analysis.h
+    exceptionhandling.cpp
+    exceptionhandling.h
 )
 target_link_libraries(tsan
     PRIVATE irdb-sdk

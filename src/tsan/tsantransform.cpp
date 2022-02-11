@@ -8,6 +8,7 @@
 #include "helper.h"
 #include "deadregisteranalysis.h"
 #include "fixedpointanalysis.h"
+#include "exceptionhandling.h"
 
 using namespace IRDB_SDK;
 
@@ -104,6 +105,8 @@ bool TSanTransform::executeStep()
         registerDependencies();
     }
 
+    ExceptionHandling exceptionHandling(ir, tsanFunctionExit);
+
     const std::vector<std::string> noInstrumentFunctions = {"_init", "_start", "__libc_csu_init", "__tsan_default_options", "_fini", "__libc_csu_fini"};
 
     for (Function_t *function : ir->getFunctions()) {
@@ -164,6 +167,9 @@ bool TSanTransform::executeStep()
             for (Instruction_t *ret : info.exitPoints) {
                 insertFunctionExit(ret);
             }
+
+            getFileIR()->assembleRegistry();
+            exceptionHandling.handleFunction(function);
         }
         getFileIR()->assembleRegistry();
     }

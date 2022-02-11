@@ -43,6 +43,10 @@ FunctionInfo Analysis::analyseFunction(FileIR_t *ir, Function_t *function)
         }
         const auto decoded = DecodedInstruction_t::factory(instruction);
         if (decoded->isCall()) {
+            if (contains(targetFunctionName(instruction), "Unwind_Resume")) {
+                unwindFunctions++;
+                break;
+            }
             continue;
         }
         // is the exit instruction after functions calls that do not return (for example exit)
@@ -416,6 +420,7 @@ void Analysis::printStatistics() const
     std::cout <<std::endl<<"Statistics:"<<std::endl;
     std::cout <<"Analyzed Functions: "<<totalAnalysedFunctions<<std::endl;
     std::cout <<"\t* Entry/Exit instrumented: "<<entryExitInstrumentedFunctions<<std::endl;
+    std::cout <<"\t* Has UnwindResume: "<<unwindFunctions<<std::endl;
     std::cout <<std::endl;
     std::cout <<"Analyzed Instructions: "<<totalAnalysedInstructions<<std::endl;
     std::cout <<"\t* New Instrumentation Instructions: "<<instrumentationInstructions<<std::endl;

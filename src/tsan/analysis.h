@@ -50,6 +50,7 @@ private:
     // functions
     std::size_t totalAnalysedFunctions = 0;
     std::size_t entryExitInstrumentedFunctions = 0;
+    std::size_t unwindFunctions = 0;
 
     // instructions
     std::size_t totalAnalysedInstructions = 0;
