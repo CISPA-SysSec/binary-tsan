@@ -485,14 +485,14 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
                     ir->addNewRelocation(inserted, 0, "pcrel");
                 }
             } else {
-                inserter.insertAssembly("lea rdi, [" + operand->getString() + "]");
-            }
-            // TODO: integrate into lea instruction
-            if (contains(operand->getString(), "rsp")) {
-                // TODO: is this the correct size for the pushf?
-                const int flagSize = instrumentation.preserveFlags ? 4 : 0;
-                const int offset = info.inferredStackFrameSize + registersToSave.size() * ir->getArchitectureBitWidth() / 8 + flagSize;
-                inserter.insertAssembly("lea rdi, [rdi + " + toHex(offset) + "]");
+                if (contains(operand->getString(), "rsp")) {
+                    // TODO: is this the correct size for the pushf?
+                    const int flagSize = instrumentation.preserveFlags ? 4 : 0;
+                    const int offset = info.inferredStackFrameSize + registersToSave.size() * ir->getArchitectureBitWidth() / 8 + flagSize;
+                    inserter.insertAssembly("lea rdi, [" + operand->getString() + " + " + toHex(offset) + "]");
+                } else {
+                    inserter.insertAssembly("lea rdi, [" + operand->getString() + "]");
+                }
             }
         } else {
             const bool isCall = contains(assembly, "call");
