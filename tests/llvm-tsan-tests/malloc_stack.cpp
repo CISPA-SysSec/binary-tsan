@@ -21,6 +21,4 @@ int main() {
 
 // CHECK: data race
 // CHECK:   Previous write
-// CHECK:     #0 operator new
 // CHECK:   Location is heap block
-// CHECK:     #0 operator new

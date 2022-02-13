@@ -6,14 +6,14 @@
 static void handler(int, siginfo_t*, void*) {
   // CHECK: WARNING: ThreadSanitizer: signal-unsafe call inside of a signal
   // CHECK:     #0 malloc
-  // CHECK:     #{{(1|2)}} handler(int, {{(__)?}}siginfo{{(_t)?}}*, void*) {{.*}}signal_malloc.cpp:[[@LINE+2]]
-  // CHECK: SUMMARY: ThreadSanitizer: signal-unsafe call inside of a signal{{.*}}handler
+  // CHECK:     #{{(1|2)}} handler(int, {{(__)?}}siginfo{{(_t)?}}*, void*)
+  // CHECK: SUMMARY: ThreadSanitizer: signal-unsafe call inside of a signal
   volatile char *p = (char*)malloc(1);
   p[0] = 0;
   // CHECK: WARNING: ThreadSanitizer: signal-unsafe call inside of a signal
   // CHECK:     #0 free
-  // CHECK:     #{{(1|2)}} handler(int, {{(__)?}}siginfo{{(_t)?}}*, void*) {{.*}}signal_malloc.cpp:[[@LINE+2]]
-  // CHECK: SUMMARY: ThreadSanitizer: signal-unsafe call inside of a signal{{.*}}handler
+  // CHECK:     #{{(1|2)}} handler(int, {{(__)?}}siginfo{{(_t)?}}*, void*)
+  // CHECK: SUMMARY: ThreadSanitizer: signal-unsafe call inside of a signal
   free((void*)p);
 }
 

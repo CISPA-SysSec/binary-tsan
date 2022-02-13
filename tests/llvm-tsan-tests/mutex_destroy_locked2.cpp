@@ -26,4 +26,4 @@ int main() {
 // CHECK:   Mutex {{.*}} created at:
 // CHECK:     #0 pthread_mutex_init
 // CHECK:     #1 thread
-// CHECK: SUMMARY: ThreadSanitizer: destroy of a locked mutex {{.*}} in thread
+// CHECK: SUMMARY: ThreadSanitizer: destroy of a locked mutex

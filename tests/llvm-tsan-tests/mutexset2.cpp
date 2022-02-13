@@ -22,11 +22,10 @@ int main() {
   barrier_init(&barrier, 2);
   // CHECK: WARNING: ThreadSanitizer: data race
   // CHECK:   Write of size 4 at {{.*}} by thread T2:
-  // CHECK:   Previous write of size 4 at {{.*}} by thread T1
-  // CHECK:                     (mutexes: write [[M1:M[0-9]+]]):
+  // CHECK:   Previous write of size 4 at {{.*}} by thread T1 (mutexes: write [[M1:M[0-9]+]]):
   // CHECK:   Mutex [[M1]] (0x{{.*}}) created at:
   // CHECK:     #0 pthread_mutex_init
-  // CHECK:     #1 main {{.*}}mutexset2.cpp:[[@LINE+1]]
+  // CHECK:     #1 main
   pthread_mutex_init(&mtx, 0);
   pthread_t t[2];
   pthread_create(&t[0], NULL, Thread1, NULL);

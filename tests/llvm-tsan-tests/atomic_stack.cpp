@@ -26,4 +26,3 @@ int main() {
 
 // CHECK: WARNING: ThreadSanitizer: data race
 // CHECK:   Atomic write of size 4
-// CHECK:     #0 Thread1

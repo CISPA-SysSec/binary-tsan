@@ -20,8 +20,6 @@ int main() {
 
 // CHECK: WARNING: ThreadSanitizer: data race
 // CHECK:   Write
-// CHECK:     #0 operator delete
 // CHECK:     #1 main
 
 // CHECK:   Previous atomic write
-// CHECK:     #0 Thread
