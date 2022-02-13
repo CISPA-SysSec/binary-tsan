@@ -62,6 +62,7 @@ private:
 
     // options
     bool useStarsAnalysis = false;
+    bool dryRun = false;
 
     std::unique_ptr<IRDB_SDK::DeadRegisterMap_t> deadRegisters;
 

@@ -12,16 +12,20 @@ using namespace IRDB_SDK;
 class InstructionInserter
 {
 public:
-    InstructionInserter(FileIR_t *file, Instruction_t *insertBefore, Analysis &analysis) :
+    InstructionInserter(FileIR_t *file, Instruction_t *insertBefore, Analysis &analysis, bool dryRun) :
         file(file),
         function(insertBefore->getFunction()),
         insertionPoint(insertBefore),
-        analysis(analysis)
+        analysis(analysis),
+        dryRun(dryRun)
     { }
 
     // returns the newly created instruction
     Instruction_t *insertAssembly(const std::string &assembly, Instruction_t *target = nullptr) {
         analysis.countAddInstrumentationInstruction();
+        if (dryRun) {
+            return nullptr;
+        }
         if (!hasInsertedBefore) {
             hasInsertedBefore = true;
             auto in = IRDB_SDK::insertAssemblyBefore(file, insertionPoint, assembly, target);
@@ -45,6 +49,7 @@ private:
     Function_t *function;
     Instruction_t *insertionPoint;
     Analysis &analysis;
+    bool dryRun;
 };
 
 TSanTransform::TSanTransform(FileIR_t *file) :
@@ -72,6 +77,8 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
             useStarsAnalysis = true;
         } else if (option == "--no-use-stars") {
             useStarsAnalysis = false;
+        } else if (option == "--dry-run") {
+            dryRun = true;
         } else {
             std::cout <<"Unrecognized option: "<<option<<std::endl;
             return false;
@@ -163,7 +170,7 @@ void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
     // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)
     FileIR_t *ir = getFileIR();
     const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
-    InstructionInserter inserter(ir, insertBefore, functionAnalysis);
+    InstructionInserter inserter(ir, insertBefore, functionAnalysis, dryRun);
 
     // for this to work without any additional rsp wrangling, it must be inserted at the very start of the function
     for (std::string reg : registersToSave) {
@@ -182,7 +189,7 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
 {
     FileIR_t *ir = getFileIR();
     const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
-    InstructionInserter inserter(ir, insertBefore, functionAnalysis);
+    InstructionInserter inserter(ir, insertBefore, functionAnalysis, dryRun);
 
     // must be inserted directly before the return instruction
     for (std::string reg : registersToSave) {
@@ -441,7 +448,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         registersToSave.erase(instrumentation.noSaveRegister.value());
     }
 
-    InstructionInserter inserter(ir, instruction, functionAnalysis);
+    InstructionInserter inserter(ir, instruction, functionAnalysis, dryRun);
 
     // TODO: add this only once per function and not at every access
     if (info.inferredStackFrameSize > 0) {
@@ -474,7 +481,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
                 const auto decoded = DecodedInstruction_t::factory(instruction);
                 auto offset = operand->getMemoryDisplacement() + decoded->length() - 7;
                 auto inserted = inserter.insertAssembly("lea rdi, [rel " + toHex(offset) + "]");
-                ir->addNewRelocation(inserted, 0, "pcrel");
+                if (!dryRun) {
+                    ir->addNewRelocation(inserted, 0, "pcrel");
+                }
             } else {
                 inserter.insertAssembly("lea rdi, [" + operand->getString() + "]");
             }
@@ -490,7 +499,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
             Instruction_t *callTarget = isCall ? instrumentation.callTarget : nullptr;
             auto inserted = inserter.insertAssembly(assembly, callTarget);
 
-            if (isCall) {
+            if (isCall && !dryRun) {
                 Instrumentation im;
                 im.instrumentation = inserted;
                 im.info = instrumentationInfo;
@@ -510,7 +519,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         inserter.insertAssembly("lea rsp, [rsp + " + toHex(info.inferredStackFrameSize) + "]");
     }
 
-    if (instrumentation.removeOriginalInstruction) {
+    if (instrumentation.removeOriginalInstruction && !dryRun) {
         auto inserted = inserter.getLastInserted();
         inserted->setFallthrough(inserted->getFallthrough()->getFallthrough());
     }
