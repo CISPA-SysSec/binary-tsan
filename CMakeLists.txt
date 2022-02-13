@@ -28,7 +28,7 @@ if(NOT ZIPR_LOCATION)
 endif()
 
 # configure scripts
-configure_file(${CMAKE_SOURCE_DIR}/scripts/thread-sanitizer.sh.in ${CMAKE_BINARY_DIR}/thread-sanitizer.sh)
+configure_file(${CMAKE_SOURCE_DIR}/scripts/thread-sanitizer.sh.in ${CMAKE_BINARY_DIR}/thread-sanitizer.sh @ONLY)
 
 # create libraries for the irdb sdk
 set(IRDBLIB_LOCATION "${ZIPR_LOCATION}/irdb-libs/lib/")
