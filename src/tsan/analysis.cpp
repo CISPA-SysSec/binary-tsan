@@ -144,7 +144,7 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
     }
 
     PointerAnalysis functionEntry = PointerAnalysis::functionEntry();
-    auto analysis = FixedPointAnalysis::run<PointerAnalysis>(function, functionEntry);
+    auto analysis = FixedPointAnalysis::runForward<PointerAnalysis>(function, functionEntry);
 
     std::map<int, std::vector<Instruction_t*>> sameLocation;
     for (Instruction_t *instruction : function->getInstructions()) {

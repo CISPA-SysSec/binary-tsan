@@ -1,8 +1,81 @@
 #include "fixedpointanalysis.h"
 
 #include <irdb-cfg>
+#include <numeric>
 
 using namespace IRDB_SDK;
+
+template<typename BackwardsInstructionAnalysis, typename BackwardsAnalysisCommon>
+struct BackwardsInstructionInfo {
+    BackwardsInstructionInfo(Instruction_t *instruction, const BackwardsAnalysisCommon &common) :
+        data(instruction, common)
+    { }
+
+    std::vector<int> predecessors;
+    BackwardsInstructionAnalysis data;
+};
+
+template<typename BackwardsInstructionAnalysis, typename BackwardsAnalysisCommon>
+std::map<IRDB_SDK::Instruction_t*, BackwardsInstructionAnalysis> FixedPointAnalysis::runBackwards(Function_t *function)
+{
+    using InstructionIndex = int;
+
+    const auto &allInstructions = function->getInstructions();
+    const BackwardsAnalysisCommon commonData;
+
+    // initialize basic data
+    std::vector<BackwardsInstructionInfo<BackwardsInstructionAnalysis, BackwardsAnalysisCommon>> backwardsData;
+    backwardsData.reserve(allInstructions.size());
+    std::map<Instruction_t*, InstructionIndex> instructionIndexMap;
+    for (auto instruction : allInstructions) {
+        instructionIndexMap[instruction] = backwardsData.size();
+        BackwardsInstructionInfo<BackwardsInstructionAnalysis, BackwardsAnalysisCommon> info(instruction, commonData);
+        backwardsData.push_back(info);
+    }
+
+    // fill in instruction predecessors
+    const auto cfg = ControlFlowGraph_t::factory(function);
+    for (const auto block : cfg->getBlocks()) {
+        const auto &instructions = block->getInstructions();
+        for (std::size_t i = 0;i<instructions.size();i++) {
+            auto &info = backwardsData[instructionIndexMap[instructions[i]]];
+            if (i == 0) {
+                for (const auto pred : block->getPredecessors()) {
+                    info.predecessors.push_back(instructionIndexMap[pred->getInstructions().back()]);
+                }
+            } else {
+                info.predecessors.push_back(instructionIndexMap[instructions[i-1]]);
+            }
+        }
+    }
+
+    // update until fixed point is reached
+    std::vector<bool> isInserted(allInstructions.size(), true);
+    std::vector<InstructionIndex> work(allInstructions.size(), 0);
+    std::iota(work.begin(), work.end(), 0);
+    while (work.size() > 0) {
+        const InstructionIndex current = work.back();
+        work.pop_back();
+        isInserted[current] = false;
+
+        backwardsData[current].data.updateDataBefore();
+        for (InstructionIndex before : backwardsData[current].predecessors) {
+            if (backwardsData[before].data.mergeFrom(backwardsData[current].data)) {
+                if (!isInserted[before]) {
+                    work.push_back(before);
+                    isInserted[before] = true;
+                }
+            }
+        }
+    }
+
+    std::map<IRDB_SDK::Instruction_t*, BackwardsInstructionAnalysis> result;
+    for (const auto &[instruction, index] : instructionIndexMap) {
+        result[instruction] = backwardsData[index].data;
+    }
+    return result;
+}
+
 
 template<typename Analysis>
 struct InstructionInfo {
@@ -13,7 +86,7 @@ struct InstructionInfo {
 };
 
 template<typename Analysis>
-std::map<Instruction_t *, Analysis> FixedPointAnalysis::run(Function_t *function, Analysis atFunctionEntry)
+std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(Function_t *function, Analysis atFunctionEntry)
 {
     std::map<Instruction_t*, InstructionInfo<Analysis>> instructionData;
     const auto cfg = ControlFlowGraph_t::factory(function);
@@ -77,4 +150,6 @@ std::map<Instruction_t *, Analysis> FixedPointAnalysis::run(Function_t *function
 
 // explicit instantiation since the template function is in a cpp file
 #include "pointeranalysis.h"
-template std::map<Instruction_t *, PointerAnalysis> FixedPointAnalysis::run<PointerAnalysis>(Function_t *function, PointerAnalysis atFunctionEntry);
+template std::map<Instruction_t *, PointerAnalysis> FixedPointAnalysis::runForward<PointerAnalysis>(Function_t *function, PointerAnalysis atFunctionEntry);
+#include "deadregisteranalysis.h"
+template std::map<Instruction_t*, DeadRegisterInstructionAnalysis> FixedPointAnalysis::runBackwards<DeadRegisterInstructionAnalysis, DeadRegisterAnalysisCommon>(Function_t *function);

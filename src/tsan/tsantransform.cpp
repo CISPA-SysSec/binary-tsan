@@ -6,6 +6,8 @@
 
 #include "simplefile.h"
 #include "helper.h"
+#include "deadregisteranalysis.h"
+#include "fixedpointanalysis.h"
 
 using namespace IRDB_SDK;
 
@@ -73,10 +75,11 @@ TSanTransform::~TSanTransform()
 bool TSanTransform::parseArgs(const std::vector<std::string> &options)
 {
     for (const std::string &option : options) {
+        // TODO: adjust options
         if (option == "--use-stars") {
-            useStarsAnalysis = true;
+            deadRegisterAnalysisType = DeadRegisterAnalysisType::STARS;
         } else if (option == "--no-use-stars") {
-            useStarsAnalysis = false;
+            deadRegisterAnalysisType = DeadRegisterAnalysisType::CUSTOM;
         } else if (option == "--dry-run") {
             dryRun = true;
         } else {
@@ -92,14 +95,16 @@ bool TSanTransform::executeStep()
     FileIR_t *ir = getFileIR();
 
     // compute this before any instructions are added
-    if (useStarsAnalysis) {
+    if (deadRegisterAnalysisType == DeadRegisterAnalysisType::STARS) {
         const auto registerAnalysis = DeepAnalysis_t::factory(ir);
         deadRegisters = registerAnalysis->getDeadRegisters();
     } else {
         deadRegisters = std::make_unique<DeadRegisterMap_t>(DeadRegisterMap_t());
     }
 
-    registerDependencies();
+    if (!dryRun) {
+        registerDependencies();
+    }
 
     const std::vector<std::string> noInstrumentFunctions = {"_init", "_start", "__libc_csu_init", "__tsan_default_options", "_fini", "__libc_csu_fini"};
 
@@ -114,6 +119,16 @@ bool TSanTransform::executeStep()
         }
         if (contains(functionName, "@plt")) {
             continue;
+        }
+
+        // register analysis
+        if (deadRegisterAnalysisType == DeadRegisterAnalysisType::CUSTOM) {
+            deadRegisters.reset(new DeadRegisterMap_t());
+
+            const auto analysisResult = FixedPointAnalysis::runBackwards<DeadRegisterInstructionAnalysis, DeadRegisterAnalysisCommon>(function);
+            for (const auto &[instruction, analysis] : analysisResult) {
+                deadRegisters->insert({instruction, analysis.getDeadRegisters()});
+            }
         }
 
         const FunctionInfo info = functionAnalysis.analyseFunction(ir, function);
@@ -432,9 +447,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 //        throw std::invalid_argument("Repeated!");
     }
     const uint bytes = instrumentationByteSize(operand);
-    if (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
+    if (!dryRun && (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
             (operand->isRead() && tsanRead[bytes] == nullptr) ||
-            (operand->isWritten() && tsanWrite[bytes] == nullptr)) {
+            (operand->isWritten() && tsanWrite[bytes] == nullptr))) {
         std::cout <<"WARNING: memory operation of size "<<bytes<<" is not instrumented: "<<instruction->getDisassembly()<<std::endl;
         return;
     }

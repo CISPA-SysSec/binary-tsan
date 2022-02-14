@@ -61,7 +61,12 @@ private:
     };
 
     // options
-    bool useStarsAnalysis = false;
+    enum class DeadRegisterAnalysisType {
+        STARS,
+        CUSTOM,
+        NONE
+    };
+    DeadRegisterAnalysisType deadRegisterAnalysisType = DeadRegisterAnalysisType::CUSTOM;
     bool dryRun = false;
 
     std::unique_ptr<IRDB_SDK::DeadRegisterMap_t> deadRegisters;

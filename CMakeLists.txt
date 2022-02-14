@@ -35,6 +35,7 @@ set(IRDBLIB_LOCATION "${ZIPR_LOCATION}/irdb-libs/lib/")
 
 add_library(_irdb-sdk SHARED IMPORTED)
 target_include_directories(_irdb-sdk INTERFACE "${ZIPR_LOCATION}/irdb-sdk/include/")
+target_include_directories(_irdb-sdk INTERFACE "${ZIPR_LOCATION}/irdb-libs/third_party/capstone/include/")
 # just select a library
 set_property(TARGET _irdb-sdk PROPERTY IMPORTED_LOCATION
     "${IRDBLIB_LOCATION}/${CMAKE_SHARED_LIBRARY_PREFIX}irdb-core${CMAKE_SHARED_LIBRARY_SUFFIX}"
@@ -47,6 +48,7 @@ set_property(TARGET _irdb-sdk PROPERTY INTERFACE_LINK_LIBRARIES
     "${IRDBLIB_LOCATION}/${CMAKE_SHARED_LIBRARY_PREFIX}irdb-syscall${CMAKE_SHARED_LIBRARY_SUFFIX}"
     "${IRDBLIB_LOCATION}/${CMAKE_SHARED_LIBRARY_PREFIX}irdb-transform${CMAKE_SHARED_LIBRARY_SUFFIX}"
     "${IRDBLIB_LOCATION}/${CMAKE_SHARED_LIBRARY_PREFIX}irdb-util${CMAKE_SHARED_LIBRARY_SUFFIX}"
+    "${IRDBLIB_LOCATION}/${CMAKE_SHARED_LIBRARY_PREFIX}capstone${CMAKE_SHARED_LIBRARY_SUFFIX}.5"
 )
 
 add_library(irdb-sdk INTERFACE)
