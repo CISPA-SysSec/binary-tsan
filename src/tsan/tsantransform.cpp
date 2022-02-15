@@ -467,13 +467,20 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     InstructionInserter inserter(ir, instruction, functionAnalysis, dryRun);
 
+    bool eflagsAlive = true;
+
+    const auto deadRegisterSet = deadRegisters->find(instruction);
+    if (deadRegisterSet != deadRegisters->end()) {
+        const auto eflagsIt = std::find(deadRegisterSet->second.begin(), deadRegisterSet->second.end(), rn_EFLAGS);
+        eflagsAlive = eflagsIt == deadRegisterSet->second.end();
+    }
+
     // TODO: add this only once per function and not at every access
     if (info.inferredStackFrameSize > 0) {
         // use lea instead of add/sub to preserve flags
         inserter.insertAssembly("lea rsp, [rsp - " + toHex(info.inferredStackFrameSize) + "]");
     }
-    // TODO: only when they are needed (the free register analysis might support this)
-    if (instrumentation.preserveFlags) {
+    if (instrumentation.preserveFlags && eflagsAlive) {
         // if this is changed, change the rsp offset in the lea rdi instruction as well
         inserter.insertAssembly("pushf");
     }
@@ -504,7 +511,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
             } else {
                 if (contains(operand->getString(), "rsp")) {
                     // TODO: is this the correct size for the pushf?
-                    const int flagSize = instrumentation.preserveFlags ? 4 : 0;
+                    const int flagSize = (instrumentation.preserveFlags && eflagsAlive) ? 4 : 0;
                     const int offset = info.inferredStackFrameSize + registersToSave.size() * ir->getArchitectureBitWidth() / 8 + flagSize;
                     inserter.insertAssembly("lea rdi, [" + operand->getString() + " + " + toHex(offset) + "]");
                 } else {
@@ -528,7 +535,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
         inserter.insertAssembly("pop " + *it);
     }
-    if (instrumentation.preserveFlags) {
+    if (instrumentation.preserveFlags && eflagsAlive) {
         inserter.insertAssembly("popf");
     }
     if (info.inferredStackFrameSize > 0) {
