@@ -1,4 +1,5 @@
 #include "deadregisteranalysis.h"
+#include "helper.h"
 
 #include <algorithm>
 
@@ -52,7 +53,11 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
     if (isPartOfGroup(decoded, X86_GRP_RET)) {
         readRegs[registerBitIndex(X86_REG_RAX)] = true;
     }
-    if (isPartOfGroup(decoded, X86_GRP_CALL)) {
+    // tail call optimization leads to jumps to other functions, these have be treated like calls since the arguments are in the registers
+    const bool isJump = isPartOfGroup(decoded, X86_GRP_JUMP);
+    const bool jumpToOtherFunction = isJump && getJumpInfo(instruction).isTailCall;
+
+    if (isPartOfGroup(decoded, X86_GRP_CALL) || jumpToOtherFunction) {
         readRegs[registerBitIndex(X86_REG_RDI)] = true;
         readRegs[registerBitIndex(X86_REG_RSI)] = true;
         readRegs[registerBitIndex(X86_REG_RDX)] = true;

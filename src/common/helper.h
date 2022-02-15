@@ -46,6 +46,46 @@ inline std::string toBytes(IRDB_SDK::RegisterID reg, int bytes)
     return full;
 }
 
+struct JumpInfo
+{
+    JumpInfo(bool canLeave, bool canStay, bool tailCall) :
+        canLeaveFunction(canLeave),
+        canStayInFunction(canStay),
+        isTailCall(tailCall)
+    { }
+
+    bool canLeaveFunction;
+    bool canStayInFunction;
+    bool isTailCall;
+};
+
+// may only be called for jump instructions (not calls)
+inline JumpInfo getJumpInfo(const IRDB_SDK::Instruction_t *instruction)
+{
+    const IRDB_SDK::Function_t *function = instruction->getFunction();
+    if (instruction->getTarget() && instruction->getTarget()->getFunction() != function) {
+        // TODO: sanity check: instruction does not have a fallthrough
+        return JumpInfo(true, false, true);
+    }
+    const auto icfs = instruction->getIBTargets();
+    // TODO: check conditional or unconditional branch
+    if (icfs) {
+        const auto leaving = find_if(icfs->begin(), icfs->end(), [function](IRDB_SDK::Instruction_t *target) {
+            return target->getFunction() != function;
+        });
+        const auto staying = find_if(icfs->begin(), icfs->end(), [function](IRDB_SDK::Instruction_t *target) {
+            return target->getFunction() == function;
+        });
+
+        const bool mightLeave = leaving != icfs->end();
+        const bool mightStay = staying != icfs->end();
+
+        return JumpInfo(mightLeave, mightStay, !mightStay);
+    }
+    // TODO: what to do here?
+    return JumpInfo(true, true, false);
+}
+
 // returns the name of the function that the instruction calls, or an empty string in all other cases
 inline std::string targetFunctionName(const IRDB_SDK::Instruction_t *instruction)
 {
