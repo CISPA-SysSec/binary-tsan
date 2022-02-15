@@ -15,10 +15,10 @@ namespace FixedPointAnalysis
     template<typename BackwardsInstructionAnalysis, typename BackwardsAnalysisCommon>
     std::map<IRDB_SDK::Instruction_t*, BackwardsInstructionAnalysis> runBackwards(IRDB_SDK::Function_t *function);
 
-    // TODO: check for memory indirect jumps
+    // TODO: check for syscalls
     // TODO: check if function entry point exists
     // TODO: check and abort on exceptions in the function
-    inline bool isApplicable(IRDB_SDK::Function_t*) { return true; }
+    bool canHandle(IRDB_SDK::Function_t*function);
 };
 
 #endif // FIXEDPOINTANALYSIS_H

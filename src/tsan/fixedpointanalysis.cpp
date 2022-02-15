@@ -5,6 +5,19 @@
 
 using namespace IRDB_SDK;
 
+bool FixedPointAnalysis::canHandle(IRDB_SDK::Function_t *function)
+{
+    for (Instruction_t *instruction : function->getInstructions()) {
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        if (decoded->isBranch() && !decoded->isCall() && decoded->hasOperand(0)) {
+            if (decoded->getOperand(0)->isRegister()) { // || decoded->getOperand(0)->isMemory()
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 template<typename BackwardsInstructionAnalysis, typename BackwardsAnalysisCommon>
 struct BackwardsInstructionInfo {
     BackwardsInstructionInfo(Instruction_t *instruction, const BackwardsAnalysisCommon &common) :

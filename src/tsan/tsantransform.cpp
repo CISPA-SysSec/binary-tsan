@@ -125,9 +125,11 @@ bool TSanTransform::executeStep()
         if (deadRegisterAnalysisType == DeadRegisterAnalysisType::CUSTOM) {
             deadRegisters.reset(new DeadRegisterMap_t());
 
-            const auto analysisResult = FixedPointAnalysis::runBackwards<DeadRegisterInstructionAnalysis, DeadRegisterAnalysisCommon>(function);
-            for (const auto &[instruction, analysis] : analysisResult) {
-                deadRegisters->insert({instruction, analysis.getDeadRegisters()});
+            if (FixedPointAnalysis::canHandle(function)) {
+                const auto analysisResult = FixedPointAnalysis::runBackwards<DeadRegisterInstructionAnalysis, DeadRegisterAnalysisCommon>(function);
+                for (const auto &[instruction, analysis] : analysisResult) {
+                    deadRegisters->insert({instruction, analysis.getDeadRegisters()});
+                }
             }
         }
 
