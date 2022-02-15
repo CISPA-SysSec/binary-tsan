@@ -30,14 +30,12 @@ public:
         }
         if (!hasInsertedBefore) {
             hasInsertedBefore = true;
-            auto in = IRDB_SDK::insertAssemblyBefore(file, insertionPoint, assembly, target);
-            in->setFunction(function);
-            return in;
+            IRDB_SDK::insertAssemblyBefore(file, insertionPoint, assembly, target);
         } else {
             insertionPoint = IRDB_SDK::insertAssemblyAfter(file, insertionPoint, assembly, target);
-            insertionPoint->setFunction(function);
-            return insertionPoint;
         }
+        insertionPoint->setFunction(function);
+        return insertionPoint;
     }
 
     // only valid if at least one instruction has been inserted
@@ -439,6 +437,8 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
 
 void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, const FunctionInfo &info)
 {
+    const auto decoded = DecodedInstruction_t::factory(instruction);
+
     InstrumentationInfo instrumentationInfo;
     instrumentationInfo.set_original_address(instruction->getAddress()->getVirtualOffset());
     instrumentationInfo.set_disassembly(disassembly(instruction));
@@ -475,6 +475,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         eflagsAlive = eflagsIt == deadRegisterSet->second.end();
     }
 
+    // the instruction pointer no longer points to the original instruction, make sure that it is not used
+    instruction = nullptr;
+
     // TODO: add this only once per function and not at every access
     if (info.inferredStackFrameSize > 0) {
         // use lea instead of add/sub to preserve flags
@@ -502,8 +505,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
             if (operand->isPcrel()) {
                 // The memory displacement is relative the rip at the start of the NEXT instruction
                 // The lea instruction should have 7 bytes (if the memory displacement is encoded with 4 byte)
-                const auto decoded = DecodedInstruction_t::factory(instruction);
-                auto offset = operand->getMemoryDisplacement() + decoded->length() - 7;
+                const auto offset = operand->getMemoryDisplacement() + decoded->length() - 7;
                 auto inserted = inserter.insertAssembly("lea rdi, [rel " + toHex(offset) + "]");
                 if (!dryRun) {
                     ir->addNewRelocation(inserted, 0, "pcrel");
