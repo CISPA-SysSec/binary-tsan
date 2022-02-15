@@ -40,19 +40,17 @@ public:
     }
 
     std::set<IRDB_SDK::RegisterID> getDeadRegisters() const;
-    void printResult() const;
 
 private:
-    static int registerBitIndex(x86_reg reg);
+    static std::vector<int> registerBitIndices(x86_reg reg);
+    static void setBits(std::bitset<40> &bitset, x86_reg reg);
 
 private:
-    std::bitset<16> before;
-    std::bitset<16> after;
+    std::bitset<40> before;
+    std::bitset<40> after;
 
-    std::bitset<16> writtenRegs;
-    std::bitset<16> readRegs;
-
-    static constexpr int UNUSED_REG = 15;
+    std::bitset<40> writtenRegs;
+    std::bitset<40> readRegs;
 };
 
 #endif // DEADREGISTERANALYSIS_H

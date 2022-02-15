@@ -22,13 +22,11 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
     }
     for (int i = 0;i<decoded->detail->regs_write_count;i++) {
         const x86_reg reg = (x86_reg)decoded->detail->regs_write[i];
-        const int regIndex = registerBitIndex(reg);
-        writtenRegs[regIndex] = true;
+        setBits(writtenRegs, reg);
     }
     for (int i = 0;i<decoded->detail->regs_read_count;i++) {
         const x86_reg reg = (x86_reg)decoded->detail->regs_read[i];
-        const int regIndex = registerBitIndex(reg);
-        readRegs[regIndex] = true;
+        setBits(readRegs, reg);
     }
     auto x86 = decoded->detail->x86;
     for (int i = 0;i<x86.op_count;i++) {
@@ -36,14 +34,14 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
         if (op.type == X86_OP_REG) {
             // TODO: special cases in zipr
             if (op.access & CS_AC_READ) {
-                readRegs[registerBitIndex(op.reg)] = true;
+                setBits(readRegs, op.reg);
             }
             if (op.access & CS_AC_WRITE) {
-                writtenRegs[registerBitIndex(op.reg)] = true;
+                setBits(writtenRegs, op.reg);
             }
         } else if (op.type == X86_OP_MEM) {
-            readRegs[registerBitIndex(op.mem.base)] = true;
-            readRegs[registerBitIndex(op.mem.index)] = true;
+            setBits(readRegs, op.mem.base);
+            setBits(readRegs, op.mem.index);
         }
     }
 
@@ -51,19 +49,19 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
 
     // special cases for the assumed calling convention
     if (isPartOfGroup(decoded, X86_GRP_RET)) {
-        readRegs[registerBitIndex(X86_REG_RAX)] = true;
+        setBits(readRegs, X86_REG_RAX);
     }
     // tail call optimization leads to jumps to other functions, these have be treated like calls since the arguments are in the registers
     const bool isJump = isPartOfGroup(decoded, X86_GRP_JUMP);
     const bool jumpToOtherFunction = isJump && getJumpInfo(instruction).isTailCall;
 
     if (isPartOfGroup(decoded, X86_GRP_CALL) || jumpToOtherFunction) {
-        readRegs[registerBitIndex(X86_REG_RDI)] = true;
-        readRegs[registerBitIndex(X86_REG_RSI)] = true;
-        readRegs[registerBitIndex(X86_REG_RDX)] = true;
-        readRegs[registerBitIndex(X86_REG_RCX)] = true;
-        readRegs[registerBitIndex(X86_REG_R8)] = true;
-        readRegs[registerBitIndex(X86_REG_R9)] = true;
+        setBits(readRegs, X86_REG_RDI);
+        setBits(readRegs, X86_REG_RSI);
+        setBits(readRegs, X86_REG_RDX);
+        setBits(readRegs, X86_REG_RCX);
+        setBits(readRegs, X86_REG_R8);
+        setBits(readRegs, X86_REG_R9);
 
         // all caller save registers and flags are dirtied
         writtenRegs.set();
@@ -73,72 +71,65 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
 
     cs_free(decoded, 1);
 
-    // reduce necessary iterations
-    writtenRegs[UNUSED_REG] = false;
-    readRegs[UNUSED_REG] = false;
-
     // initially consider all registers dead
     before.set();
     after.set();
 }
 
-int DeadRegisterInstructionAnalysis::registerBitIndex(x86_reg reg)
+void DeadRegisterInstructionAnalysis::setBits(std::bitset<40> &bitset, x86_reg reg)
 {
+    const auto bits = registerBitIndices(reg);
+    for (int bit : bits) {
+        bitset[bit] = true;
+    }
+}
 
-    std::map<x86_reg, int> indexMap = {
-        {X86_REG_RAX, 0}, {X86_REG_EAX, 0}, {X86_REG_AX, 0}, {X86_REG_AH, 0}, {X86_REG_AL, 0},
-        {X86_REG_RCX, 1}, {X86_REG_ECX, 1}, {X86_REG_CX, 1}, {X86_REG_CH, 1}, {X86_REG_CL, 1},
-        {X86_REG_RDX, 2}, {X86_REG_EDX, 2}, {X86_REG_DX, 2}, {X86_REG_DH, 2}, {X86_REG_DL, 2},
-        {X86_REG_RSI, 3}, {X86_REG_ESI, 3}, {X86_REG_SI, 3}, {X86_REG_SIL, 3},
-        {X86_REG_RDI, 4}, {X86_REG_EDI, 4}, {X86_REG_DI, 4}, {X86_REG_DIL, 4},
-        {X86_REG_R8, 5}, {X86_REG_R8D, 5}, {X86_REG_R8W, 5}, {X86_REG_R8B, 5},
-        {X86_REG_R9, 6}, {X86_REG_R9D, 6}, {X86_REG_R9W, 6}, {X86_REG_R9B, 6},
-        {X86_REG_R10, 7}, {X86_REG_R10D, 7}, {X86_REG_R10W, 7}, {X86_REG_R10B, 7},
-        {X86_REG_R11, 8}, {X86_REG_R11D, 8}, {X86_REG_R11W, 8}, {X86_REG_R11B, 8},
-        {X86_REG_EFLAGS, 9}
+std::vector<int> DeadRegisterInstructionAnalysis::registerBitIndices(x86_reg reg)
+{
+    const std::map<x86_reg, std::vector<int>> indexMap = {
+        {X86_REG_RAX, {0, 1, 2, 3, 4}}, {X86_REG_EAX, {1, 2, 3, 4}}, {X86_REG_AX, {2, 3, 4}}, {X86_REG_AH, {3}}, {X86_REG_AL, {4}},
+        {X86_REG_RCX, {5, 6, 7, 8, 9}}, {X86_REG_ECX, {6, 7, 8, 9}}, {X86_REG_CX, {7, 8, 9}}, {X86_REG_CH, {8}}, {X86_REG_CL, {9}},
+        {X86_REG_RDX, {10, 11, 12, 13, 14}}, {X86_REG_EDX, {11, 12, 13, 14}}, {X86_REG_DX, {12, 13, 14}}, {X86_REG_DH, {13}}, {X86_REG_DL, {14}},
+        {X86_REG_RSI, {15, 16, 17, 18}}, {X86_REG_ESI, {16, 17, 18}}, {X86_REG_SI, {17, 18}}, {X86_REG_SIL, {18}},
+        {X86_REG_RDI, {19, 20, 21, 22}}, {X86_REG_EDI, {20, 21, 22}}, {X86_REG_DI, {21, 22}}, {X86_REG_DIL, {22}},
+        {X86_REG_R8, {23, 24, 25, 26}}, {X86_REG_R8D, {24, 25, 26}}, {X86_REG_R8W, {25, 26}}, {X86_REG_R8B, {26}},
+        {X86_REG_R9, {27, 28, 29, 30}}, {X86_REG_R9D, {28, 29, 30}}, {X86_REG_R9W, {29, 30}}, {X86_REG_R9B, {30}},
+        {X86_REG_R10, {31, 32, 33, 34}}, {X86_REG_R10D, {32, 33, 34}}, {X86_REG_R10W, {33, 34}}, {X86_REG_R10B, {34}},
+        {X86_REG_R11, {35, 36, 37, 38}}, {X86_REG_R11D, {36, 37, 38}}, {X86_REG_R11W, {37, 38}}, {X86_REG_R11B, {38}},
+        {X86_REG_EFLAGS, {39}}
     };
 
     auto it = indexMap.find(reg);
     if (it != indexMap.end()) {
         return it->second;
     }
-    return UNUSED_REG;
+    return {};
 }
 
 std::set<IRDB_SDK::RegisterID> DeadRegisterInstructionAnalysis::getDeadRegisters() const
 {
+    const std::map<x86_reg, RegisterID> regMap = {
+        {X86_REG_RAX, RegisterID::rn_RAX},
+        {X86_REG_RCX, RegisterID::rn_RCX},
+        {X86_REG_RDX, RegisterID::rn_RDX},
+        {X86_REG_RSI, RegisterID::rn_RSI},
+        {X86_REG_RDI, RegisterID::rn_RDI},
+        {X86_REG_R8, RegisterID::rn_R8},
+        {X86_REG_R9, RegisterID::rn_R9},
+        {X86_REG_R10, RegisterID::rn_R10},
+        {X86_REG_R11, RegisterID::rn_R11},
+        {X86_REG_EFLAGS, RegisterID::rn_EFLAGS}
+    };
     std::set<IRDB_SDK::RegisterID> result;
-    if (before[0]) result.insert(RegisterID::rn_RAX);
-    if (before[1]) result.insert(RegisterID::rn_RCX);
-    if (before[2]) result.insert(RegisterID::rn_RDX);
-    if (before[3]) result.insert(RegisterID::rn_RSI);
-    if (before[4]) result.insert(RegisterID::rn_RDI);
-    if (before[5]) result.insert(RegisterID::rn_R8);
-    if (before[6]) result.insert(RegisterID::rn_R9);
-    if (before[7]) result.insert(RegisterID::rn_R10);
-    if (before[8]) result.insert(RegisterID::rn_R11);
-    if (before[9]) result.insert(RegisterID::rn_EFLAGS);
-    return result;
-}
-
-void DeadRegisterInstructionAnalysis::printResult() const
-{
-    for (int i = 0;i<10;i++) {
-        if (before[i]) {
-            switch (i) {
-            case 0: std::cout <<"rax"; break;
-            case 1: std::cout <<"rcx"; break;
-            case 2: std::cout <<"rdx"; break;
-            case 3: std::cout <<"rsi"; break;
-            case 4: std::cout <<"rdi"; break;
-            case 5: std::cout <<"r8"; break;
-            case 6: std::cout <<"r9"; break;
-            case 7: std::cout <<"r10"; break;
-            case 8: std::cout <<"r11"; break;
-            case 9: std::cout <<"eflags"; break;
-            }
-            std::cout <<", ";
+    for (const auto &[capstoneReg, regId] : regMap) {
+        // all subregisters must be dead for the whole register to count as dead
+        bool isDead = true;
+        for (int bit : registerBitIndices(capstoneReg)) {
+            isDead &= before[bit];
+        }
+        if (isDead) {
+            result.insert(regId);
         }
     }
-    std::cout <<std::endl;
+    return result;
 }
