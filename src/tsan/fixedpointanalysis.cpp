@@ -13,6 +13,11 @@ bool FixedPointAnalysis::canHandle(IRDB_SDK::Function_t *function)
             if (decoded->getOperand(0)->isRegister()) { // || decoded->getOperand(0)->isMemory()
                 return false;
             }
+            if (instruction->getRelocations().size() > 0) {
+                // this usually only happens for push jump thunks
+                // the analysis does not work here, but there is also no need
+                return false;
+            }
         }
     }
     return true;
