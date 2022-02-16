@@ -45,7 +45,12 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
         }
     }
 
-    // TODO: the instruction xor rax, rax does not actually read rax (quite common)
+    // special case: instructions like xor eax, eax do not read eax for practical purposes
+    const bool isXor = std::string(decoded->mnemonic) == "xor";
+    const bool sameRegisters = x86.op_count == 2 && x86.operands[0].type == X86_OP_REG && x86.operands[1].type == X86_OP_REG && x86.operands[0].reg == x86.operands[1].reg;
+    if (isXor && sameRegisters) {
+        readRegs.reset();
+    }
 
     // special cases for the assumed calling convention
     if (isPartOfGroup(decoded, X86_GRP_RET)) {
