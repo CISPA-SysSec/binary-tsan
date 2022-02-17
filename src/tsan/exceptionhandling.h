@@ -12,7 +12,7 @@ public:
     void handleFunction(IRDB_SDK::Function_t *function, InstructionInserter &inserter);
 
 private:
-    bool hasExistingCallSite(IRDB_SDK::Function_t *function) const;
+    bool hasEmptyCallSite(IRDB_SDK::Function_t *function) const;
     IRDB_SDK::Instruction_t *findUnwindResume() const;
     IRDB_SDK::Relocation_t *findPersonalityRelocation() const;
 

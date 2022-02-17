@@ -30,7 +30,7 @@ void ExceptionHandling::handleFunction(Function_t *function, InstructionInserter
     std::cout <<function->getName()<<std::endl;
 
     // TODO: additional check if file has exceptions at all
-    if (hasExistingCallSite(function)) {
+    if (!hasEmptyCallSite(function)) {
         std::cout <<"Function "<<function->getName()<<" already has an exception callsite!"<<std::endl;
         return;
     }
@@ -83,6 +83,9 @@ void ExceptionHandling::handleFunction(Function_t *function, InstructionInserter
         if (instruction->getEhProgram() == nullptr) {
             continue;
         }
+        if (instruction->getEhCallSite() != nullptr && instruction->getEhCallSite()->getLandingPad() != nullptr) {
+            continue;
+        }
         std::cout <<"call site: "<<disassembly(instruction)<<std::endl;
 
         // TODO: clean up excess eh programs
@@ -95,11 +98,11 @@ void ExceptionHandling::handleFunction(Function_t *function, InstructionInserter
     }
 }
 
-bool ExceptionHandling::hasExistingCallSite(Function_t *function) const
+bool ExceptionHandling::hasEmptyCallSite(Function_t *function) const
 {
     const auto instructions = function->getInstructions();
     return std::any_of(instructions.begin(), instructions.end(), [](const auto i) {
-        return i->getEhCallSite() != nullptr;
+        return i->getEhCallSite() == nullptr || i->getEhCallSite()->getLandingPad() == nullptr;
     });
 }
 

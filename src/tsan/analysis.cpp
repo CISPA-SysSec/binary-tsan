@@ -45,7 +45,6 @@ FunctionInfo Analysis::analyseFunction(FileIR_t *ir, Function_t *function)
         if (decoded->isCall()) {
             if (contains(targetFunctionName(instruction), "Unwind_Resume")) {
                 unwindFunctions++;
-                result.exitPoints.push_back(instruction);
             }
             continue;
         }
