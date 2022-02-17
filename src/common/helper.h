@@ -3,8 +3,60 @@
 
 #include <irdb-core>
 #include <irdb-util>
+#include <irdb-transform>
 #include <string>
 #include <algorithm>
+
+class InstructionInserter
+{
+public:
+    InstructionInserter(IRDB_SDK::FileIR_t *file, IRDB_SDK::Instruction_t *insertBefore, std::function<void()> instrCounter, bool dryRun) :
+        file(file),
+        function(insertBefore->getFunction()),
+        insertionPoint(insertBefore),
+        insertedInstructionCounter(instrCounter),
+        dryRun(dryRun)
+    { }
+
+    void setInsertBefore(IRDB_SDK::Instruction_t *instruction) {
+        insertionPoint = instruction;
+        hasInsertedBefore = false;
+    }
+
+    void setInsertAfter(IRDB_SDK::Instruction_t *instruction) {
+        insertionPoint = instruction;
+        hasInsertedBefore = true;
+    }
+
+    // returns the newly created instruction
+    IRDB_SDK::Instruction_t *insertAssembly(const std::string &assembly, IRDB_SDK::Instruction_t *target = nullptr) {
+        insertedInstructionCounter();
+        if (dryRun) {
+            return nullptr;
+        }
+        if (!hasInsertedBefore) {
+            hasInsertedBefore = true;
+            IRDB_SDK::insertAssemblyBefore(file, insertionPoint, assembly, target);
+        } else {
+            insertionPoint = IRDB_SDK::insertAssemblyAfter(file, insertionPoint, assembly, target);
+        }
+        insertionPoint->setFunction(function);
+        return insertionPoint;
+    }
+
+    // only valid if at least one instruction has been inserted
+    IRDB_SDK::Instruction_t *getLastInserted() const {
+        return insertionPoint;
+    }
+
+private:
+    IRDB_SDK::FileIR_t *file;
+    bool hasInsertedBefore = false;
+    IRDB_SDK::Function_t *function;
+    IRDB_SDK::Instruction_t *insertionPoint;
+    std::function<void()> insertedInstructionCounter;
+    bool dryRun;
+};
 
 inline bool contains(const std::string &str, const std::string &search)
 {

@@ -25,7 +25,7 @@ static Instruction_t *findFunctionByName(FileIR_t *file, const std::string &name
     return it != functions.end() ? (*it)->getEntryPoint() : nullptr;
 }
 
-void ExceptionHandling::handleFunction(Function_t *function)
+void ExceptionHandling::handleFunction(Function_t *function, InstructionInserter &inserter)
 {
     std::cout <<function->getName()<<std::endl;
 
@@ -46,39 +46,25 @@ void ExceptionHandling::handleFunction(Function_t *function)
 
     const auto instructions = function->getInstructions();
 
-    std::vector<Instruction_t*> lpInstructions;
-
     // create eh landing pad code
     Instruction_t *insertPoint = function->getEntryPoint()->getFallthrough();
+    inserter.setInsertAfter(insertPoint);
+    inserter.insertAssembly("jmp 0", insertPoint->getFallthrough());
 
-    insertPoint = insertAssemblyAfter(file, insertPoint, "jmp 0", insertPoint->getFallthrough());
-    lpInstructions.push_back(insertPoint);
-
-    Instruction_t *landingPad = insertPoint = insertAssemblyAfter(file, insertPoint, "sub rsp, 0x110");
-    lpInstructions.push_back(insertPoint);
-
-    insertPoint = insertAssemblyAfter(file, insertPoint, "push rax");
-    lpInstructions.push_back(insertPoint);
-
-    insertPoint = insertAssemblyAfter(file, insertPoint, "call 0", tsanFunctionExit);
-    lpInstructions.push_back(insertPoint);
-
+    Instruction_t *landingPad = inserter.insertAssembly("sub rsp, 0x110");
+    inserter.insertAssembly("push rax");
+    inserter.insertAssembly("call 0", tsanFunctionExit);
     auto printTest = findFunctionByName(file, "_Z4testv");
     if (printTest != nullptr) {
-        insertPoint = insertAssemblyAfter(file, insertPoint, "call 0", printTest);
-        lpInstructions.push_back(insertPoint);
+        inserter.insertAssembly("call 0", printTest);
     }
+    inserter.insertAssembly("pop rdi");
+    inserter.insertAssembly("sub rsp, 0x110");
+    Instruction_t *unwindCall = inserter.insertAssembly("call 0", unwindResume);
+    // never reached, but the call instruction needs a fallthrough
+    inserter.insertAssembly("ret");
 
-    insertPoint = insertAssemblyAfter(file, insertPoint, "pop rdi");
-    lpInstructions.push_back(insertPoint);
-
-    insertPoint = insertAssemblyAfter(file, insertPoint, "sub rsp, 0x110");
-    lpInstructions.push_back(insertPoint);
-
-    insertPoint = insertAssemblyAfter(file, insertPoint, "call 0", unwindResume);
-    lpInstructions.push_back(insertPoint);
-
-    auto unwindResumeCallSite = file->addEhCallSite(insertPoint, 255, nullptr);
+    auto unwindResumeCallSite = file->addEhCallSite(unwindCall, 255, nullptr);
     unwindResumeCallSite->setHasCleanup(true);
 
     // cie program: def_cfa: r7 (rsp) ofs 8, cfa_offset 1
@@ -89,16 +75,8 @@ void ExceptionHandling::handleFunction(Function_t *function)
 
     // TODO: does this also need a personality relocation?
     // TODO: do not duplicate
-    auto unwindResumeEhProg = file->addEhProgram(insertPoint, 1, -8, 16, 8, cieProg, fdeProg);
-    insertPoint->setEhProgram(unwindResumeEhProg);
-
-    // never reached, but the call instruction needs a fallthrough
-    insertPoint = insertAssemblyAfter(file, insertPoint, "ret");
-    lpInstructions.push_back(insertPoint);
-
-    for (auto i : lpInstructions) {
-        i->setFunction(function);
-    }
+    auto unwindResumeEhProg = file->addEhProgram(unwindCall, 1, -8, 16, 8, cieProg, fdeProg);
+    unwindCall->setEhProgram(unwindResumeEhProg);
 
     // set eh callsite for all instructions
     for (Instruction_t *instruction : instructions) {

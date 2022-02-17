@@ -12,47 +12,6 @@
 
 using namespace IRDB_SDK;
 
-class InstructionInserter
-{
-public:
-    InstructionInserter(FileIR_t *file, Instruction_t *insertBefore, Analysis &analysis, bool dryRun) :
-        file(file),
-        function(insertBefore->getFunction()),
-        insertionPoint(insertBefore),
-        analysis(analysis),
-        dryRun(dryRun)
-    { }
-
-    // returns the newly created instruction
-    Instruction_t *insertAssembly(const std::string &assembly, Instruction_t *target = nullptr) {
-        analysis.countAddInstrumentationInstruction();
-        if (dryRun) {
-            return nullptr;
-        }
-        if (!hasInsertedBefore) {
-            hasInsertedBefore = true;
-            IRDB_SDK::insertAssemblyBefore(file, insertionPoint, assembly, target);
-        } else {
-            insertionPoint = IRDB_SDK::insertAssemblyAfter(file, insertionPoint, assembly, target);
-        }
-        insertionPoint->setFunction(function);
-        return insertionPoint;
-    }
-
-    // only valid if at least one instruction has been inserted
-    Instruction_t *getLastInserted() const {
-        return insertionPoint;
-    }
-
-private:
-    FileIR_t *file;
-    bool hasInsertedBefore = false;
-    Function_t *function;
-    Instruction_t *insertionPoint;
-    Analysis &analysis;
-    bool dryRun;
-};
-
 TSanTransform::TSanTransform(FileIR_t *file) :
     Transform_t(file)
 {
@@ -169,7 +128,9 @@ bool TSanTransform::executeStep()
             }
 
             getFileIR()->assembleRegistry();
-            exceptionHandling.handleFunction(function);
+
+            InstructionInserter inserter(ir, function->getEntryPoint(), functionAnalysis.getInstructionCounter(), dryRun);
+            exceptionHandling.handleFunction(function, inserter);
         }
         getFileIR()->assembleRegistry();
     }
@@ -191,7 +152,7 @@ void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
     // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)
     FileIR_t *ir = getFileIR();
     const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
-    InstructionInserter inserter(ir, insertBefore, functionAnalysis, dryRun);
+    InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(), dryRun);
 
     // for this to work without any additional rsp wrangling, it must be inserted at the very start of the function
     for (std::string reg : registersToSave) {
@@ -210,7 +171,7 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
 {
     FileIR_t *ir = getFileIR();
     const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
-    InstructionInserter inserter(ir, insertBefore, functionAnalysis, dryRun);
+    InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(), dryRun);
 
     // must be inserted directly before the return instruction
     for (std::string reg : registersToSave) {
@@ -471,7 +432,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         registersToSave.erase(instrumentation.noSaveRegister.value());
     }
 
-    InstructionInserter inserter(ir, instruction, functionAnalysis, dryRun);
+    InstructionInserter inserter(ir, instruction, functionAnalysis.getInstructionCounter(), dryRun);
 
     bool eflagsAlive = true;
 

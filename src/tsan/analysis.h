@@ -4,6 +4,7 @@
 #include <irdb-core>
 #include <map>
 #include <set>
+#include <functional>
 
 // from tsan-interface-atomic.h, do not change
 typedef enum {
@@ -34,6 +35,7 @@ class Analysis
 public:
     FunctionInfo analyseFunction(IRDB_SDK::FileIR_t *ir, IRDB_SDK::Function_t *function);
     void printStatistics() const;
+    std::function<void()> getInstructionCounter() { return [this](){ instrumentationInstructions++; }; }
     void countAddInstrumentationInstruction() { instrumentationInstructions++; }
 
 private:

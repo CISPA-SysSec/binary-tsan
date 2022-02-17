@@ -2,13 +2,14 @@
 #define EXCEPTIONHANDLING_H
 
 #include <irdb-core>
+#include "helper.h"
 
 class ExceptionHandling
 {
 public:
     ExceptionHandling(IRDB_SDK::FileIR_t *ir, IRDB_SDK::Instruction_t *tsanFunctionExit);
 
-    void handleFunction(IRDB_SDK::Function_t *function);
+    void handleFunction(IRDB_SDK::Function_t *function, InstructionInserter &inserter);
 
 private:
     bool hasExistingCallSite(IRDB_SDK::Function_t *function) const;
