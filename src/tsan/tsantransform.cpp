@@ -173,13 +173,23 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
     const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
     InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(), dryRun);
 
+    const auto decoded = DecodedInstruction_t::factory(insertBefore);
+    const bool isSimpleReturn = decoded->isReturn();
+
     // must be inserted directly before the return instruction
+    if (!isSimpleReturn) {
+        // if the "return" instruction is something like a jmp (from a tailcall), then there might be function arguments on the stack
+        inserter.insertAssembly("sub rsp, 0xff");
+    }
     for (std::string reg : registersToSave) {
         inserter.insertAssembly("push " + reg);
     }
     inserter.insertAssembly("call 0", tsanFunctionExit);
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
         inserter.insertAssembly("pop " + *it);
+    }
+    if (!isSimpleReturn) {
+        inserter.insertAssembly("add rsp, 0xff");
     }
 }
 
