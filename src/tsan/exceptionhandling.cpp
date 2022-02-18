@@ -16,27 +16,13 @@ ExceptionHandling::ExceptionHandling(FileIR_t *ir, Instruction_t *tsanFunctionEx
     personalityRelocation(findPersonalityRelocation())
 { }
 
-static Instruction_t *findFunctionByName(FileIR_t *file, const std::string &name)
-{
-    const auto functions = file->getFunctions();
-    auto it = std::find_if(functions.begin(), functions.end(), [&name](const auto f) {
-        return f->getName() ==name;
-    });
-    return it != functions.end() ? (*it)->getEntryPoint() : nullptr;
-}
-
 void ExceptionHandling::handleFunction(Function_t *function, InstructionInserter &inserter)
 {
-    std::cout <<function->getName()<<std::endl;
+//    std::cout <<function->getName()<<std::endl;
 
     // TODO: additional check if file has exceptions at all
     if (!hasEmptyCallSite(function)) {
         std::cout <<"Function "<<function->getName()<<" already has an exception callsite!"<<std::endl;
-        return;
-    }
-    // TODO: does this function work??
-    if (!function->getUseFramePointer()) {
-        std::cout <<"Function "<<function->getName()<<" does not use the frame pointer!"<<std::endl;
         return;
     }
     if (unwindResume == nullptr || personalityRelocation == nullptr) {
@@ -51,32 +37,8 @@ void ExceptionHandling::handleFunction(Function_t *function, InstructionInserter
     inserter.setInsertAfter(insertPoint);
     inserter.insertAssembly("jmp 0", insertPoint->getFallthrough());
 
-    Instruction_t *landingPad = inserter.insertAssembly("sub rsp, 0x110");
-    inserter.insertAssembly("push rax");
-    inserter.insertAssembly("call 0", tsanFunctionExit);
-    auto printTest = findFunctionByName(file, "_Z4testv");
-    if (printTest != nullptr) {
-        inserter.insertAssembly("call 0", printTest);
-    }
-    inserter.insertAssembly("pop rdi");
-    inserter.insertAssembly("sub rsp, 0x110");
-    Instruction_t *unwindCall = inserter.insertAssembly("call 0", unwindResume);
-    // never reached, but the call instruction needs a fallthrough
-    inserter.insertAssembly("ret");
-
-    auto unwindResumeCallSite = file->addEhCallSite(unwindCall, 255, nullptr);
-    unwindResumeCallSite->setHasCleanup(true);
-
-    // cie program: def_cfa: r7 (rsp) ofs 8, cfa_offset 1
-    const std::vector<std::string> cieProg = {{0x0c, 0x07, 0x08}, {(char)0x90, 0x01}};
-
-    // fde program: cfa_offset 2, def_cfa: r6 (rbp) ofs 16
-    const std::vector<std::string> fdeProg = {{(char)0x86, 0x02}, {0x0c, 0x06, 0x10}};
-
-    // TODO: does this also need a personality relocation?
-    // TODO: do not duplicate
-    auto unwindResumeEhProg = file->addEhProgram(unwindCall, 1, -8, 16, 8, cieProg, fdeProg);
-    unwindCall->setEhProgram(unwindResumeEhProg);
+    // a very inefficient data structure, but it will do for now
+    std::map<std::vector<std::string>, Instruction_t*> ehProgramToLandingPad;
 
     // set eh callsite for all instructions
     for (Instruction_t *instruction : instructions) {
@@ -86,9 +48,43 @@ void ExceptionHandling::handleFunction(Function_t *function, InstructionInserter
         if (instruction->getEhCallSite() != nullptr && instruction->getEhCallSite()->getLandingPad() != nullptr) {
             continue;
         }
-        std::cout <<"call site: "<<disassembly(instruction)<<std::endl;
+
+        std::vector<std::string> prog = instruction->getEhProgram()->getCIEProgram();
+        const auto fde = instruction->getEhProgram()->getFDEProgram();
+        prog.insert(prog.end(), fde.begin(), fde.end());
+        // TODO: more efficient data structure
+        auto it = ehProgramToLandingPad.find(prog);
+
+        // TODO: test if registers are restored correctly
+        Instruction_t *landingPad;
+        if (it == ehProgramToLandingPad.end()) {
+
+            // additional offset for stack redzone
+            landingPad = inserter.insertAssembly("sub rsp, 0x100");
+            inserter.insertAssembly("push rax");
+            inserter.insertAssembly("call 0", tsanFunctionExit);
+            inserter.insertAssembly("pop rdi");
+            inserter.insertAssembly("add rsp, 0x100");
+            Instruction_t *unwindCall = inserter.insertAssembly("call 0", unwindResume);
+            // never reached, but the call instruction needs a fallthrough
+            inserter.insertAssembly("ret");
+
+            auto unwindResumeCallSite = file->addEhCallSite(unwindCall, 255, nullptr);
+            unwindResumeCallSite->setHasCleanup(true);
+
+            auto unwindResumeEhProg = file->copyEhProgram(*instruction->getEhProgram());
+            if (unwindCall != nullptr) { // dry-run
+                unwindCall->setEhProgram(unwindResumeEhProg);
+            }
+
+            ehProgramToLandingPad[prog] = landingPad;
+        } else {
+            landingPad = it->second;
+        }
+//        std::cout <<"call site: "<<disassembly(instruction)<<std::endl;
 
         // TODO: clean up excess eh programs
+        // TODO: cache new eh programs
         auto newEhProg = file->copyEhProgram(*instruction->getEhProgram());
         newEhProg->setRelocations({personalityRelocation});
         instruction->setEhProgram(newEhProg);
