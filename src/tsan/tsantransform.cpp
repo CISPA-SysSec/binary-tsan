@@ -479,7 +479,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
             continue;
         }
         if (assembly == MOVE_OPERAND_RDI) {
-            if (operand->isPcrel()) {
+            if (operand->getString() == "rdi") {
+                // nothing to do, the address is already in rdi
+            } else if (operand->isPcrel()) {
                 // The memory displacement is relative the rip at the start of the NEXT instruction
                 // The lea instruction should have 7 bytes (if the memory displacement is encoded with 4 byte)
                 const auto offset = operand->getMemoryDisplacement() + decoded->length() - 7;
