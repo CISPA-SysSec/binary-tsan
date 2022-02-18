@@ -44,13 +44,15 @@ def checkFile(filename):
     for line in runLines:
         p1 = line.split("&&")[0]
         p1 = p1.replace("// RUN: ", "").replace("\n", "")
-        if "lang" in p1:
+        if "lang" in p1 or "gcc" in p1:
             p1 = p1.replace("%s", f)
             c1 = p1.replace("%t", outfile)
             c1 = c1.replace("%clang_tsan", "clang -lpthread -ltsan")
+            c1 = c1.replace("%gcc_tsan", "gcc -lpthread -ltsan")
             c1 = c1.replace("%clangxx_tsan", "clang -lpthread -ltsan -lstdc++")
             c2 = p1.replace("%t", outfile + "-thread")
             c2 = c2.replace("%clang_tsan", "clang -fsanitize=thread")
+            c2 = c2.replace("%gcc_tsan", "gcc -fsanitize=thread")
             c2 = c2.replace("%clangxx_tsan", "clang -fsanitize=thread -lstdc++")
             
             if not "%" in c1 and not "%" in c2:
