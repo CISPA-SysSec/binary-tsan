@@ -126,9 +126,7 @@ def checkFile(filename):
                     print("\tFailed (got exitcode " + str(res2.returncode) + ", expected " + str(res1.returncode) + ")!")
                     return
 
-                # TODO: also run the other tests in the file
-                print("Test: " + filename + " succeeded")
-                return
+    print("Tests in: " + filename + " succeeded")
 
 workQueue = []
 for filename in os.listdir(tsandir):
