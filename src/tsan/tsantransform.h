@@ -11,14 +11,24 @@
 #include "protobuf/instrumentationmap.pb.h"
 #include "analysis.h"
 
+enum RemoveOption {
+    REMOVE_ORIGINAL_INSTRUCTION,
+    KEEP_ORIGINAL_INSTRUCTION
+};
+
+enum PreserveFlagsOption {
+    PRESERVE_FLAGS,
+    NO_PRESERVE_FLAGS
+};
+
 struct OperationInstrumentation
 {
-    OperationInstrumentation(const std::vector<std::string> &i, IRDB_SDK::Instruction_t *c, bool r,
-                             const std::optional<std::string> &n, bool p) :
+    OperationInstrumentation(const std::vector<std::string> &i, std::vector<IRDB_SDK::Instruction_t*> c, RemoveOption r,
+                             const std::vector<std::string> &n, PreserveFlagsOption p) :
         instructions(i),
-        callTarget(c),
+        callTargets(c),
         removeOriginalInstruction(r),
-        noSaveRegister(n),
+        noSaveRegisters(n),
         preserveFlags(p)
     {}
 
@@ -26,12 +36,12 @@ struct OperationInstrumentation
     // the memory access location is already loaded into rdi
     std::vector<std::string> instructions;
     // is used as the target for any instruction that includes "call"
-    IRDB_SDK::Instruction_t *callTarget;
-    bool removeOriginalInstruction;
+    std::vector<IRDB_SDK::Instruction_t*> callTargets;
+    RemoveOption removeOriginalInstruction;
     // if present, do not save and restore this register to/from the stack
-    std::optional<std::string> noSaveRegister;
+    std::vector<std::string> noSaveRegisters;
     // whether or not to preserve the flags to the stack prior to the instrumentation
-    bool preserveFlags;
+    PreserveFlagsOption preserveFlags;
 };
 
 class TSanTransform : public IRDB_SDK::Transform_t {
@@ -48,11 +58,11 @@ private:
     void insertFunctionEntry(IRDB_SDK::Instruction_t *insertBefore);
     void insertFunctionExit(IRDB_SDK::Instruction_t *insertBefore);
     std::set<std::string> getSaveRegisters(IRDB_SDK::Instruction_t *instruction);
-    static bool isRepeated(IRDB_SDK::Instruction_t *instruction);
     OperationInstrumentation getInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand,
                                                 const FunctionInfo &info) const;
-    std::optional<OperationInstrumentation> getAtomicInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand,
+    std::optional<OperationInstrumentation> getAtomicInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> &operand,
                                                                      const __tsan_memory_order memoryOrder) const;
+    std::optional<OperationInstrumentation> getRepInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::unique_ptr<IRDB_SDK::DecodedInstruction_t> &decoded) const;
 
 private:
     struct Instrumentation {
@@ -80,8 +90,12 @@ private:
     IRDB_SDK::Instruction_t *tsanFunctionEntry;
     // void()
     IRDB_SDK::Instruction_t *tsanFunctionExit;
+    // void(void*)
     std::array<IRDB_SDK::Instruction_t*, 17> tsanRead;
     std::array<IRDB_SDK::Instruction_t*, 17> tsanWrite;
+    // void(void*, unsigned long)
+    IRDB_SDK::Instruction_t *tsanReadRange;
+    IRDB_SDK::Instruction_t *tsanWriteRange;
     // atomics
     // int(int*, __tsan_memory_order)
     std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicLoad;

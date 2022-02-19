@@ -116,6 +116,12 @@ bool TSanTransform::executeStep()
                 if (operand->isMemory()) {
 //                    std::cout <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                     instrumentMemoryAccess(instruction, operand, info);
+                    // For instructions like rep movs with two memory operands, only call the handler once.
+                    // It is correctly handed in the rep instruction handler.
+                    // If the movs instruction occurs without the rep prefix however, add two separate instrumentations
+                    if (decoded->hasRelevantRepPrefix()) {
+                        break;
+                    }
                 }
             }
         }
@@ -207,16 +213,6 @@ std::set<std::string> TSanTransform::getSaveRegisters(Instruction_t *instruction
     return registersToSave;
 }
 
-bool TSanTransform::isRepeated(IRDB_SDK::Instruction_t *instruction)
-{
-    const auto decoded = DecodedInstruction_t::factory(instruction);
-    // some vector instructions have the rep prefix even if they are not repeated
-    if (decoded->hasOperand(1) && decoded->getOperand(1)->getArgumentSizeInBytes() == 16) {
-        return false;
-    }
-    return decoded->hasRelevantRepPrefix() || decoded->hasRelevantRepnePrefix();
-}
-
 static RegisterID getScratchRegister(const std::string &operand, const std::vector<RegisterID> &possibleRegisters)
 {
     for (const RegisterID &reg : possibleRegisters) {
@@ -251,7 +247,7 @@ static std::string replaceRegister(const std::string &operand, const RegisterID 
     return operand;
 }
 
-std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand,
+std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> &operand,
                                                                                 const __tsan_memory_order memoryOrder) const
 {
     // https://wiki.osdev.org/X86-64_Instruction_Encoding
@@ -293,7 +289,8 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
                 "call 0",
                 "mov " + op1->getString() + ", " + raxReg
             },
-            tsanAtomicFetchAdd[bytes], true, standard64Bit(op1->getString()), false);
+            {tsanAtomicFetchAdd[bytes]}, REMOVE_ORIGINAL_INSTRUCTION,
+            {standard64Bit(op1->getString())}, NO_PRESERVE_FLAGS);
     }
     // assumption: op0 is memory, op1 is register or constant
     if (mnemonic == "add" || mnemonic == "sub" || mnemonic == "and" || mnemonic == "or" || mnemonic == "xor") {
@@ -316,7 +313,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
                 "mov rdx, " + memOrder,
                 "call 0"
             }, // TODO: flags
-            f, true, {}, false);
+            {f}, REMOVE_ORIGINAL_INSTRUCTION, {}, NO_PRESERVE_FLAGS);
     }
     // assumption: op0 is memory, op1 is register
     if (mnemonic == "cmpxchg") {
@@ -336,7 +333,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
                 "pop rsi",
                 "cmp " + raxReg + ", " + rsiReg // make sure flags are set correctly (cmpxchg would otherwise set them)
             },
-            tsanAtomicCompareExchangeVal[bytes], true, {"rax"}, false);
+            {tsanAtomicCompareExchangeVal[bytes]}, REMOVE_ORIGINAL_INSTRUCTION, {"rax"}, NO_PRESERVE_FLAGS);
     }
     if (mnemonic == "mov") {
         if (op0->isRegister() && op1->isMemory()) {
@@ -345,7 +342,9 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
                     "call 0",
                     "mov " + op0->getString() + ", " + raxReg
                 },
-                tsanAtomicLoad[bytes], true, standard64Bit(op0->getString()), true);
+                {tsanAtomicLoad[bytes]}, REMOVE_ORIGINAL_INSTRUCTION,
+                {standard64Bit(op0->getString())}, PRESERVE_FLAGS);
+
         } else if ((op1->isRegister() || op1->isConstant()) && op0->isMemory()) {
             return OperationInstrumentation({
                     opHasRdi ? "mov " + scratchReg + ", rdi" : "",
@@ -354,7 +353,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
                     "mov rdx, " + memOrder,
                     "call 0"
                 },
-                tsanAtomicStore[bytes], true, {}, true);
+                {tsanAtomicStore[bytes]}, REMOVE_ORIGINAL_INSTRUCTION, {}, PRESERVE_FLAGS);
         }
     }
     if (mnemonic == "xchg") {
@@ -366,10 +365,52 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
                 "call 0",
                 "mov " + nonMemoryOperand->getString() + ", " + raxReg
             },
-            tsanAtomicExchange[bytes], true, {standard64Bit(nonMemoryOperand->getString())}, true);
+            {tsanAtomicExchange[bytes]}, REMOVE_ORIGINAL_INSTRUCTION,
+            {standard64Bit(nonMemoryOperand->getString())}, PRESERVE_FLAGS);
     }
     std::cout <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
 //    throw std::invalid_argument("Unhandled atomic instruction");
+    return {};
+}
+
+std::optional<OperationInstrumentation> TSanTransform::getRepInstrumentation(Instruction_t *instruction, const std::unique_ptr<DecodedInstruction_t> &decoded) const
+{
+    if (decoded->hasRelevantRepPrefix()) {
+        std::cout <<"Repeated: "<<instruction->getDisassembly()<<std::endl;
+        if (decoded->getMnemonic() == "movsb") {
+            const std::string originalRdiVal = "rax";
+            const std::string originalRsiVal = "rdx";
+            return OperationInstrumentation({
+                    // store copy of the original rdi and rsi
+                    "mov " + originalRdiVal + ", rdi",
+                    "mov " + originalRsiVal + ", rsi",
+                    // the rep instruction needs registers rcx, rdi, rsi
+                    "rep " + instruction->getDisassembly(),
+                    "push rdi",
+                    "push rsi",
+                    "push rcx",
+                    "cmp rdi, " + originalRdiVal,
+                    "jl %L1",
+                    // make rdi (/rsi) contain the lower of the two pointers
+                    "xchg rdi, " + originalRdiVal,
+                    "xchg rsi, " + originalRsiVal,
+                     // rsi is needed as an argument, store the value away
+                    "L1: xchg rsi, " + originalRdiVal,
+                    "sub rsi, rdi",
+                    "push rsi",
+                    "push " + originalRdiVal,
+                    "call 0", // tsanWriteRange
+                    "pop rdi",
+                    "pop rsi",
+                    "call 0", // tsanReadRange
+                    "pop rcx",
+                    "pop rdi",
+                    "pop rsi",
+                },
+                {tsanWriteRange, tsanReadRange}, REMOVE_ORIGINAL_INSTRUCTION,
+                {"rdi", "rsi", "rcx"}, PRESERVE_FLAGS);
+        }
+    }
     return {};
 }
 
@@ -403,12 +444,19 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
         }
     }
 
+    if (decoded->hasRelevantRepPrefix()) {
+        auto instrumentation = getRepInstrumentation(instruction, decoded);
+        if (instrumentation.has_value()) {
+            return *instrumentation;
+        }
+    }
+
     // For operations that read and write the memory, only emit the write (it is sufficient for race detection)
     const uint bytes = instrumentationByteSize(operand);
     if (operand->isWritten()) {
-        return OperationInstrumentation({"call 0"}, tsanWrite[bytes], false, {}, true);
+        return OperationInstrumentation({"call 0"}, {tsanWrite[bytes]}, KEEP_ORIGINAL_INSTRUCTION, {}, PRESERVE_FLAGS);
     } else {
-        return OperationInstrumentation({"call 0"}, tsanRead[bytes], false, {}, true);
+        return OperationInstrumentation({"call 0"}, {tsanRead[bytes]}, KEEP_ORIGINAL_INSTRUCTION, {}, PRESERVE_FLAGS);
     }
 }
 
@@ -421,10 +469,6 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     instrumentationInfo.set_disassembly(disassembly(instruction));
     instrumentationInfo.set_function_has_entry_exit(info.addEntryExitInstrumentation);
 
-    if (isRepeated(instruction)) {
-//        std::cout <<"Repeated: "<<instruction->getDisassembly()<<std::endl;
-//        throw std::invalid_argument("Repeated!");
-    }
     const uint bytes = instrumentationByteSize(operand);
     if (!dryRun && (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
             (operand->isRead() && tsanRead[bytes] == nullptr) ||
@@ -438,8 +482,8 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     std::set<std::string> registersToSave = getSaveRegisters(instruction);
 
     OperationInstrumentation instrumentation = getInstrumentation(instruction, operand, info);
-    if (instrumentation.noSaveRegister.has_value()) {
-        registersToSave.erase(instrumentation.noSaveRegister.value());
+    for (const std::string &noSaveReg : instrumentation.noSaveRegisters) {
+        registersToSave.erase(noSaveReg);
     }
 
     InstructionInserter inserter(ir, instruction, functionAnalysis.getInstructionCounter(), dryRun);
@@ -460,7 +504,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         // use lea instead of add/sub to preserve flags
         inserter.insertAssembly("lea rsp, [rsp - " + toHex(info.inferredStackFrameSize) + "]");
     }
-    if (instrumentation.preserveFlags && eflagsAlive) {
+    if (instrumentation.preserveFlags == PRESERVE_FLAGS && eflagsAlive) {
         // if this is changed, change the rsp offset in the lea rdi instruction as well
         inserter.insertAssembly("pushf");
     }
@@ -472,8 +516,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         instrumentation.instructions.insert(instrumentation.instructions.begin(), MOVE_OPERAND_RDI);
     }
 
-    // TODO: instruktionen mit rep prefix
     // TODO: aligned vs unaligned read/write?
+    std::map<std::string, Instruction_t*> jumpTargetsToResolve;
+    std::map<std::string, Instruction_t*> labels;
     for (const auto &assembly : instrumentation.instructions) {
         if (assembly.size() == 0) {
             continue;
@@ -492,7 +537,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
             } else {
                 if (contains(operand->getString(), "rsp")) {
                     // TODO: is this the correct size for the pushf?
-                    const int flagSize = (instrumentation.preserveFlags && eflagsAlive) ? 4 : 0;
+                    const int flagSize = (instrumentation.preserveFlags == PRESERVE_FLAGS && eflagsAlive) ? 4 : 0;
                     const int offset = info.inferredStackFrameSize + registersToSave.size() * ir->getArchitectureBitWidth() / 8 + flagSize;
                     inserter.insertAssembly("lea rdi, [" + operand->getString() + " + " + toHex(offset) + "]");
                 } else {
@@ -500,9 +545,46 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
                 }
             }
         } else {
-            const bool isCall = contains(assembly, "call");
-            Instruction_t *callTarget = isCall ? instrumentation.callTarget : nullptr;
-            auto inserted = inserter.insertAssembly(assembly, callTarget);
+
+            std::string strippedAssembly = assembly;
+
+            // % precedes a label name for a jump target, for example jge %L1
+            const bool isJumpWithLabel = contains(assembly, "%");
+            std::string labelName;
+            if (isJumpWithLabel) {
+                const std::vector<std::string> instrParts = split(assembly, '%');
+                if (instrParts.size() != 2) {
+                    // TODO: better exception types?
+                    throw std::invalid_argument("ERROR: incorrect jump target definition!");
+                }
+                strippedAssembly = instrParts[0] + " 0";
+                labelName = instrParts[1];
+            }
+            // label definitions include a :, for example L1: test ax, ax
+            const bool definesLabel = contains(assembly, ":");
+            if (definesLabel) {
+                const std::vector<std::string> instrParts = split(assembly, ':');
+                if (instrParts.size() != 2) {
+                    throw std::invalid_argument("ERROR: incorrect label definition!");
+                }
+                labelName = instrParts[0];
+                strippedAssembly = instrParts[1];
+            }
+
+            const bool isCall = contains(strippedAssembly, "call");
+            Instruction_t *callTarget = nullptr;
+            if (isCall) {
+                callTarget = instrumentation.callTargets[0];
+                instrumentation.callTargets.erase(instrumentation.callTargets.begin());
+            }
+            auto inserted = inserter.insertAssembly(strippedAssembly, callTarget);
+
+            if (isJumpWithLabel) {
+                jumpTargetsToResolve[labelName] = inserted;
+            }
+            if (definesLabel) {
+                labels[labelName] = inserted;
+            }
 
             if (isCall && !dryRun) {
                 Instrumentation im;
@@ -513,10 +595,19 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         }
     }
 
+    // resolve jump targets with labels
+    for (auto &[label, instruction] : jumpTargetsToResolve) {
+        auto it = labels.find(label);
+        if (it == labels.end()) {
+            throw std::invalid_argument("ERROR: could not find label!");
+        }
+        instruction->setTarget(it->second);
+    }
+
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
         inserter.insertAssembly("pop " + *it);
     }
-    if (instrumentation.preserveFlags && eflagsAlive) {
+    if (instrumentation.preserveFlags == PRESERVE_FLAGS && eflagsAlive) {
         inserter.insertAssembly("popf");
     }
     if (info.inferredStackFrameSize > 0) {
@@ -524,7 +615,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         inserter.insertAssembly("lea rsp, [rsp + " + toHex(info.inferredStackFrameSize) + "]");
     }
 
-    if (instrumentation.removeOriginalInstruction && !dryRun) {
+    if (instrumentation.removeOriginalInstruction == REMOVE_ORIGINAL_INSTRUCTION && !dryRun) {
         auto inserted = inserter.getLastInserted();
         inserted->setFallthrough(inserted->getFallthrough()->getFallthrough());
     }
@@ -551,6 +642,8 @@ void TSanTransform::registerDependencies()
         tsanAtomicFetchXor[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_xor");
         tsanAtomicCompareExchangeVal[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_compare_exchange_val");
     }
+    tsanReadRange = elfDeps->appendPltEntry("__tsan_read_range");
+    tsanWriteRange = elfDeps->appendPltEntry("__tsan_write_range");
 
     getFileIR()->assembleRegistry();
 }

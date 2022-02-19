@@ -7,6 +7,8 @@
 #include <string>
 #include <algorithm>
 
+#include "stringhelper.h"
+
 class InstructionInserter
 {
 public:
@@ -57,11 +59,6 @@ private:
     std::function<void()> insertedInstructionCounter;
     bool dryRun;
 };
-
-inline bool contains(const std::string &str, const std::string &search)
-{
-    return str.find(search) != std::string::npos;
-}
 
 inline bool isAtomic(const IRDB_SDK::Instruction_t *instruction)
 {
