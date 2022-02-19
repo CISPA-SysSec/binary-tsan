@@ -159,8 +159,7 @@ inline std::string disassembly(const IRDB_SDK::Instruction_t *instruction)
         const std::string target = targetFunctionName(instruction);
         return "call " + target;
     }
-    // TODO: rep prefix
-    const std::string prefix = isAtomic(instruction) ? "lock " : decoded->hasRelevantRepPrefix() ? "rep " : "";
+    const std::string prefix = isAtomic(instruction) ? "lock " : decoded->hasRelevantRepPrefix() ? "rep " : decoded->hasRelevantRepnePrefix() ? "repne " : "";
     return prefix + instruction->getDisassembly();
 }
 

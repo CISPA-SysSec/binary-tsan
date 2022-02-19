@@ -119,7 +119,7 @@ bool TSanTransform::executeStep()
                     // For instructions like rep movs with two memory operands, only call the handler once.
                     // It is correctly handed in the rep instruction handler.
                     // If the movs instruction occurs without the rep prefix however, add two separate instrumentations
-                    if (decoded->hasRelevantRepPrefix()) {
+                    if (decoded->hasRelevantRepPrefix() || decoded->hasRelevantRepnePrefix()) {
                         break;
                     }
                 }
@@ -375,18 +375,26 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
 
 std::optional<OperationInstrumentation> TSanTransform::getRepInstrumentation(Instruction_t *instruction, const std::unique_ptr<DecodedInstruction_t> &decoded) const
 {
-    if (decoded->hasRelevantRepPrefix()) {
+    if (decoded->hasRelevantRepPrefix() || decoded->hasRelevantRepnePrefix()) {
         std::cout <<"Repeated: "<<instruction->getDisassembly()<<std::endl;
-        if (decoded->getMnemonic() == "movs" || decoded->getMnemonic() == "movsb" || decoded->getMnemonic() == "movsw" ||
-                decoded->getMnemonic() == "movsd" || decoded->getMnemonic() == "movsq") {
+
+        const std::string repPrefix = decoded->hasRelevantRepPrefix() ? "rep " : "repne ";
+
+        // the rep instructions that use two memory locations at rdi and rsi
+        const bool isMovs = startsWith(decoded->getMnemonic(), "movs");
+        const bool isCmps = startsWith(decoded->getMnemonic(), "cmps");
+        if (isMovs || isCmps) {
+
+            Instruction_t *firstTsanCall = isMovs ? tsanWriteRange : tsanReadRange;
             const std::string originalRdiVal = "rax";
             const std::string originalRsiVal = "rdx";
             return OperationInstrumentation({
                     // store copy of the original rdi and rsi
                     "mov " + originalRdiVal + ", rdi",
                     "mov " + originalRsiVal + ", rsi",
-                    // the rep movs instruction needs registers rcx, rdi, rsi
-                    "rep " + instruction->getDisassembly(),
+                    // the rep movs/cmps instructions needs registers rcx, rdi, rsi
+                    repPrefix + instruction->getDisassembly(),
+                    "pushf",
                     "push rdi",
                     "push rsi",
                     "push rcx",
@@ -400,24 +408,31 @@ std::optional<OperationInstrumentation> TSanTransform::getRepInstrumentation(Ins
                     "sub rsi, rdi",
                     "push rsi",
                     "push " + originalRdiVal,
-                    "call 0", // tsanWriteRange
+                    "call 0", // tsanWriteRange/tsanReadRange
                     "pop rdi",
                     "pop rsi",
                     "call 0", // tsanReadRange
                     "pop rcx",
-                    "pop rdi",
                     "pop rsi",
+                    MOVE_OPERAND_RDI, // sort of a hack to avoid having it at the beginning
+                    "pop rdi",
+                    "popf"
                 },
-                {tsanWriteRange, tsanReadRange}, REMOVE_ORIGINAL_INSTRUCTION,
-                {"rdi", "rsi", "rcx"}, PRESERVE_FLAGS);
+                {firstTsanCall, tsanReadRange}, REMOVE_ORIGINAL_INSTRUCTION,
+                {"rdi", "rsi", "rcx"}, NO_PRESERVE_FLAGS);
         }
-        if (decoded->getMnemonic() == "stos" || decoded->getMnemonic() == "stosb" || decoded->getMnemonic() == "stosw" ||
-                decoded->getMnemonic() == "stosd" || decoded->getMnemonic() == "stosq") {
+
+        // the rep instructions that use only one memory location in rsi
+        const bool isStos = startsWith(decoded->getMnemonic(), "stos");
+        const bool isScas = startsWith(decoded->getMnemonic(), "scas");
+        if (isStos || isScas) {
+            Instruction_t *firstTsanCall = isStos ? tsanWriteRange : tsanReadRange;
             return OperationInstrumentation({
                     // store copy of the original rdi
                     "mov rsi, rdi",
-                    // the rep stos instruction needs registers rcx, rdi
-                    "rep " + instruction->getDisassembly(),
+                    // the rep stos/scas instructions needs registers rcx, rdi
+                    repPrefix + instruction->getDisassembly(),
+                    "pushf",
                     "push rdi",
                     "push rcx",
                     "cmp rdi, rsi",
@@ -425,13 +440,16 @@ std::optional<OperationInstrumentation> TSanTransform::getRepInstrumentation(Ins
                     // make rdi contain the lower of the two pointers
                     "xchg rdi, rsi",
                     "L1: sub rsi, rdi",
-                    "call 0", // tsanWriteRange
+                    "call 0", // tsanWriteRange/tsanReadRange
                     "pop rcx",
                     "pop rdi",
+                    "popf"
                 },
-                {tsanWriteRange}, REMOVE_ORIGINAL_INSTRUCTION,
-                {"rdi", "rcx"}, PRESERVE_FLAGS);
+                {firstTsanCall}, REMOVE_ORIGINAL_INSTRUCTION,
+                {"rdi", "rcx"}, NO_PRESERVE_FLAGS);
         }
+
+        std::cout <<"WARNING: unhandled rep instruction: "<<disassembly(instruction)<<std::endl;
     }
     return {};
 }
@@ -466,11 +484,10 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
         }
     }
 
-    if (decoded->hasRelevantRepPrefix()) {
-        auto instrumentation = getRepInstrumentation(instruction, decoded);
-        if (instrumentation.has_value()) {
-            return *instrumentation;
-        }
+    // check for rep string instructions
+    auto repInstrumentation = getRepInstrumentation(instruction, decoded);
+    if (repInstrumentation.has_value()) {
+        return *repInstrumentation;
     }
 
     // For operations that read and write the memory, only emit the write (it is sufficient for race detection)

@@ -24,4 +24,9 @@ inline bool contains(const std::string &str, const std::string &search)
     return str.find(search) != std::string::npos;
 }
 
+inline bool startsWith(const std::string &str, const std::string &search)
+{
+    return str.rfind(search, 0) == 0;
+}
+
 #endif // STRINGHELPER_H
