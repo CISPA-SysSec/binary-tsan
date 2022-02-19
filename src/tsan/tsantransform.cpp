@@ -377,14 +377,15 @@ std::optional<OperationInstrumentation> TSanTransform::getRepInstrumentation(Ins
 {
     if (decoded->hasRelevantRepPrefix()) {
         std::cout <<"Repeated: "<<instruction->getDisassembly()<<std::endl;
-        if (decoded->getMnemonic() == "movsb") {
+        if (decoded->getMnemonic() == "movs" || decoded->getMnemonic() == "movsb" || decoded->getMnemonic() == "movsw" ||
+                decoded->getMnemonic() == "movsd" || decoded->getMnemonic() == "movsq") {
             const std::string originalRdiVal = "rax";
             const std::string originalRsiVal = "rdx";
             return OperationInstrumentation({
                     // store copy of the original rdi and rsi
                     "mov " + originalRdiVal + ", rdi",
                     "mov " + originalRsiVal + ", rsi",
-                    // the rep instruction needs registers rcx, rdi, rsi
+                    // the rep movs instruction needs registers rcx, rdi, rsi
                     "rep " + instruction->getDisassembly(),
                     "push rdi",
                     "push rsi",
@@ -409,6 +410,27 @@ std::optional<OperationInstrumentation> TSanTransform::getRepInstrumentation(Ins
                 },
                 {tsanWriteRange, tsanReadRange}, REMOVE_ORIGINAL_INSTRUCTION,
                 {"rdi", "rsi", "rcx"}, PRESERVE_FLAGS);
+        }
+        if (decoded->getMnemonic() == "stos" || decoded->getMnemonic() == "stosb" || decoded->getMnemonic() == "stosw" ||
+                decoded->getMnemonic() == "stosd" || decoded->getMnemonic() == "stosq") {
+            return OperationInstrumentation({
+                    // store copy of the original rdi
+                    "mov rsi, rdi",
+                    // the rep stos instruction needs registers rcx, rdi
+                    "rep " + instruction->getDisassembly(),
+                    "push rdi",
+                    "push rcx",
+                    "cmp rdi, rsi",
+                    "jl %L1",
+                    // make rdi contain the lower of the two pointers
+                    "xchg rdi, rsi",
+                    "L1: sub rsi, rdi",
+                    "call 0", // tsanWriteRange
+                    "pop rcx",
+                    "pop rdi",
+                },
+                {tsanWriteRange}, REMOVE_ORIGINAL_INSTRUCTION,
+                {"rdi", "rcx"}, PRESERVE_FLAGS);
         }
     }
     return {};

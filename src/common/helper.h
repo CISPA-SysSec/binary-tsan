@@ -160,7 +160,7 @@ inline std::string disassembly(const IRDB_SDK::Instruction_t *instruction)
         return "call " + target;
     }
     // TODO: rep prefix
-    const std::string prefix = isAtomic(instruction) ? "lock " : "";
+    const std::string prefix = isAtomic(instruction) ? "lock " : decoded->hasRelevantRepPrefix() ? "rep " : "";
     return prefix + instruction->getDisassembly();
 }
 
