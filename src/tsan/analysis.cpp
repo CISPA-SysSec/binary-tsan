@@ -13,6 +13,9 @@ FunctionInfo Analysis::analyseFunction(FileIR_t *ir, Function_t *function)
 {
     totalAnalysedFunctions++;
     totalAnalysedInstructions += function->getInstructions().size();
+    if (FixedPointAnalysis::canHandle(function)) {
+        canDoRegisterAnalysisFunctions++;
+    }
 
     FunctionInfo result;
     result.inferredStackFrameSize = inferredStackFrameSize(function);
@@ -420,6 +423,7 @@ void Analysis::printStatistics() const
     std::cout <<"Analyzed Functions: "<<totalAnalysedFunctions<<std::endl;
     std::cout <<"\t* Entry/Exit instrumented: "<<entryExitInstrumentedFunctions<<std::endl;
     std::cout <<"\t* Has UnwindResume: "<<unwindFunctions<<std::endl;
+    std::cout <<"\t* Register analyzed: "<<canDoRegisterAnalysisFunctions<<std::endl;
     std::cout <<std::endl;
     std::cout <<"Analyzed Instructions: "<<totalAnalysedInstructions<<std::endl;
     std::cout <<"\t* New Instrumentation Instructions: "<<instrumentationInstructions<<std::endl;

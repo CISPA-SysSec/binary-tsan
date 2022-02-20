@@ -86,9 +86,23 @@ bool TSanTransform::executeStep()
             deadRegisters.reset(new DeadRegisterMap_t());
 
             if (FixedPointAnalysis::canHandle(function)) {
-                const auto analysisResult = FixedPointAnalysis::runBackwards<DeadRegisterInstructionAnalysis, DeadRegisterAnalysisCommon>(function);
+                const auto analysisResult = FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(function);
                 for (const auto &[instruction, analysis] : analysisResult) {
                     deadRegisters->insert({instruction, analysis.getDeadRegisters()});
+                }
+                const auto undefinedResult = FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(function);
+                const bool hasProblem = std::any_of(undefinedResult.begin(), undefinedResult.end(), [](const auto &r) {
+                    return r.second.hasProblem();
+                });
+                if (!hasProblem) {
+                    for (const auto &[instruction, analysis] : undefinedResult) {
+                        auto it = deadRegisters->find(instruction);
+                        for (auto reg : analysis.getDeadRegisters()) {
+                            it->second.insert(reg);
+                        }
+                    }
+                } else {
+                    std::cout <<"WARNING: undefined register analysis problem in: "<<function->getName()<<std::endl;
                 }
             }
         }
@@ -618,10 +632,10 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
             }
             auto inserted = inserter.insertAssembly(strippedAssembly, callTarget);
 
-            if (isJumpWithLabel) {
+            if (isJumpWithLabel && !dryRun) {
                 jumpTargetsToResolve[labelName] = inserted;
             }
-            if (definesLabel) {
+            if (definesLabel && !dryRun) {
                 labels[labelName] = inserted;
             }
 

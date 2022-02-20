@@ -14,19 +14,22 @@ ExceptionHandling::ExceptionHandling(FileIR_t *ir, Instruction_t *tsanFunctionEx
     tsanFunctionExit(tsanFunctionExit),
     unwindResume(findUnwindResume()),
     personalityRelocation(findPersonalityRelocation())
-{ }
+{
+    // TODO: check if this really means that there are no landing pads anywhere
+    if (unwindResume == nullptr || personalityRelocation == nullptr) {
+        std::cout <<"This binary does not seem to have exceptions"<<std::endl;
+    }
+}
 
 void ExceptionHandling::handleFunction(Function_t *function, InstructionInserter &inserter)
 {
 //    std::cout <<function->getName()<<std::endl;
 
-    // TODO: additional check if file has exceptions at all
     if (!hasEmptyCallSite(function)) {
         std::cout <<"Function "<<function->getName()<<" already has an exception callsite!"<<std::endl;
         return;
     }
     if (unwindResume == nullptr || personalityRelocation == nullptr) {
-        std::cout <<"This binary does not seem to have exceptions"<<std::endl;
         return;
     }
 
