@@ -246,21 +246,6 @@ static RegisterID getScratchRegister(const std::string &operand, const std::vect
     return RegisterID::rn_RAX;
 }
 
-static std::string replaceRegister(const std::string &operand, const RegisterID original, const RegisterID replace)
-{
-    for (int opSize : {8, 4, 2, 1}) {
-        const std::string origString = toBytes(original, opSize);
-        const auto it = operand.find(origString);
-        if (it != std::string::npos) {
-            const std::string replaceString = toBytes(replace, opSize);
-            std::string modified = operand;
-            modified.replace(it, it + origString.size(), replaceString);
-            return modified;
-        }
-    }
-    return operand;
-}
-
 std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> &operand,
                                                                                 const __tsan_memory_order memoryOrder) const
 {
@@ -292,7 +277,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     const RegisterID scratch = getScratchRegister(nonMemoryOperand->getString(), {RegisterID::rn_R8, RegisterID::rn_R9, RegisterID::rn_R10});
     const std::string scratchReg = toBytes(scratch, 8);
     const bool opHasRdi = contains(nonMemoryOperand->getString(), rdiReg);
-    const std::string replacedNonMemoryOperand = replaceRegister(nonMemoryOperand->getString(), RegisterID::rn_RDI, scratch);
+    const std::string replacedNonMemoryOperand = toBytes(scratch, bytes);
 
     if (mnemonic == "xadd") {
         return OperationInstrumentation({
