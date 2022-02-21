@@ -316,7 +316,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     const RegisterID scratch = getScratchRegister(nonMemoryOperand->getString(), {RegisterID::rn_R8, RegisterID::rn_R9, RegisterID::rn_R10});
     const std::string scratchReg = toBytes(scratch, 8);
     const bool opHasRdi = contains(nonMemoryOperand->getString(), rdiReg);
-    const std::string replacedNonMemoryOperand = toBytes(scratch, bytes);
+    const std::string replacedNonMemoryOperand = opHasRdi ? toBytes(scratch, bytes) : nonMemoryOperand->getString();
 
     if (mnemonic == "xadd") {
         return OperationInstrumentation({
