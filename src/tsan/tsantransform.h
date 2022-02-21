@@ -78,6 +78,8 @@ private:
     };
     DeadRegisterAnalysisType deadRegisterAnalysisType = DeadRegisterAnalysisType::CUSTOM;
     bool dryRun = false;
+    // if it contains at least one element, instrument only those functions
+    std::set<std::string> instrumentOnlyFunctions;
 
     std::unique_ptr<IRDB_SDK::DeadRegisterMap_t> deadRegisters;
 

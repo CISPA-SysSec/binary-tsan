@@ -48,6 +48,25 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
             for (Function_t *function : ir->getFunctions()) {
                 file <<function->getName()<<std::endl;
             }
+            continue;
+        }
+        // should be an absolute path to be useful
+        const std::string instrumentOnlyOption = "--instrumentOnlyFunctions=";
+        if (startsWith(option, instrumentOnlyOption)) {
+            std::string filename = option;
+            filename.erase(filename.begin(), filename.begin() + instrumentOnlyOption.size());
+            std::cout <<"Reading filenames from: "<<filename<<std::endl;
+            ifstream file(filename);
+            if (!file) {
+                std::cout <<"Could not open file!"<<std::endl;
+                return false;
+            }
+            std::string line;
+            while(getline(file, line)) {
+                instrumentOnlyFunctions.insert(line);
+            }
+            std::cout <<"Loaded "<<instrumentOnlyFunctions.size()<<" functions to instrument"<<std::endl;
+            continue;
         }
         // TODO: adjust options
         if (option == "--use-stars") {
@@ -94,6 +113,10 @@ bool TSanTransform::executeStep()
             continue;
         }
         if (contains(functionName, "@plt")) {
+            continue;
+        }
+        if (instrumentOnlyFunctions.size() > 0 && instrumentOnlyFunctions.find(functionName) == instrumentOnlyFunctions.end()) {
+            std::cout <<"skip: "<<functionName<<std::endl;
             continue;
         }
 
