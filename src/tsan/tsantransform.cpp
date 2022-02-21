@@ -33,6 +33,22 @@ TSanTransform::~TSanTransform()
 bool TSanTransform::parseArgs(const std::vector<std::string> &options)
 {
     for (const std::string &option : options) {
+        // should be an absolute path to be useful
+        const std::string dumpFunctionsOption = "--dumpFunctionNamesTo=";
+        if (startsWith(option, dumpFunctionsOption)) {
+            std::string filename = option;
+            filename.erase(filename.begin(), filename.begin() + dumpFunctionsOption.size());
+            std::cout <<"Dumping function names to: "<<filename<<std::endl;
+            FileIR_t *ir = getFileIR();
+            ofstream file(filename, ios_base::binary);
+            if (!file) {
+                std::cout <<"Could not open file!"<<std::endl;
+                return false;
+            }
+            for (Function_t *function : ir->getFunctions()) {
+                file <<function->getName()<<std::endl;
+            }
+        }
         // TODO: adjust options
         if (option == "--use-stars") {
             deadRegisterAnalysisType = DeadRegisterAnalysisType::STARS;
