@@ -120,8 +120,12 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
 
         // TODO: handle known common functions like stack_chk_fail
     }
+    // for the syscall instruction (while it does not read and write all registers, this is safe enough)
+    if (isPartOfGroup(decoded, X86_GRP_INT)) {
+        readRegs.set();
+        writtenRegs.set();
+    }
     // TODO: jumps that leave the function
-    // TODO: syscalls
 
     cs_free(decoded, 1);
 
