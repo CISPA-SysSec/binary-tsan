@@ -5,6 +5,7 @@
 #include <map>
 #include <set>
 #include <functional>
+#include <irdb-deep>
 
 // from tsan-interface-atomic.h, do not change
 typedef enum {
@@ -33,7 +34,9 @@ struct FunctionInfo {
 class Analysis
 {
 public:
-    FunctionInfo analyseFunction(IRDB_SDK::FileIR_t *ir, IRDB_SDK::Function_t *function);
+    Analysis(IRDB_SDK::FileIR_t *ir);
+
+    FunctionInfo analyseFunction(IRDB_SDK::Function_t *function);
     void printStatistics() const;
     std::function<void()> getInstructionCounter() { return [this](){ instrumentationInstructions++; }; }
     void countAddInstrumentationInstruction() { instrumentationInstructions++; }
@@ -45,8 +48,12 @@ private:
     std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> inferAtomicInstructions(IRDB_SDK::Function_t *function) const;
     int inferredStackFrameSize(const IRDB_SDK::Function_t *function) const;
     bool isDataConstant(IRDB_SDK::FileIR_t *ir, IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand);
+    std::set<IRDB_SDK::Instruction_t *> findSpinLocks(IRDB_SDK::ControlFlowGraph_t *cfg) const;
 
 private:
+    IRDB_SDK::FileIR_t *ir;
+    std::unique_ptr<IRDB_SDK::DeepAnalysis_t> loopAnalysis;
+
     // statistics
 
     // functions
@@ -68,6 +75,7 @@ private:
     // atomics
     std::size_t pointerInferredAtomics = 0;
     std::size_t staticVariableGuards = 0;
+    std::size_t spinLocks = 0;
 };
 
 #endif // ANALYSIS_H

@@ -9,7 +9,12 @@
 
 using namespace IRDB_SDK;
 
-FunctionInfo Analysis::analyseFunction(FileIR_t *ir, Function_t *function)
+Analysis::Analysis(FileIR_t *ir) :
+    ir(ir),
+    loopAnalysis(DeepAnalysis_t::factory(ir, aeSTARS, {"SetDeepLoopAnalyses=true"}))
+{ }
+
+FunctionInfo Analysis::analyseFunction(Function_t *function)
 {
     totalAnalysedFunctions++;
     totalAnalysedInstructions += function->getInstructions().size();
@@ -29,13 +34,17 @@ FunctionInfo Analysis::analyseFunction(FileIR_t *ir, Function_t *function)
         result.inferredAtomicInstructions[guardInstruction] = __tsan_memory_order_acquire;
         staticVariableGuards++;
     }
+    const auto cfg = ControlFlowGraph_t::factory(function);
+    for (auto spinLock : findSpinLocks(cfg.get())) {
+        result.inferredAtomicInstructions[spinLock] = __tsan_memory_order_acquire;
+        spinLocks++;
+    }
 
     result.properEntryPoint = function->getEntryPoint();
     if (contains(result.properEntryPoint->getDisassembly(), "endbr")) {
         result.properEntryPoint = result.properEntryPoint->getFallthrough();
     }
 
-    const auto cfg = ControlFlowGraph_t::factory(function);
     for (const auto block : cfg->getBlocks()) {
         if (!block->getIsExitBlock()) {
             continue;
@@ -118,6 +127,76 @@ FunctionInfo Analysis::analyseFunction(FileIR_t *ir, Function_t *function)
         }
     }
     return result;
+}
+
+std::set<Instruction_t*> Analysis::findSpinLocks(ControlFlowGraph_t *cfg) const
+{
+    std::set<Instruction_t*> spinLockMemoryReads;
+    const auto loops = loopAnalysis->getLoops(cfg);
+    for (const auto &loop : loops->getAllLoops()) {
+        // any instruction that can not be present in a spin lock loop
+        bool foundBad = false;
+        Instruction_t *memoryRead = nullptr;
+        std::shared_ptr<DecodedOperand_t> readOperand;
+        for (const auto block : loop->getAllBlocks()) {
+            for (auto instruction : block->getInstructions()) {
+                const auto decoded = DecodedInstruction_t::factory(instruction);
+                if (decoded->isCall()) {
+                    foundBad = true;
+                    break;
+                }
+                if (decoded->getMnemonic() == "syscall") {
+                    foundBad = true;
+                    break;
+                }
+                for (auto operand : decoded->getOperands()) {
+                    if (operand->isWritten() && operand->isMemory()) {
+                        foundBad = true;
+                        break;
+                    }
+                    if (operand->isRead() && operand->isMemory()) {
+                        if (memoryRead != nullptr) {
+                            foundBad = true;
+                            break;
+                        }
+                        if (!startsWith(decoded->getMnemonic(), "mov")) {
+                            foundBad = true;
+                            break;
+                        }
+                        memoryRead = instruction;
+                        readOperand = operand;
+                    }
+                }
+            }
+            if (foundBad) {
+                break;
+            }
+        }
+        if (!foundBad && memoryRead != nullptr) {
+            for (const auto block : loop->getAllBlocks()) {
+                for (auto instruction : block->getInstructions()) {
+                    const auto decoded = DecodedInstruction_t::factory(instruction);
+                    for (auto operand : decoded->getOperands()) {
+                        if (operand->isWritten()) {
+                            // TODO: implicit register writes
+                            if ((readOperand->hasBaseRegister() && operand->getRegNumber() == readOperand->getBaseRegister()) ||
+                                    (readOperand->hasIndexRegister() && operand->getRegNumber() == readOperand->getIndexRegister())) {
+                                foundBad = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (!foundBad) {
+                std::cout <<"Found spin lock loop in "<<cfg->getFunction()->getName()<<std::endl;
+                const auto headerInstruction = loop->getHeader()->getInstructions()[0];
+                std::cout <<"Has header instruction: "<<std::hex<<headerInstruction->getAddress()->getVirtualOffset()<<": "<<headerInstruction->getDisassembly()<<std::endl;
+                spinLockMemoryReads.insert(memoryRead);
+            }
+        }
+    }
+    return spinLockMemoryReads;
 }
 
 bool Analysis::isDataConstant(FileIR_t *ir, Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand)
@@ -443,4 +522,5 @@ void Analysis::printStatistics() const
     std::cout <<"\t* Inferred Atomics:"<<std::endl;
     std::cout <<"\t\t- Pointer Inference: "<<pointerInferredAtomics<<std::endl;
     std::cout <<"\t\t- Static Variable Guards: "<<staticVariableGuards<<std::endl;
+    std::cout <<"\t\t- Spin Locks: "<<spinLocks<<std::endl;
 }

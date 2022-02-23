@@ -13,7 +13,8 @@
 using namespace IRDB_SDK;
 
 TSanTransform::TSanTransform(FileIR_t *file) :
-    Transform_t(file)
+    Transform_t(file),
+    functionAnalysis(file)
 {
     std::fill(tsanRead.begin(), tsanRead.end(), nullptr);
     std::fill(tsanWrite.begin(), tsanWrite.end(), nullptr);
@@ -145,7 +146,7 @@ bool TSanTransform::executeStep()
             }
         }
 
-        const FunctionInfo info = functionAnalysis.analyseFunction(ir, function);
+        const FunctionInfo info = functionAnalysis.analyseFunction(function);
 
         // for the stack frame translation
         for (Instruction_t *instruction : function->getInstructions()) {
