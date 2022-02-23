@@ -9,12 +9,13 @@ if len(sys.argv) != 2:
 os.chdir(sys.argv[1])
 
 # TODO: make these command line arguments
-inFile = "omp-orig.so"
-outFile = "instrumented-libraries/libomp.so.5"
-runFile = "./omp-mod"
+inFile = "libgomp-orig.so.1.0.0"
+outFile = "instrumented-libraries/libgomp.so.1.0.0"
+runFile = "./critical"
 
 
 
+# TODO: print error if it fails
 print("Getting function names")
 functionFileName = os.path.join(os.path.realpath(sys.argv[1]), "functionnames")
 res = subprocess.run(["./thread-sanitizer.sh", inFile, outFile, "--dumpFunctionNamesTo=" + functionFileName, "--dry-run"],
@@ -44,6 +45,8 @@ while len(functionNames) > 1:
     try: 
         res = subprocess.run([runFile], env=environmentVariables, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
         hasProblem = res.returncode != 0
+        if "ThreadSanitizer: SEGV" in str(res.stdout):
+            hasProblem = True
     except:
         hasProblem = True
     
