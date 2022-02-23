@@ -64,6 +64,7 @@ private:
     std::size_t stackCanaryInstructions = 0;
     std::size_t stackLocalVariables = 0;
     std::size_t constantMemoryRead = 0;
+    std::size_t threadLocalMemory = 0;
     // atomics
     std::size_t pointerInferredAtomics = 0;
     std::size_t staticVariableGuards = 0;
