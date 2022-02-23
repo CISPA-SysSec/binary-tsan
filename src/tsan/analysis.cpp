@@ -28,14 +28,16 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
     std::set<Instruction_t*> notInstrumented = detectStackCanaryInstructions(function);
     stackCanaryInstructions += notInstrumented.size();
 
-    result.inferredAtomicInstructions = inferAtomicInstructions(function);
+    const auto cfg = ControlFlowGraph_t::factory(function);
+    const auto spinLockInstructions = findSpinLocks(cfg.get());
+
+    result.inferredAtomicInstructions = inferAtomicInstructions(function, spinLockInstructions);
     pointerInferredAtomics += result.inferredAtomicInstructions.size();
     for (auto guardInstruction : detectStaticVariableGuards(function)) {
         result.inferredAtomicInstructions[guardInstruction] = __tsan_memory_order_acquire;
         staticVariableGuards++;
     }
-    const auto cfg = ControlFlowGraph_t::factory(function);
-    for (auto spinLock : findSpinLocks(cfg.get())) {
+    for (auto spinLock : spinLockInstructions) {
         result.inferredAtomicInstructions[spinLock] = __tsan_memory_order_acquire;
         spinLocks++;
     }
@@ -189,9 +191,9 @@ std::set<Instruction_t*> Analysis::findSpinLocks(ControlFlowGraph_t *cfg) const
                 }
             }
             if (!foundBad) {
-                std::cout <<"Found spin lock loop in "<<cfg->getFunction()->getName()<<std::endl;
                 const auto headerInstruction = loop->getHeader()->getInstructions()[0];
-                std::cout <<"Has header instruction: "<<std::hex<<headerInstruction->getAddress()->getVirtualOffset()<<": "<<headerInstruction->getDisassembly()<<std::endl;
+                std::cout <<"Found spin lock loop in "<<cfg->getFunction()->getName()<<"  "<<std::hex<<headerInstruction->getAddress()->getVirtualOffset()
+                         <<": "<<headerInstruction->getDisassembly()<<std::endl;
                 spinLockMemoryReads.insert(memoryRead);
             }
         }
@@ -226,32 +228,43 @@ bool Analysis::isDataConstant(FileIR_t *ir, Instruction_t *instruction, const st
     return false;
 }
 
-std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions(IRDB_SDK::Function_t *function) const
+static bool isAtomicOrXchg(Instruction_t *instruction)
+{
+    const auto decoded = DecodedInstruction_t::factory(instruction);
+    return isAtomic(instruction) || decoded->getMnemonic() == "xchg";
+}
+
+std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions(IRDB_SDK::Function_t *function, const std::set<Instruction_t*> &spinLockInstructions) const
 {
     const auto instructions = function->getInstructions();
     const bool hasAtomic = std::any_of(instructions.begin(), instructions.end(), isAtomic);
-    if (!hasAtomic) {
+    if (!hasAtomic && spinLockInstructions.size() == 0) {
         return {};
     }
 
     PointerAnalysis functionEntry = PointerAnalysis::functionEntry();
     auto analysis = FixedPointAnalysis::runForward<PointerAnalysis>(function, functionEntry);
 
-    std::map<int, std::vector<Instruction_t*>> sameLocation;
+    std::map<MemoryLocation, std::vector<Instruction_t*>> sameLocation;
     for (Instruction_t *instruction : function->getInstructions()) {
         const auto decoded = DecodedInstruction_t::factory(instruction);
         if (decoded->getMnemonic() == "nop" || decoded->getMnemonic() == "lea") {
             continue;
         }
         for (const auto &operand : decoded->getOperands()) {
-            if (operand->isMemory() && operand->hasBaseRegister() && !operand->hasIndexRegister() && !operand->hasMemoryDisplacement()) {
-                const RegisterID reg = strToRegister(operand->getString());
+            if (operand->isMemory() && operand->hasBaseRegister() && !operand->hasIndexRegister()) {
+                const std::string opString = operand->getString();
+                const std::string regName(opString.begin(), opString.begin() + 3);
+                const RegisterID reg = strToRegister(regName);
                 if (!is64bitRegister(reg)) {
                     continue;
                 }
                 auto analysisResult = analysis[instruction].getMemoryLocations();
                 if (analysisResult.find(reg) != analysisResult.end()) {
-                    const int location = analysisResult[reg];
+                    MemoryLocation location = analysisResult[reg];
+                    if (operand->hasMemoryDisplacement()) {
+                        location.offset += operand->getMemoryDisplacement();
+                    }
                     sameLocation[location].push_back(instruction);
                 }
             }
@@ -262,23 +275,41 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
 
     bool hasPrinted = false;
     for (const auto &[pos, sameLocInstructions] : sameLocation) {
-        const std::size_t atomicCount = std::count_if(sameLocInstructions.begin(), sameLocInstructions.end(), isAtomic);
-        if (atomicCount == 0 || atomicCount == sameLocInstructions.size()) {
+        const std::size_t atomicCount = std::count_if(sameLocInstructions.begin(), sameLocInstructions.end(), isAtomicOrXchg);
+        const std::size_t spinLockCount = std::count_if(sameLocInstructions.begin(), sameLocInstructions.end(), [&spinLockInstructions](auto instruction) {
+            return spinLockInstructions.find(instruction) != spinLockInstructions.end();
+        });
+        const std::size_t totalCount = atomicCount + spinLockCount;
+        if (totalCount == 0 || totalCount == sameLocInstructions.size()) {
             continue;
         }
         if (!hasPrinted) {
-             std::cout <<"Inferred atomics in function "<<function->getName()<<std::endl;
+             std::cout <<"Inferred atomics in function "<<function->getName()<<": "<<pos.locationId<<", "<<pos.offset<<std::endl;
              hasPrinted = true;
         }
         std::cout <<"Same memory location set:"<<std::endl;
         for (auto instruction : sameLocInstructions) {
-
-            if (!isAtomic(instruction)) {
+            if (spinLockInstructions.find(instruction) != spinLockInstructions.end()) {
+                std::cout <<instruction->getDisassembly()<<" (spin lock read)"<<std::endl;
+                continue;
+            }
+            if (!isAtomicOrXchg(instruction)) {
                 const auto decoded = DecodedInstruction_t::factory(instruction);
-                // TODO: auch xchg??
                 if (decoded->getMnemonic() == "mov") {
-                    result[instruction] = __tsan_memory_order_relaxed;
-//                    std::cout <<"Inferred atomic instruction: "<<instruction->getDisassembly()<<std::endl;
+                    if (spinLockCount == 0) {
+                        result[instruction] = __tsan_memory_order_relaxed;
+                    } else {
+                        for (auto operand : decoded->getOperands()) {
+                            if (operand->isMemory()) {
+                                if (operand->isRead()) {
+                                    result[instruction] = __tsan_memory_order_acquire;
+                                } else {
+                                    result[instruction] = __tsan_memory_order_release;
+                                }
+                                break;
+                            }
+                        }
+                    }
                 } else {
                     std::cout <<"WARNING: found non-atomic instruction to atomic like memory: "<<instruction->getDisassembly()<<std::endl;
                 }
@@ -504,6 +535,7 @@ std::set<Instruction_t*> Analysis::detectStaticVariableGuards(Function_t *functi
 
 void Analysis::printStatistics() const
 {
+    std::cout <<std::dec;
     std::cout <<std::endl<<"Statistics:"<<std::endl;
     std::cout <<"Analyzed Functions: "<<totalAnalysedFunctions<<std::endl;
     std::cout <<"\t* Entry/Exit instrumented: "<<entryExitInstrumentedFunctions<<std::endl;

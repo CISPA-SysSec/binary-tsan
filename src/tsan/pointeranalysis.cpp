@@ -7,7 +7,7 @@ PointerAnalysis PointerAnalysis::merge(const std::vector<PointerAnalysis> &parts
     PointerAnalysis result;
     for (auto reg : possibleRegisters()) {
         bool hasRegister = false;
-        MemoryLocation location = -1;
+        MemoryLocation location = MemoryLocation::invalid();
         for (const PointerAnalysis &p : parts) {
             auto it = p.registerPointers.find(reg);
             if (it != p.registerPointers.end()) {
@@ -16,7 +16,7 @@ PointerAnalysis PointerAnalysis::merge(const std::vector<PointerAnalysis> &parts
                     location = it->second;
                 } else {
                     if (location != it->second) {
-                        location = -1;
+                        location = MemoryLocation::invalid();
                     }
                 }
             }
@@ -30,9 +30,11 @@ PointerAnalysis PointerAnalysis::merge(const std::vector<PointerAnalysis> &parts
 
 PointerAnalysis PointerAnalysis::afterInstruction(const Instruction_t *instruction) const
 {
+    // TODO: syscall instruction
     PointerAnalysis result = *this;
     const auto decoded = DecodedInstruction_t::factory(instruction);
-    if (decoded->getMnemonic() == "mov" && decoded->hasOperand(1) && decoded->getOperand(0)->isRegister() && decoded->getOperand(1)->isRegister()) {
+    const std::string mnemonic = decoded->getMnemonic();
+    if (mnemonic == "mov" && decoded->hasOperand(1) && decoded->getOperand(0)->isRegister() && decoded->getOperand(1)->isRegister()) {
         const RegisterID source = strToRegister(decoded->getOperand(1)->getString());
         const RegisterID destination = strToRegister(decoded->getOperand(0)->getString());
         if (is64bitRegister(destination)) {
@@ -43,11 +45,28 @@ PointerAnalysis PointerAnalysis::afterInstruction(const Instruction_t *instructi
         } else {
             // pointer must always be 64 bit
             const RegisterID dest64Bit = convertRegisterTo64bit(destination);
-            result.registerPointers[dest64Bit] = -1;
+            result.registerPointers[dest64Bit] = MemoryLocation::invalid();
+        }
+    } else if (mnemonic == "lea" && decoded->getOperand(0)->getArgumentSizeInBytes() == 8) {
+        const auto op1 = decoded->getOperand(1);
+        const RegisterID destination = strToRegister(decoded->getOperand(0)->getString());
+        if (op1->hasBaseRegister() && !op1->hasIndexRegister()) {
+            const std::string op1Str = op1->getString();
+            const RegisterID source = strToRegister(std::string(op1Str.begin(), op1Str.begin() + 3));
+            const auto sourceIt = result.registerPointers.find(source);
+            if (sourceIt != result.registerPointers.end()) {
+                MemoryLocation target = sourceIt->second;
+                if (op1->hasMemoryDisplacement()) {
+                    target.offset += op1->getMemoryDisplacement();
+                }
+                result.registerPointers[destination] = target;
+            }
+        } else {
+            result.registerPointers[destination] = MemoryLocation::invalid();
         }
     } else if (decoded->isCall()) {
         for (const RegisterID callerSave : callerSaveRegisters()) {
-            result.registerPointers[callerSave] = -1;
+            result.registerPointers[callerSave] = MemoryLocation::invalid();
         }
     } else {
         // TODO: implicitly written registers
@@ -55,7 +74,7 @@ PointerAnalysis PointerAnalysis::afterInstruction(const Instruction_t *instructi
             if (operand->isWritten() && operand->isRegister()) {
                 const RegisterID destination = strToRegister(operand->getString());
                 const RegisterID dest64Bit = convertRegisterTo64bit(destination);
-                result.registerPointers[dest64Bit] = -1;
+                result.registerPointers[dest64Bit] = MemoryLocation::invalid();
             }
         }
     }
@@ -72,7 +91,7 @@ PointerAnalysis PointerAnalysis::functionEntry()
     PointerAnalysis result;
     int counter = 0;
     for (const RegisterID reg : callerSaveRegisters()) {
-        result.registerPointers[reg] = counter;
+        result.registerPointers[reg] = MemoryLocation(counter, 0);
         counter++;
     }
     return result;
@@ -82,7 +101,7 @@ std::map<IRDB_SDK::RegisterID, MemoryLocation> PointerAnalysis::getMemoryLocatio
 {
     std::map<IRDB_SDK::RegisterID, MemoryLocation> result;
     for (const auto &[registerID, location] : registerPointers) {
-        if (location != -1) {
+        if (location.isValid) {
             result[registerID] = location;
         }
     }

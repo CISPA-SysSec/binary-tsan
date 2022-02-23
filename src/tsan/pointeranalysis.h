@@ -5,8 +5,25 @@
 #include <irdb-util>
 #include <map>
 
-// negative id means unknown/invalid
-typedef int MemoryLocation;
+struct MemoryLocation
+{
+    MemoryLocation(int id, int64_t offset, bool valid = true) : isValid(valid), locationId(id), offset(offset) {}
+    MemoryLocation() : isValid(false), locationId(0), offset(0) {}
+    bool isValid;
+    int locationId;
+    int64_t offset;
+
+    bool operator!=(const MemoryLocation &other) const {
+        return isValid != other.isValid || locationId != other.locationId || offset != other.offset;
+    }
+    bool operator==(const MemoryLocation &other) const {
+        return !(*this != other);
+    }
+    bool operator<(const MemoryLocation &other) const {
+        return std::tie(isValid, locationId, offset) < std::tie(other.isValid, other.locationId, other.offset);
+    }
+    static MemoryLocation invalid() { return MemoryLocation(-1, 0, false); }
+};
 
 class PointerAnalysis
 {

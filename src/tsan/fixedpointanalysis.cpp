@@ -88,11 +88,11 @@ std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runA
         isInserted[current] = false;
 
         instructionData[current].data.updateData();
-        for (InstructionIndex before : instructionData[current].nextInstructions) {
-            if (instructionData[before].data.mergeFrom(instructionData[current].data)) {
-                if (!isInserted[before]) {
-                    work.push_back(before);
-                    isInserted[before] = true;
+        for (InstructionIndex beforeOrAfter : instructionData[current].nextInstructions) {
+            if (instructionData[beforeOrAfter].data.mergeFrom(instructionData[current].data)) {
+                if (!isInserted[beforeOrAfter]) {
+                    work.push_back(beforeOrAfter);
+                    isInserted[beforeOrAfter] = true;
                 }
             }
         }
