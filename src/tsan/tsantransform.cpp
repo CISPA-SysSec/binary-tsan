@@ -116,7 +116,6 @@ bool TSanTransform::executeStep()
             continue;
         }
         if (instrumentOnlyFunctions.size() > 0 && instrumentOnlyFunctions.find(functionName) == instrumentOnlyFunctions.end()) {
-            std::cout <<"skip: "<<functionName<<std::endl;
             continue;
         }
 
@@ -324,7 +323,12 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
                 MOVE_OPERAND_RDI,
                 "mov " + rsiReg + ", " + replacedNonMemoryOperand,
                 "mov rdx, " + memOrder,
+                "push " + standard64Bit(replacedNonMemoryOperand),
                 "call 0",
+                "pop rdi",
+                // create correct flags otherwise created by the xadd instruction
+                // TODO: only do this when the flags are alive after the instruction
+                "add " + rdiReg + ", " + raxReg,
                 "mov " + op1->getString() + ", " + raxReg
             },
             {tsanAtomicFetchAdd[bytes]}, REMOVE_ORIGINAL_INSTRUCTION,
@@ -349,8 +353,13 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
                 MOVE_OPERAND_RDI,
                 "mov " + rsiReg + ", " + replacedNonMemoryOperand,
                 "mov rdx, " + memOrder,
-                "call 0"
-            }, // TODO: flags
+                op1->isRegister() ? "push " + standard64Bit(replacedNonMemoryOperand) : "",
+                "call 0",
+                op1->isRegister() ? "pop " + standard64Bit(replacedNonMemoryOperand) : "",
+                // create correct flags otherwise created by the original instruction
+                // TODO: only do this when the flags are alive after the instruction
+                mnemonic + " " + raxReg + ", " + replacedNonMemoryOperand
+            },
             {f}, REMOVE_ORIGINAL_INSTRUCTION, {}, NO_PRESERVE_FLAGS);
     }
     // assumption: op0 is memory, op1 is register
