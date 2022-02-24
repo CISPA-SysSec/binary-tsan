@@ -58,8 +58,9 @@ private:
     void insertFunctionEntry(IRDB_SDK::Instruction_t *insertBefore);
     void insertFunctionExit(IRDB_SDK::Instruction_t *insertBefore);
     std::set<std::string> getSaveRegisters(IRDB_SDK::Instruction_t *instruction);
-    OperationInstrumentation getInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand,
-                                                const FunctionInfo &info) const;
+    std::optional<OperationInstrumentation> getInstrumentation(IRDB_SDK::Instruction_t *instruction,
+                                                                const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand,
+                                                                const FunctionInfo &info) const;
     std::optional<OperationInstrumentation> getAtomicInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> &operand,
                                                                      const __tsan_memory_order memoryOrder) const;
     std::optional<OperationInstrumentation> getRepInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::unique_ptr<IRDB_SDK::DecodedInstruction_t> &decoded) const;
@@ -78,6 +79,7 @@ private:
     };
     DeadRegisterAnalysisType deadRegisterAnalysisType = DeadRegisterAnalysisType::CUSTOM;
     bool dryRun = false;
+    bool atomicsOnly = false;
     // if it contains at least one element, instrument only those functions
     std::set<std::string> instrumentOnlyFunctions;
 

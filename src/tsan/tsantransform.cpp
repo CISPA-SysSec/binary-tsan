@@ -76,6 +76,8 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
             deadRegisterAnalysisType = DeadRegisterAnalysisType::CUSTOM;
         } else if (option == "--dry-run") {
             dryRun = true;
+        } else if (option == "--atomics-only") {
+            atomicsOnly = true;
         } else {
             std::cout <<"Unrecognized option: "<<option<<std::endl;
             return false;
@@ -515,7 +517,7 @@ static uint instrumentationByteSize(const std::shared_ptr<DecodedOperand_t> &ope
     return bytes;
 }
 
-OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand,
+std::optional<OperationInstrumentation> TSanTransform::getInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand,
                                                            const FunctionInfo &info) const
 {
     const auto inferredIt = info.inferredAtomicInstructions.find(instruction);
@@ -528,14 +530,18 @@ OperationInstrumentation TSanTransform::getInstrumentation(Instruction_t *instru
         const __tsan_memory_order memOrder = isInferredAtomic ? inferredIt->second : __tsan_memory_order_acq_rel;
         auto instrumentation = getAtomicInstrumentation(instruction, operand, memOrder);
         if (instrumentation.has_value()) {
-            return *instrumentation;
+            return instrumentation;
         }
+    }
+
+    if (atomicsOnly) {
+        return {};
     }
 
     // check for rep string instructions
     auto repInstrumentation = getRepInstrumentation(instruction, decoded);
     if (repInstrumentation.has_value()) {
-        return *repInstrumentation;
+        return repInstrumentation;
     }
 
     // For operations that read and write the memory, only emit the write (it is sufficient for race detection)
@@ -568,7 +574,12 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     std::set<std::string> registersToSave = getSaveRegisters(instruction);
 
-    OperationInstrumentation instrumentation = getInstrumentation(instruction, operand, info);
+    const auto instr = getInstrumentation(instruction, operand, info);
+    // could not instrument - command line option or some other problem
+    if (!instr) {
+        return;
+    }
+    OperationInstrumentation instrumentation = *instr;
     for (const std::string &noSaveReg : instrumentation.noSaveRegisters) {
         registersToSave.erase(noSaveReg);
     }
