@@ -52,7 +52,6 @@ private:
 
 private:
     IRDB_SDK::FileIR_t *ir;
-    std::unique_ptr<IRDB_SDK::DeepAnalysis_t> loopAnalysis;
 
     // statistics
 

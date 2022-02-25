@@ -10,8 +10,7 @@
 using namespace IRDB_SDK;
 
 Analysis::Analysis(FileIR_t *ir) :
-    ir(ir),
-    loopAnalysis(DeepAnalysis_t::factory(ir, aeSTARS, {"SetDeepLoopAnalyses=true"}))
+    ir(ir)
 { }
 
 FunctionInfo Analysis::analyseFunction(Function_t *function)
@@ -131,26 +130,93 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
     return result;
 }
 
+struct Loop
+{
+    Loop(BasicBlock_t *header, const std::set<BasicBlock_t*> &nodes) : header(header), nodes(nodes) {}
+    BasicBlock_t *header;
+    std::set<BasicBlock_t*> nodes;
+};
+
+static std::vector<Loop> findLoops(ControlFlowGraph_t *cfg)
+{
+    // TODO: are exceptions handled in the domgraph?
+    const auto domGraph = DominatorGraph_t::factory(cfg);
+
+    std::vector<Loop> loops;
+
+    for (const auto block : cfg->getBlocks()) {
+        // the CFG is constructed such that return blocks always have the entry block as a successor
+        if (block->getIsExitBlock()) {
+            continue;
+        }
+        const auto decoded = DecodedInstruction_t::factory(block->getInstructions().back());
+        // TODO: make own CFG where these blocks do not exist
+        if (decoded->getMnemonic() == "nop" && block->getPredecessors().size() == 0) {
+            continue;
+        }
+        for (const auto child : block->getSuccessors()) {
+            if (child->getIsExitBlock()) {
+                continue;
+            }
+            const auto &childDominated = domGraph->getDominated(child);
+            const bool childDominatesBlock = childDominated.find(block) != childDominated.end();
+            if (childDominatesBlock) { // backwards edge
+                std::vector<BasicBlock_t*> workList;
+                std::set<BasicBlock_t*> loopBlocks;
+                loopBlocks.insert(child);
+                if (block != child) {
+                    loopBlocks.insert(block);
+                    workList.push_back(block);
+                }
+                while (workList.size() > 0) {
+                    const BasicBlock_t *currentBlock = workList.back();
+                    workList.pop_back();
+                    for (BasicBlock_t *predecessor : currentBlock->getPredecessors()) {
+                        const bool hasPredecessor = loopBlocks.find(predecessor) != loopBlocks.end();
+                        if (!hasPredecessor) {
+                            loopBlocks.insert(predecessor);
+                            workList.push_back(predecessor);
+                        }
+                    }
+                }
+
+                Loop loop(child, loopBlocks);
+                loops.push_back(loop);
+            }
+        }
+    }
+    return loops;
+}
+
 std::set<Instruction_t*> Analysis::findSpinLocks(ControlFlowGraph_t *cfg) const
 {
     std::set<Instruction_t*> spinLockMemoryReads;
-    const auto loops = loopAnalysis->getLoops(cfg);
-    for (const auto &loop : loops->getAllLoops()) {
+    const auto loops = findLoops(cfg);
+    for (const auto &loop : loops) {
         // any instruction that can not be present in a spin lock loop
         bool foundBad = false;
         Instruction_t *memoryRead = nullptr;
         std::shared_ptr<DecodedOperand_t> readOperand;
-        for (const auto block : loop->getAllBlocks()) {
+        for (const auto block : loop.nodes) {
             for (auto instruction : block->getInstructions()) {
                 const auto decoded = DecodedInstruction_t::factory(instruction);
                 if (decoded->isCall()) {
-                    foundBad = true;
-                    break;
+                    // some functions calls are allowed in a spin lock
+                    if (!contains(targetFunctionName(instruction), "usleep")) {
+                        foundBad = true;
+                        break;
+                    }
                 }
                 if (decoded->getMnemonic() == "syscall") {
                     foundBad = true;
                     break;
                 }
+                // implicit memory modification
+                if (decoded->getMnemonic() == "push" || decoded->getMnemonic() == "pop") {
+                    foundBad = true;
+                    break;
+                }
+                // TODO: if the memory operand is to fs: or the stack, print an error
                 for (auto operand : decoded->getOperands()) {
                     if (operand->isWritten() && operand->isMemory()) {
                         foundBad = true;
@@ -175,7 +241,7 @@ std::set<Instruction_t*> Analysis::findSpinLocks(ControlFlowGraph_t *cfg) const
             }
         }
         if (!foundBad && memoryRead != nullptr) {
-            for (const auto block : loop->getAllBlocks()) {
+            for (const auto block : loop.nodes) {
                 for (auto instruction : block->getInstructions()) {
                     const auto decoded = DecodedInstruction_t::factory(instruction);
                     for (auto operand : decoded->getOperands()) {
@@ -191,7 +257,8 @@ std::set<Instruction_t*> Analysis::findSpinLocks(ControlFlowGraph_t *cfg) const
                 }
             }
             if (!foundBad) {
-                const auto headerInstruction = loop->getHeader()->getInstructions()[0];
+                const auto domGraph = DominatorGraph_t::factory(cfg);
+                const auto headerInstruction = loop.header->getInstructions()[0];
                 std::cout <<"Found spin lock loop in "<<cfg->getFunction()->getName()<<"  "<<std::hex<<headerInstruction->getAddress()->getVirtualOffset()
                          <<": "<<headerInstruction->getDisassembly()<<std::endl;
                 spinLockMemoryReads.insert(memoryRead);
