@@ -54,13 +54,25 @@ PointerAnalysis PointerAnalysis::afterInstruction(const Instruction_t *instructi
             const std::string op1Str = op1->getString();
             const RegisterID source = strToRegister(std::string(op1Str.begin(), op1Str.begin() + 3));
             const auto sourceIt = result.registerPointers.find(source);
-            if (sourceIt != result.registerPointers.end()) {
+            if (sourceIt != result.registerPointers.end() && sourceIt->second.isValid) {
                 MemoryLocation target = sourceIt->second;
                 if (op1->hasMemoryDisplacement()) {
                     target.offset += op1->getMemoryDisplacement();
                 }
                 result.registerPointers[destination] = target;
+            } else {
+                result.registerPointers[destination] = MemoryLocation::invalid();
             }
+        } else {
+            result.registerPointers[destination] = MemoryLocation::invalid();
+        }
+    } else if (mnemonic == "add" && decoded->getOperand(0)->getArgumentSizeInBytes() == 8 &&
+               decoded->getOperand(0)->isRegister() && decoded->getOperand(1)->isConstant()) {
+        const RegisterID destination = strToRegister(decoded->getOperand(0)->getString());
+        const auto sourceIt = result.registerPointers.find(destination);
+        if (sourceIt != result.registerPointers.end() && sourceIt->second.isValid) {
+            // TODO: negative number encoding?
+            sourceIt->second.offset += decoded->getOperand(1)->getConstant();
         } else {
             result.registerPointers[destination] = MemoryLocation::invalid();
         }
