@@ -83,12 +83,14 @@ private:
     static int registerBitIndex(x86_reg reg);
 
 private:
-    std::bitset<10> undefinedBefore;
-    std::bitset<10> undefinedAfter;
+    std::bitset<11> undefinedBefore;
+    std::bitset<11> undefinedAfter;
 
-    std::bitset<10> makeUndefined;
-    std::bitset<10> makeDefined;
-    std::bitset<10> readRegs;
+    std::bitset<11> makeUndefined;
+    std::bitset<11> makeDefined;
+    std::bitset<11> readRegs;
+
+    static constexpr int INVALID_BIT = 10;
 };
 
 #endif // DEADREGISTERANALYSIS_H

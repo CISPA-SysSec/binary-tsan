@@ -47,6 +47,7 @@ static std::vector<x86_reg> getReadRegisters(cs_insn *decoded)
     return readRegisters;
 }
 
+// TODO: conditional writes (cmov, cmpxchg)
 static std::vector<x86_reg> getWrittenRegisters(cs_insn *decoded)
 {
     std::vector<x86_reg> writtenRegisters;
@@ -180,7 +181,7 @@ std::set<IRDB_SDK::RegisterID> DeadRegisterInstructionAnalysis::getDeadRegisters
     return result;
 }
 
-
+// TODO: am anfang der funktion sind register die nicht für argumente da sind undefiniert (aufpassen mit EH handlern)
 UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instruction_t *instruction, const RegisterAnalysisCommon &common)
 {
     const std::string instructionData = instruction->getDataBits();
@@ -205,12 +206,16 @@ UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instr
         makeUndefined.set();
         makeDefined[registerBitIndex(X86_REG_RAX)] = true;
     }
+    // for the syscall instruction (while it does not define all registers, this is safer)
+    if (isPartOfGroup(decoded, X86_GRP_INT)) {
+        makeDefined.set();
+    }
 
     cs_free(decoded, 1);
 
-    // initially consider all registers defined (important for function arguments)
-    undefinedBefore.reset();
-    undefinedAfter.reset();
+    makeDefined[INVALID_BIT] = 0;
+    makeUndefined[INVALID_BIT] = 0;
+    readRegs[INVALID_BIT] = 0;
 }
 
 int UndefinedRegisterInstructionAnalysis::registerBitIndex(x86_reg reg)
@@ -232,7 +237,7 @@ int UndefinedRegisterInstructionAnalysis::registerBitIndex(x86_reg reg)
     if (it != indexMap.end()) {
         return it->second;
     }
-    return {};
+    return INVALID_BIT;
 }
 
 std::set<IRDB_SDK::RegisterID> UndefinedRegisterInstructionAnalysis::getDeadRegisters() const

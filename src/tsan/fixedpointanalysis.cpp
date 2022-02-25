@@ -34,6 +34,7 @@ struct InstructionInfo {
     InstructionAnalysis data;
 };
 
+// TODO: deal with exit node -> entry node loop and nop blocks
 template<typename InstructionAnalysis, typename AnalysisCommon>
 std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runAnalysis(Function_t *function)
 {
