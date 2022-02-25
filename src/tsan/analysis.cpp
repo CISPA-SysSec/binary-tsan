@@ -347,7 +347,7 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
             return spinLockInstructions.find(instruction) != spinLockInstructions.end();
         });
         const std::size_t totalCount = atomicCount + spinLockCount;
-        if (totalCount == 0 || totalCount == sameLocInstructions.size()) {
+        if (totalCount == 0 || atomicCount == sameLocInstructions.size()) {
             continue;
         }
         if (!hasPrinted) {
