@@ -86,7 +86,11 @@ PointerAnalysis PointerAnalysis::afterInstruction(const Instruction_t *instructi
             if (operand->isWritten() && operand->isRegister()) {
                 const RegisterID destination = strToRegister(operand->getString());
                 const RegisterID dest64Bit = convertRegisterTo64bit(destination);
-                result.registerPointers[dest64Bit] = MemoryLocation::invalid();
+                if (operand->getArgumentSizeInBytes() == 8) {
+                    result.registerPointers[dest64Bit] = MemoryLocation(static_cast<int64_t>(instruction->getAddress()->getVirtualOffset()), 0);
+                } else {
+                    result.registerPointers[dest64Bit] = MemoryLocation::invalid();
+                }
             }
         }
     }

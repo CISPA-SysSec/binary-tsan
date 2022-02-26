@@ -7,10 +7,10 @@
 
 struct MemoryLocation
 {
-    MemoryLocation(int id, int64_t offset, bool valid = true) : isValid(valid), locationId(id), offset(offset) {}
+    MemoryLocation(int64_t id, int64_t offset, bool valid = true) : isValid(valid), locationId(id), offset(offset) {}
     MemoryLocation() : isValid(false), locationId(0), offset(0) {}
     bool isValid;
-    int locationId;
+    int64_t locationId;
     int64_t offset;
 
     bool operator!=(const MemoryLocation &other) const {
