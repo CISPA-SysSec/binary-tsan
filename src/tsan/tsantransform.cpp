@@ -377,7 +377,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
                 "mov " + rdxReg + ", " + replacedNonMemoryOperand,
                 "mov " + rsiReg + ", " + raxReg,
                 "mov rcx, " + memOrder,
-                "mov r8, " + memOrder,
+                "mov r8, " + toHex(__tsan_memory_order_relaxed),
                 "push rax",
                 "call 0",
                 "pop rsi",
@@ -388,7 +388,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     if (mnemonic == "mov") {
         if (op0->isRegister() && op1->isMemory()) {
             return OperationInstrumentation({
-                    "mov rsi, " + memOrder,
+                    "mov rsi, " + toHex(__tsan_memory_order_acquire),
                     "call 0",
                     "mov " + op0->getString() + ", " + raxReg
                 },
@@ -400,7 +400,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
                     opHasRdi ? "mov " + scratchReg + ", rdi" : "",
                     MOVE_OPERAND_RDI,
                     "mov " + rsiReg + ", " + replacedNonMemoryOperand,
-                    "mov rdx, " + memOrder,
+                    "mov rdx, " + toHex(__tsan_memory_order_release),
                     "call 0"
                 },
                 {tsanAtomicStore[bytes]}, REMOVE_ORIGINAL_INSTRUCTION, {}, PRESERVE_FLAGS);

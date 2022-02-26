@@ -380,6 +380,8 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
                 } else {
                     std::cout <<"WARNING: found non-atomic instruction to atomic like memory: "<<instruction->getDisassembly()<<std::endl;
                 }
+            } else if (spinLockCount > 0) {
+                result[instruction] = __tsan_memory_order_acquire;
             }
             std::cout <<disassembly(instruction)<<std::endl;
         }
