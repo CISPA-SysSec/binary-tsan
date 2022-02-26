@@ -304,7 +304,7 @@ static bool isAtomicOrXchg(Instruction_t *instruction)
 std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions(IRDB_SDK::Function_t *function, const std::set<Instruction_t*> &spinLockInstructions) const
 {
     const auto instructions = function->getInstructions();
-    const bool hasAtomic = std::any_of(instructions.begin(), instructions.end(), isAtomic);
+    const bool hasAtomic = std::any_of(instructions.begin(), instructions.end(), isAtomicOrXchg);
     if (!hasAtomic && spinLockInstructions.size() == 0) {
         return {};
     }
@@ -381,9 +381,7 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
                     std::cout <<"WARNING: found non-atomic instruction to atomic like memory: "<<instruction->getDisassembly()<<std::endl;
                 }
             }
-
-            const std::string atomicStr = isAtomic(instruction) ? "lock " : "";
-            std::cout <<atomicStr<<instruction->getDisassembly()<<std::endl;
+            std::cout <<disassembly(instruction)<<std::endl;
         }
         std::cout <<std::endl;
     }
