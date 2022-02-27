@@ -104,7 +104,8 @@ bool TSanTransform::executeStep()
 
     ExceptionHandling exceptionHandling(ir, tsanFunctionExit);
 
-    const std::vector<std::string> noInstrumentFunctions = {"_init", "_start", "__libc_csu_init", "__tsan_default_options", "_fini", "__libc_csu_fini", "ThisIsNotAFunction"};
+    const std::vector<std::string> noInstrumentFunctions = {"_init", "_start", "__libc_csu_init", "__tsan_default_options", "_fini", "__libc_csu_fini",
+                                                            "ThisIsNotAFunction", "__gmon_start__", "__do_global_ctors_aux", "__do_global_dtors_aux"};
 
     for (Function_t *function : ir->getFunctions()) {
         if (function->getEntryPoint() == nullptr) {
