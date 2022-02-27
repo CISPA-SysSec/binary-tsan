@@ -103,6 +103,7 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
     // special cases for the assumed calling convention
     if (isPartOfGroup(decoded, X86_GRP_RET)) {
         setBits(readRegs, X86_REG_RAX);
+        setBits(readRegs, X86_REG_RDX);
     }
     // tail call optimization leads to jumps to other functions, these have be treated like calls since the arguments are in the registers
     const bool isJump = isPartOfGroup(decoded, X86_GRP_JUMP);
@@ -205,6 +206,7 @@ UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instr
         // all caller save registers and flags are undefined after a function call
         makeUndefined.set();
         makeDefined[registerBitIndex(X86_REG_RAX)] = true;
+        makeDefined[registerBitIndex(X86_REG_RDX)] = true;
     }
     // for the syscall instruction (while it does not define all registers, this is safer)
     if (isPartOfGroup(decoded, X86_GRP_INT)) {
