@@ -92,7 +92,7 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
             continue;
         }
         const std::string mnemonic = decoded->getMnemonic();
-        if (mnemonic == "lea" || mnemonic == "nop") {
+        if (mnemonic == "lea" || mnemonic == "nop" || startsWith(mnemonic, "prefetch")) {
             continue;
         }
         if (notInstrumented.find(instruction) != notInstrumented.end()) {
