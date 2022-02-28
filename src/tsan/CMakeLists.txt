@@ -2,6 +2,8 @@ add_executable(tsan
     tsan.cpp
     tsantransform.cpp
     tsantransform.h
+    cfgtodot.cpp
+    cfgtodot.h
     deadregisteranalysis.cpp
     deadregisteranalysis.h
     pointeranalysis.cpp
