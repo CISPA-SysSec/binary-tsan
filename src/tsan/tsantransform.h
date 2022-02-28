@@ -80,6 +80,9 @@ private:
     DeadRegisterAnalysisType deadRegisterAnalysisType = DeadRegisterAnalysisType::CUSTOM;
     bool dryRun = false;
     bool atomicsOnly = false;
+    bool instrumentFunctionEntryExit = true;
+    // whether to actually call the thread sanitizer; for benchmarking purposes
+    bool addTsanCalls = true;
     // if it contains at least one element, instrument only those functions
     std::set<std::string> instrumentOnlyFunctions;
 

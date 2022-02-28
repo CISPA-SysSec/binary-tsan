@@ -69,15 +69,21 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
             std::cout <<"Loaded "<<instrumentOnlyFunctions.size()<<" functions to instrument"<<std::endl;
             continue;
         }
-        // TODO: adjust options
-        if (option == "--use-stars") {
+        if (option == "--register-analysis=stars") {
             deadRegisterAnalysisType = DeadRegisterAnalysisType::STARS;
-        } else if (option == "--no-use-stars") {
+        } else if (option == "--register-analysis=custom") {
             deadRegisterAnalysisType = DeadRegisterAnalysisType::CUSTOM;
+        } else if (option == "--register-analysis=none") {
+            deadRegisterAnalysisType = DeadRegisterAnalysisType::NONE;
         } else if (option == "--dry-run") {
             dryRun = true;
         } else if (option == "--atomics-only") {
             atomicsOnly = true;
+        } else if (option == "--no-entry-exit") {
+            // also includes exception handling
+            instrumentFunctionEntryExit = false;
+        } else if (option == "--no-add-tsan-calls") {
+            addTsanCalls = false;
         } else {
             std::cout <<"Unrecognized option: "<<option<<std::endl;
             return false;
@@ -182,7 +188,7 @@ bool TSanTransform::executeStep()
             }
         }
 
-        if (info.addEntryExitInstrumentation) {
+        if (info.addEntryExitInstrumentation && instrumentFunctionEntryExit) {
             // TODO: what if the first instruction is atomic and thus removed?
             insertFunctionEntry(info.properEntryPoint);
             for (Instruction_t *ret : info.exitPoints) {
@@ -223,7 +229,9 @@ void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
     if (registersToSave.size() > 0) {
         inserter.insertAssembly("mov rdi, [rsp + " + toHex(registersToSave.size() * ir->getArchitectureBitWidth() / 8) + "]");
     }
-    inserter.insertAssembly("call 0", tsanFunctionEntry);
+    if (addTsanCalls) {
+        inserter.insertAssembly("call 0", tsanFunctionEntry);
+    }
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
         inserter.insertAssembly("pop " + *it);
     }
@@ -246,7 +254,9 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
     for (std::string reg : registersToSave) {
         inserter.insertAssembly("push " + reg);
     }
-    inserter.insertAssembly("call 0", tsanFunctionExit);
+    if (addTsanCalls) {
+        inserter.insertAssembly("call 0", tsanFunctionExit);
+    }
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
         inserter.insertAssembly("pop " + *it);
     }
@@ -675,6 +685,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
             if (isCall) {
                 callTarget = instrumentation.callTargets[0];
                 instrumentation.callTargets.erase(instrumentation.callTargets.begin());
+                if (!addTsanCalls) {
+                    continue;
+                }
             }
             auto inserted = inserter.insertAssembly(strippedAssembly, callTarget);
 
