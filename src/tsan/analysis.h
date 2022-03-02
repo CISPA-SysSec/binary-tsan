@@ -49,9 +49,12 @@ private:
     int inferredStackFrameSize(const IRDB_SDK::Function_t *function) const;
     bool isDataConstant(IRDB_SDK::FileIR_t *ir, IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand);
     std::set<IRDB_SDK::Instruction_t *> findSpinLocks(IRDB_SDK::ControlFlowGraph_t *cfg) const;
+    std::set<IRDB_SDK::Function_t*> findNoReturnFunctions() const;
 
 private:
     IRDB_SDK::FileIR_t *ir;
+
+    std::set<IRDB_SDK::Function_t*> noReturnFunctions;
 
     // statistics
 

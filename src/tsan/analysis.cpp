@@ -11,7 +11,9 @@ using namespace IRDB_SDK;
 
 Analysis::Analysis(FileIR_t *ir) :
     ir(ir)
-{ }
+{
+    noReturnFunctions = findNoReturnFunctions();
+}
 
 FunctionInfo Analysis::analyseFunction(Function_t *function)
 {
@@ -266,6 +268,70 @@ std::set<Instruction_t*> Analysis::findSpinLocks(ControlFlowGraph_t *cfg) const
         }
     }
     return spinLockMemoryReads;
+}
+
+static void checkNoReturnRecursive(Function_t *function, std::set<Function_t*> &noReturnFunctions, std::set<Function_t*> &visited)
+{
+    if (visited.find(function) != visited.end()) {
+        return;
+    }
+    visited.insert(function);
+
+    // check known noreturn functions
+    const std::string functionName = function->getName();
+
+    // TODO: functionName == "_Unwind_Resumepart1@plt"
+    if (functionName == "exitpart1@plt" || functionName == "abortpart1@plt" ||
+            functionName == "pthread_exitpart1@plt" || functionName == "__assert_failpart1@plt" ||
+            functionName == "__cxa_throwpart1@plt") {
+        noReturnFunctions.insert(function);
+        return;
+    }
+
+    bool hasNoReturnCall = false;
+    for (Instruction_t *instruction : function->getInstructions()) {
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        // if we have a return statement, the function will return
+        if (decoded->isReturn()) {
+            return;
+        }
+
+        const bool tailJump = decoded->isBranch() && !decoded->isCall() && getJumpInfo(instruction).isTailCall;
+        const bool isCall = decoded->isCall();
+        if (tailJump || isCall) {
+            if (instruction->getTarget() == nullptr) {
+                return;
+            }
+            checkNoReturnRecursive(instruction->getTarget()->getFunction(), noReturnFunctions, visited);
+            const bool isNoReturn = noReturnFunctions.find(instruction->getTarget()->getFunction()) != noReturnFunctions.end();
+            if (!isNoReturn && tailJump) {
+                return;
+            }
+            if (isNoReturn) {
+                hasNoReturnCall = true;
+            }
+        }
+    }
+    if (hasNoReturnCall) {
+        noReturnFunctions.insert(function);
+    }
+}
+
+std::set<Function_t*> Analysis::findNoReturnFunctions() const
+{
+    // TODO: additional criteria: at the caller, there is a nop after the call?
+    std::set<Function_t*> noReturnFunctions;
+    std::set<Function_t*> visited;
+
+    for (Function_t *function : ir->getFunctions()) {
+        checkNoReturnRecursive(function, noReturnFunctions, visited);
+    }
+
+//    for (auto f : noReturnFunctions) {
+//        std::cout <<"no return: "<<std::hex<<f->getEntryPoint()->getAddress()->getVirtualOffset()<<" "<<f->getName()<<std::endl;
+//    }
+
+    return noReturnFunctions;
 }
 
 bool Analysis::isDataConstant(FileIR_t *ir, Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand)
