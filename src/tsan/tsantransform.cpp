@@ -515,6 +515,30 @@ std::optional<OperationInstrumentation> TSanTransform::getRepInstrumentation(Ins
     return {};
 }
 
+std::optional<OperationInstrumentation> TSanTransform::getConditionalInstrumentation(const std::unique_ptr<DecodedInstruction_t> &decoded,
+                                                                                     const std::shared_ptr<DecodedOperand_t> &operand) const
+{
+    const std::string mnemonic = decoded->getMnemonic();
+    const bool isCMov = startsWith(mnemonic, "cmov");
+    const bool isSet = startsWith(mnemonic, "set");
+    if (isCMov || isSet) {
+        const int bytes = operand->getArgumentSizeInBytes();
+        const std::string mnemonicStart = isCMov ? "cmov" : "set";
+        const std::string conditionalJump = "j" + std::string(mnemonic.begin() + mnemonicStart.size(), mnemonic.end());
+        Instruction_t *target = isCMov ? tsanRead[bytes] : tsanWrite[bytes];
+        return OperationInstrumentation({
+                // this is the easiest way to invert the condition without handling all the different cases
+                conditionalJump + " %L1",
+                "jmp %L2",
+                "L1: call 0",
+                // just needed as a jump target for the label
+                "L2: xor rax, rax"
+            },
+            {target}, KEEP_ORIGINAL_INSTRUCTION, {}, PRESERVE_FLAGS);
+    }
+    return {};
+}
+
 static uint instrumentationByteSize(const std::shared_ptr<DecodedOperand_t> &operand)
 {
     const uint bytes = operand->getArgumentSizeInBytes();
@@ -553,6 +577,12 @@ std::optional<OperationInstrumentation> TSanTransform::getInstrumentation(Instru
     auto repInstrumentation = getRepInstrumentation(instruction, decoded);
     if (repInstrumentation.has_value()) {
         return repInstrumentation;
+    }
+
+    // check for conditional memory instructions (cmov)
+    auto conditionalInstrumentation = getConditionalInstrumentation(decoded, operand);
+    if (conditionalInstrumentation.has_value()) {
+        return conditionalInstrumentation;
     }
 
     // For operations that read and write the memory, only emit the write (it is sufficient for race detection)

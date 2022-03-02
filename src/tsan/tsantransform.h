@@ -64,6 +64,8 @@ private:
     std::optional<OperationInstrumentation> getAtomicInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> &operand,
                                                                      const __tsan_memory_order memoryOrder) const;
     std::optional<OperationInstrumentation> getRepInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::unique_ptr<IRDB_SDK::DecodedInstruction_t> &decoded) const;
+    std::optional<OperationInstrumentation> getConditionalInstrumentation(const std::unique_ptr<IRDB_SDK::DecodedInstruction_t> &decoded,
+                                                                          const std::shared_ptr<IRDB_SDK::DecodedOperand_t> &operand) const;
 
 private:
     struct Instrumentation {
