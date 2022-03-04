@@ -12,6 +12,8 @@ add_executable(tsan
     fixedpointanalysis.h
     analysis.cpp
     analysis.h
+    register.cpp
+    register.h
     exceptionhandling.cpp
     exceptionhandling.h
 )

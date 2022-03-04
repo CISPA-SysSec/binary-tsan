@@ -99,9 +99,17 @@ bool TSanTransform::executeStep()
     // compute this before any instructions are added
     if (deadRegisterAnalysisType == DeadRegisterAnalysisType::STARS) {
         const auto registerAnalysis = DeepAnalysis_t::factory(ir);
-        deadRegisters = registerAnalysis->getDeadRegisters();
-    } else {
-        deadRegisters = std::make_unique<DeadRegisterMap_t>(DeadRegisterMap_t());
+        auto starsDead = registerAnalysis->getDeadRegisters();
+        for (const auto &[instruction, registers] : *starsDead) {
+            std::set<x86_reg> capstoneRegs;
+            for (const auto reg : registers) {
+                // also insert the original register (for eflags etc.)
+                capstoneRegs.insert(Register::registerIDToCapstoneRegister(reg));
+                const auto largeReg = convertRegisterTo64bit(reg);
+                capstoneRegs.insert(Register::registerIDToCapstoneRegister(largeReg));
+            }
+            deadRegisters[instruction] = capstoneRegs;
+        }
     }
 
     if (!dryRun) {
@@ -131,12 +139,12 @@ bool TSanTransform::executeStep()
 
         // register analysis
         if (deadRegisterAnalysisType == DeadRegisterAnalysisType::CUSTOM) {
-            deadRegisters.reset(new DeadRegisterMap_t());
+            deadRegisters.clear();
 
             if (FixedPointAnalysis::canHandle(function)) {
                 const auto analysisResult = FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(function);
                 for (const auto &[instruction, analysis] : analysisResult) {
-                    deadRegisters->insert({instruction, analysis.getDeadRegisters()});
+                    deadRegisters.insert({instruction, analysis.getDeadRegisters()});
                 }
                 const auto undefinedResult = FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(function);
                 const bool hasProblem = std::any_of(undefinedResult.begin(), undefinedResult.end(), [](const auto &r) {
@@ -144,7 +152,7 @@ bool TSanTransform::executeStep()
                 });
                 if (!hasProblem) {
                     for (const auto &[instruction, analysis] : undefinedResult) {
-                        auto it = deadRegisters->find(instruction);
+                        auto it = deadRegisters.find(instruction);
                         for (auto reg : analysis.getDeadRegisters()) {
                             it->second.insert(reg);
                         }
@@ -219,7 +227,7 @@ void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
 {
     // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)
     FileIR_t *ir = getFileIR();
-    const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
+    const std::set<std::string> registersToSave = getGeneralPurposeSaveRegisters(insertBefore);
     InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(), dryRun);
 
     // for this to work without any additional rsp wrangling, it must be inserted at the very start of the function
@@ -240,7 +248,7 @@ void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
 void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
 {
     FileIR_t *ir = getFileIR();
-    const std::set<std::string> registersToSave = getSaveRegisters(insertBefore);
+    const std::set<std::string> registersToSave = getGeneralPurposeSaveRegisters(insertBefore);
     InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(), dryRun);
 
     const auto decoded = DecodedInstruction_t::factory(insertBefore);
@@ -265,18 +273,20 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
     }
 }
 
-std::set<std::string> TSanTransform::getSaveRegisters(Instruction_t *instruction)
+std::set<std::string> TSanTransform::getGeneralPurposeSaveRegisters(Instruction_t *instruction)
 {
-    std::set<std::string> registersToSave = {"rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11"};
-    const auto dead = deadRegisters->find(instruction);
-    if (dead != deadRegisters->end()) {
-        for (RegisterID_t r : dead->second) {
-            std::string longName = registerToString(convertRegisterTo64bit(r));
-            std::transform(longName.begin(), longName.end(), longName.begin(), ::tolower);
-            registersToSave.erase(longName);
+    std::set<x86_reg> registersToSave = {X86_REG_RAX, X86_REG_RCX, X86_REG_RDX, X86_REG_RSI, X86_REG_RDI, X86_REG_R8, X86_REG_R9, X86_REG_R10, X86_REG_R11};
+    const auto dead = deadRegisters.find(instruction);
+    if (dead != deadRegisters.end()) {
+        for (x86_reg r : dead->second) {
+            registersToSave.erase(r);
         }
     }
-    return registersToSave;
+    std::set<std::string> result;
+    for (auto reg : registersToSave) {
+        result.insert(Register::registerToString(reg));
+    }
+    return result;
 }
 
 static RegisterID getScratchRegister(const std::string &operand, const std::vector<RegisterID> &possibleRegisters)
@@ -613,7 +623,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     FileIR_t *ir = getFileIR();
 
-    std::set<std::string> registersToSave = getSaveRegisters(instruction);
+    std::set<std::string> registersToSave = getGeneralPurposeSaveRegisters(instruction);
 
     const auto instr = getInstrumentation(instruction, operand, info);
     // could not instrument - command line option or some other problem
@@ -629,9 +639,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     bool eflagsAlive = true;
 
-    const auto deadRegisterSet = deadRegisters->find(instruction);
-    if (deadRegisterSet != deadRegisters->end()) {
-        const auto eflagsIt = std::find(deadRegisterSet->second.begin(), deadRegisterSet->second.end(), rn_EFLAGS);
+    const auto deadRegisterSet = deadRegisters.find(instruction);
+    if (deadRegisterSet != deadRegisters.end()) {
+        const auto eflagsIt = std::find(deadRegisterSet->second.begin(), deadRegisterSet->second.end(), X86_REG_EFLAGS);
         eflagsAlive = eflagsIt == deadRegisterSet->second.end();
     }
 

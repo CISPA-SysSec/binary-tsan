@@ -10,6 +10,7 @@
 
 #include "protobuf/instrumentationmap.pb.h"
 #include "analysis.h"
+#include "register.h"
 
 enum RemoveOption {
     REMOVE_ORIGINAL_INSTRUCTION,
@@ -57,7 +58,7 @@ private:
     void instrumentMemoryAccess(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand, const FunctionInfo &info);
     void insertFunctionEntry(IRDB_SDK::Instruction_t *insertBefore);
     void insertFunctionExit(IRDB_SDK::Instruction_t *insertBefore);
-    std::set<std::string> getSaveRegisters(IRDB_SDK::Instruction_t *instruction);
+    std::set<std::string> getGeneralPurposeSaveRegisters(IRDB_SDK::Instruction_t *instruction);
     std::optional<OperationInstrumentation> getInstrumentation(IRDB_SDK::Instruction_t *instruction,
                                                                 const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand,
                                                                 const FunctionInfo &info) const;
@@ -88,7 +89,7 @@ private:
     // if it contains at least one element, instrument only those functions
     std::set<std::string> instrumentOnlyFunctions;
 
-    std::unique_ptr<IRDB_SDK::DeadRegisterMap_t> deadRegisters;
+    std::map<IRDB_SDK::Instruction_t*, std::set<x86_reg>> deadRegisters;
 
     Analysis functionAnalysis;
 

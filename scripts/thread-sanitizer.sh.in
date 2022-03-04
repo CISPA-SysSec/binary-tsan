@@ -21,7 +21,7 @@ export ZIPR_PLUGIN_PATH=$ZIPR_PLUGIN_PATH:@ZIPR_PLUGIN_PATH@
 cd $last
 
 # the basic run command without additional tsan options
-runCommand="$PSZ $1 $2 -c rida -c move_globals -o --elftables-only -o --no-use-stars --step-option zipr:\"--zipr:seed 42\" -c tsan -o --no-use-stars"
+runCommand="$PSZ $1 $2 -c rida -c move_globals -o --elftables-only -o --no-use-stars --step-option zipr:\"--zipr:seed 42\" -c tsan -o --register-analysis=custom"
 
 # add tsan options to the run command
 i=$(($#-3))

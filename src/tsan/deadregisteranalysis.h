@@ -2,7 +2,6 @@
 #define DEADREGISTERANALYSIS_H
 
 #include <irdb-core>
-#include <irdb-util>
 #include <capstone/capstone.h>
 #include <capstone/x86.h>
 
@@ -39,7 +38,7 @@ public:
         return after != prevAfter;
     }
 
-    std::set<IRDB_SDK::RegisterID> getDeadRegisters() const;
+    std::set<x86_reg> getDeadRegisters() const;
 
     static bool isForwardAnalysis() { return false; }
 
@@ -73,7 +72,7 @@ public:
         return undefinedBefore != prevBefore;
     }
 
-    std::set<IRDB_SDK::RegisterID> getDeadRegisters() const;
+    std::set<x86_reg> getDeadRegisters() const;
 
     bool hasProblem() const { return (undefinedBefore & readRegs).any(); }
 

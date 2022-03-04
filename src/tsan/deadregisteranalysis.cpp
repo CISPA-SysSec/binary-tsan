@@ -5,17 +5,10 @@
 
 using namespace IRDB_SDK;
 
-static const std::map<x86_reg, RegisterID> capstoneRegToRegisterID = {
-    {X86_REG_RAX, RegisterID::rn_RAX},
-    {X86_REG_RCX, RegisterID::rn_RCX},
-    {X86_REG_RDX, RegisterID::rn_RDX},
-    {X86_REG_RSI, RegisterID::rn_RSI},
-    {X86_REG_RDI, RegisterID::rn_RDI},
-    {X86_REG_R8, RegisterID::rn_R8},
-    {X86_REG_R9, RegisterID::rn_R9},
-    {X86_REG_R10, RegisterID::rn_R10},
-    {X86_REG_R11, RegisterID::rn_R11},
-    {X86_REG_EFLAGS, RegisterID::rn_EFLAGS}
+static const std::vector<x86_reg> callerSaveRegisters = {
+    X86_REG_RAX, X86_REG_RCX, X86_REG_RDX, X86_REG_RSI,
+    X86_REG_RDI, X86_REG_R8, X86_REG_R9, X86_REG_R10,
+    X86_REG_R11, X86_REG_EFLAGS,
 };
 
 static bool isPartOfGroup(const cs_insn *instruction, const x86_insn_group group)
@@ -47,7 +40,6 @@ static std::vector<x86_reg> getReadRegisters(cs_insn *decoded)
     return readRegisters;
 }
 
-// TODO: conditional writes (cmov, cmpxchg)
 static std::vector<x86_reg> getWrittenRegisters(cs_insn *decoded)
 {
     std::vector<x86_reg> writtenRegisters;
@@ -166,17 +158,17 @@ std::vector<int> DeadRegisterInstructionAnalysis::registerBitIndices(x86_reg reg
     return {};
 }
 
-std::set<IRDB_SDK::RegisterID> DeadRegisterInstructionAnalysis::getDeadRegisters() const
+std::set<x86_reg> DeadRegisterInstructionAnalysis::getDeadRegisters() const
 {
-    std::set<IRDB_SDK::RegisterID> result;
-    for (const auto &[capstoneReg, regId] : capstoneRegToRegisterID) {
+    std::set<x86_reg> result;
+    for (const auto capstoneReg : callerSaveRegisters) {
         // all subregisters must be dead for the whole register to count as dead
         bool isDead = true;
         for (int bit : registerBitIndices(capstoneReg)) {
             isDead &= before[bit];
         }
         if (isDead) {
-            result.insert(regId);
+            result.insert(capstoneReg);
         }
     }
     return result;
@@ -242,12 +234,12 @@ int UndefinedRegisterInstructionAnalysis::registerBitIndex(x86_reg reg)
     return INVALID_BIT;
 }
 
-std::set<IRDB_SDK::RegisterID> UndefinedRegisterInstructionAnalysis::getDeadRegisters() const
+std::set<x86_reg> UndefinedRegisterInstructionAnalysis::getDeadRegisters() const
 {
-    std::set<IRDB_SDK::RegisterID> result;
-    for (const auto &[capstoneReg, regId] : capstoneRegToRegisterID) {
+    std::set<x86_reg> result;
+    for (const auto capstoneReg : callerSaveRegisters) {
         if (undefinedBefore[registerBitIndex(capstoneReg)]) {
-            result.insert(regId);
+            result.insert(capstoneReg);
         }
     }
     return result;
