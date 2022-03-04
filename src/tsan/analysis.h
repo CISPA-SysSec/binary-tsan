@@ -24,8 +24,7 @@ struct FunctionInfo {
     std::vector<IRDB_SDK::Instruction_t*> exitPoints;
     // all instructions with memory accesses that should be instrumented
     std::set<IRDB_SDK::Instruction_t*> instructionsToInstrument;
-    // non zero only if the size is not present in the Function_t class and could be inferred
-    int inferredStackFrameSize = 0;
+    bool isLeafFunction;
     // instruction like guard variable reads that count as atomic by thread sanitizer standards
     std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> inferredAtomicInstructions;
     bool addEntryExitInstrumentation;
@@ -46,7 +45,6 @@ private:
     std::set<IRDB_SDK::Instruction_t*> detectStackCanaryInstructions(IRDB_SDK::Function_t *function) const;
     bool doesStackLeaveFunction(IRDB_SDK::Function_t *function) const;
     std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> inferAtomicInstructions(IRDB_SDK::Function_t *function, const std::set<IRDB_SDK::Instruction_t*> &spinLockInstructions) const;
-    int inferredStackFrameSize(const IRDB_SDK::Function_t *function) const;
     bool isDataConstant(IRDB_SDK::FileIR_t *ir, IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand);
     std::set<IRDB_SDK::Instruction_t *> findSpinLocks(IRDB_SDK::ControlFlowGraph_t *cfg) const;
     std::set<IRDB_SDK::Function_t*> findNoReturnFunctions() const;

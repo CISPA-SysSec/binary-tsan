@@ -15,6 +15,16 @@ Analysis::Analysis(FileIR_t *ir) :
     noReturnFunctions = findNoReturnFunctions();
 }
 
+static bool isLeafFunction(const Function_t *function)
+{
+    const auto instructions = function->getInstructions();
+    return std::none_of(instructions.begin(), instructions.end(), [](const Instruction_t *i) {
+        const auto decoded = DecodedInstruction_t::factory(i);
+        // TODO: do tail calls count here?
+        return decoded->isCall();
+    });
+}
+
 FunctionInfo Analysis::analyseFunction(Function_t *function)
 {
     totalAnalysedFunctions++;
@@ -24,7 +34,7 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
     }
 
     FunctionInfo result;
-    result.inferredStackFrameSize = inferredStackFrameSize(function);
+    result.isLeafFunction = isLeafFunction(function);
 
     std::set<Instruction_t*> notInstrumented = detectStackCanaryInstructions(function);
     stackCanaryInstructions += notInstrumented.size();
@@ -417,13 +427,13 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
             continue;
         }
         if (!hasPrinted) {
-             std::cout <<"Inferred atomics in function "<<function->getName()<<": "<<pos.locationId<<", "<<pos.offset<<std::endl;
+//             std::cout <<"Inferred atomics in function "<<function->getName()<<": "<<pos.locationId<<", "<<pos.offset<<std::endl;
              hasPrinted = true;
         }
-        std::cout <<"Same memory location set:"<<std::endl;
+//        std::cout <<"Same memory location set:"<<std::endl;
         for (auto instruction : sameLocInstructions) {
             if (spinLockInstructions.find(instruction) != spinLockInstructions.end()) {
-                std::cout <<instruction->getDisassembly()<<" (spin lock read)"<<std::endl;
+//                std::cout <<instruction->getDisassembly()<<" (spin lock read)"<<std::endl;
                 continue;
             }
             if (!isAtomicOrXchg(instruction)) {
@@ -449,9 +459,9 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
             } else if (spinLockCount > 0) {
                 result[instruction] = __tsan_memory_order_acquire;
             }
-            std::cout <<disassembly(instruction)<<std::endl;
+//            std::cout <<disassembly(instruction)<<std::endl;
         }
-        std::cout <<std::endl;
+//        std::cout <<std::endl;
     }
     return result;
 }
@@ -514,53 +524,6 @@ std::set<Instruction_t*> Analysis::detectStackCanaryInstructions(Function_t *fun
         }
     }
     return result;
-}
-
-static bool isLeafFunction(const Function_t *function)
-{
-    const auto instructions = function->getInstructions();
-    return std::none_of(instructions.begin(), instructions.end(), [](const Instruction_t *i) {
-        const auto decoded = DecodedInstruction_t::factory(i);
-        return decoded->isCall();
-    });
-}
-
-int Analysis::inferredStackFrameSize(const IRDB_SDK::Function_t *function) const
-{
-    // TODO: if the function does not use the stack at all, return 0 (to avoid moving the stack for the tsan function call)
-    if (!isLeafFunction(function)) {
-        return 0;
-    }
-    int rwSize = 0;
-    for (Instruction_t *instruction : function->getInstructions()) {
-        const auto decoded = DecodedInstruction_t::factory(instruction);
-        if (decoded->getMnemonic() != "mov") {
-            continue;
-        }
-        if (!decoded->hasOperand(0) || !decoded->hasOperand(1)) {
-            continue;
-        }
-        const auto op0 = decoded->getOperand(0);
-        const auto op1 = decoded->getOperand(1);
-        const auto acc = op0->isMemory() ? op0 : op1;
-        if (!acc->isMemory()) {
-            continue;
-        }
-        // TODO: rsp based writes
-        const std::string opstr = acc->getString();
-        const bool isStackPointer = contains(opstr, "rbp") || contains(opstr, "ebp");
-        if (!isStackPointer) {
-            continue;
-        }
-        intptr_t offset = static_cast<intptr_t>(acc->getMemoryDisplacement());
-        rwSize = std::max(rwSize, static_cast<int>(-offset) + static_cast<int>(acc->getArgumentSizeInBytes()));
-    }
-    // sanity check
-    if (rwSize > 2000) {
-        rwSize = 0;
-    }
-    // add a large offset to be sure
-    return rwSize + 256;
 }
 
 bool Analysis::doesStackLeaveFunction(IRDB_SDK::Function_t *function) const

@@ -437,7 +437,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
 std::optional<OperationInstrumentation> TSanTransform::getRepInstrumentation(Instruction_t *instruction, const std::unique_ptr<DecodedInstruction_t> &decoded) const
 {
     if (decoded->hasRelevantRepPrefix() || decoded->hasRelevantRepnePrefix()) {
-        std::cout <<"Repeated: "<<instruction->getDisassembly()<<std::endl;
+//        std::cout <<"Repeated: "<<instruction->getDisassembly()<<std::endl;
 
         const std::string repPrefix = decoded->hasRelevantRepPrefix() ? "rep " : "repne ";
 
@@ -639,9 +639,11 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     instruction = nullptr;
 
     // TODO: add this only once per function and not at every access
-    if (info.inferredStackFrameSize > 0) {
+    // honor redzone
+    const int leafFunctionOffset = info.isLeafFunction ? 256 : 0;
+    if (info.isLeafFunction) {
         // use lea instead of add/sub to preserve flags
-        inserter.insertAssembly("lea rsp, [rsp - " + toHex(info.inferredStackFrameSize) + "]");
+        inserter.insertAssembly("lea rsp, [rsp - " + toHex(leafFunctionOffset) + "]");
     }
     if (instrumentation.preserveFlags == PRESERVE_FLAGS && eflagsAlive) {
         // if this is changed, change the rsp offset in the lea rdi instruction as well
@@ -677,7 +679,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
                 if (contains(operand->getString(), "rsp")) {
                     // TODO: is this the correct size for the pushf?
                     const int flagSize = (instrumentation.preserveFlags == PRESERVE_FLAGS && eflagsAlive) ? 4 : 0;
-                    const int offset = info.inferredStackFrameSize + registersToSave.size() * ir->getArchitectureBitWidth() / 8 + flagSize;
+                    const int offset = leafFunctionOffset + registersToSave.size() * ir->getArchitectureBitWidth() / 8 + flagSize;
                     inserter.insertAssembly("lea rdi, [" + operand->getString() + " + " + toHex(offset) + "]");
                 } else {
                     inserter.insertAssembly("lea rdi, [" + operand->getString() + "]");
@@ -752,9 +754,9 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     if (instrumentation.preserveFlags == PRESERVE_FLAGS && eflagsAlive) {
         inserter.insertAssembly("popf");
     }
-    if (info.inferredStackFrameSize > 0) {
+    if (info.isLeafFunction) {
         // use lea instead of add/sub to preserve flags
-        inserter.insertAssembly("lea rsp, [rsp + " + toHex(info.inferredStackFrameSize) + "]");
+        inserter.insertAssembly("lea rsp, [rsp + " + toHex(leafFunctionOffset) + "]");
     }
 
     if (instrumentation.removeOriginalInstruction == REMOVE_ORIGINAL_INSTRUCTION && !dryRun) {
