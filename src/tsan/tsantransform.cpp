@@ -311,8 +311,7 @@ static RegisterID getScratchRegister(const std::string &operand, const std::vect
 std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> &operand,
                                                                                 const __tsan_memory_order memoryOrder) const
 {
-    // https://wiki.osdev.org/X86-64_Instruction_Encoding
-    // possible: ADC, ADD, AND, BTC, BTR, BTS, CMPXCHG, CMPXCHG8B, CMPXCHG16B, DEC, INC, NEG, NOT, OR, SBB, SUB, XADD, XCHG and XOR.
+    // possible atomic instructions: ADC, ADD, AND, BTC, BTR, BTS, CMPXCHG, CMPXCHG8B, CMPXCHG16B, DEC, INC, NEG, NOT, OR, SBB, SUB, XADD, XCHG and XOR.
     const uint bytes = operand->getArgumentSizeInBytes();
 
     const auto decoded = DecodedInstruction_t::factory(instruction);
@@ -325,11 +324,23 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     const std::string raxReg = toBytes(RegisterID::rn_RAX, bytes);
     const std::string memOrder = toHex(memoryOrder);
 
-    // TODO: maybe just modify the tsan functions to not perform the operation, easier that way?
     // TODO: if op1 contains the rsp, then it has to be offset
     const auto op0 = decoded->getOperand(0);
     if (!decoded->hasOperand(1)) {
-        // TODO: handle inc, dec
+        if (mnemonic == "inc" || mnemonic == "dec") {
+            Instruction_t *tsanFunction = mnemonic == "inc" ? tsanAtomicFetchAdd[bytes] : tsanAtomicFetchSub[bytes];
+            return OperationInstrumentation({
+                    "mov rsi, 1",
+                    "mov rdx, " + memOrder,
+                    "pushf",
+                    "call 0",
+                    "popf",
+                    // create correct flags otherwise created by the original instruction
+                    // it is important to use the subregister of rax with the correct size for the overflow flag
+                    mnemonic + " " + raxReg
+                },
+                {tsanFunction}, REMOVE_ORIGINAL_INSTRUCTION, {}, NO_PRESERVE_FLAGS);
+        }
         std::cout <<"WARNING: can not handle atomic instruction: "<<instruction->getDisassembly()<<std::endl;
         return {};
     }
@@ -351,6 +362,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
                 "call 0",
                 "pop rdi",
                 // create correct flags otherwise created by the xadd instruction
+                // TODO: preserve other flags
                 // TODO: only do this when the flags are alive after the instruction
                 "add " + rdiReg + ", " + raxReg,
                 "mov " + op1->getString() + ", " + raxReg
@@ -697,6 +709,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
             }
         } else {
 
+            // TODO: move the jump logic into the instruction inserter
             std::string strippedAssembly = assembly;
 
             // % precedes a label name for a jump target, for example jge %L1
