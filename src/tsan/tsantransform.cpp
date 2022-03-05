@@ -84,6 +84,8 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
             instrumentFunctionEntryExit = false;
         } else if (option == "--no-add-tsan-calls") {
             addTsanCalls = false;
+        } else if (option == "--save-xmm-registers") {
+            saveXmmRegisters = true;
         } else {
             std::cout <<"Unrecognized option: "<<option<<std::endl;
             return false;
@@ -227,7 +229,7 @@ void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
 {
     // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)
     FileIR_t *ir = getFileIR();
-    const std::set<std::string> registersToSave = getGeneralPurposeSaveRegisters(insertBefore);
+    const std::set<std::string> registersToSave = getSaveRegisters(insertBefore, false);
     InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(), dryRun);
 
     // for this to work without any additional rsp wrangling, it must be inserted at the very start of the function
@@ -248,7 +250,7 @@ void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
 void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
 {
     FileIR_t *ir = getFileIR();
-    const std::set<std::string> registersToSave = getGeneralPurposeSaveRegisters(insertBefore);
+    const std::set<std::string> registersToSave = getSaveRegisters(insertBefore, false);
     InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(), dryRun);
 
     const auto decoded = DecodedInstruction_t::factory(insertBefore);
@@ -273,9 +275,14 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
     }
 }
 
-std::set<std::string> TSanTransform::getGeneralPurposeSaveRegisters(Instruction_t *instruction)
+std::set<std::string> TSanTransform::getSaveRegisters(Instruction_t *instruction, bool addXmmRegisters)
 {
     std::set<x86_reg> registersToSave = {X86_REG_RAX, X86_REG_RCX, X86_REG_RDX, X86_REG_RSI, X86_REG_RDI, X86_REG_R8, X86_REG_R9, X86_REG_R10, X86_REG_R11};
+    if (addXmmRegisters) {
+        for (int i = 0;i<16;i++) {
+            registersToSave.insert(static_cast<x86_reg>(X86_REG_XMM0 + i));
+        }
+    }
     const auto dead = deadRegisters.find(instruction);
     if (dead != deadRegisters.end()) {
         for (x86_reg r : dead->second) {
@@ -637,7 +644,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     FileIR_t *ir = getFileIR();
 
-    std::set<std::string> registersToSave = getGeneralPurposeSaveRegisters(instruction);
+    std::set<std::string> registersToSave = getSaveRegisters(instruction, saveXmmRegisters);
 
     const auto instr = getInstrumentation(instruction, operand, info);
     // could not instrument - command line option or some other problem
@@ -647,6 +654,16 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     OperationInstrumentation instrumentation = *instr;
     for (const std::string &noSaveReg : instrumentation.noSaveRegisters) {
         registersToSave.erase(noSaveReg);
+    }
+
+    std::vector<std::string> xmmRegistersToSave;
+    std::vector<std::string> generalPurposeRegistersToSave;
+    for (const auto &reg : registersToSave) {
+        if (startsWith(reg, "xmm")) {
+            xmmRegistersToSave.push_back(reg);
+        } else {
+            generalPurposeRegistersToSave.push_back(reg);
+        }
     }
 
     InstructionInserter inserter(ir, instruction, functionAnalysis.getInstructionCounter(), dryRun);
@@ -664,16 +681,19 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     // TODO: add this only once per function and not at every access
     // honor redzone
-    const int leafFunctionOffset = info.isLeafFunction ? 256 : 0;
-    if (info.isLeafFunction) {
+    const int stackOffset = (info.isLeafFunction ? 256 : 0) + xmmRegistersToSave.size() * 16;
+    if (stackOffset > 0) {
         // use lea instead of add/sub to preserve flags
-        inserter.insertAssembly("lea rsp, [rsp - " + toHex(leafFunctionOffset) + "]");
+        inserter.insertAssembly("lea rsp, [rsp - " + toHex(stackOffset) + "]");
+    }
+    for (std::size_t i = 0;i<xmmRegistersToSave.size();i++) {
+        inserter.insertAssembly("movdqu [rsp + " + toHex(i * 16) + "], " + xmmRegistersToSave[i]);
     }
     if (instrumentation.preserveFlags == PRESERVE_FLAGS && eflagsAlive) {
         // if this is changed, change the rsp offset in the lea rdi instruction as well
         inserter.insertAssembly("pushf");
     }
-    for (std::string reg : registersToSave) {
+    for (const std::string &reg : generalPurposeRegistersToSave) {
         inserter.insertAssembly("push " + reg);
     }
 
@@ -703,7 +723,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
                 if (contains(operand->getString(), "rsp")) {
                     // TODO: is this the correct size for the pushf?
                     const int flagSize = (instrumentation.preserveFlags == PRESERVE_FLAGS && eflagsAlive) ? 4 : 0;
-                    const int offset = leafFunctionOffset + registersToSave.size() * ir->getArchitectureBitWidth() / 8 + flagSize;
+                    const int offset = stackOffset + generalPurposeRegistersToSave.size() * ir->getArchitectureBitWidth() / 8 + flagSize;
                     inserter.insertAssembly("lea rdi, [" + operand->getString() + " + " + toHex(offset) + "]");
                 } else {
                     inserter.insertAssembly("lea rdi, [" + operand->getString() + "]");
@@ -773,15 +793,18 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         instruction->setTarget(it->second);
     }
 
-    for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
+    for (auto it = generalPurposeRegistersToSave.rbegin();it != generalPurposeRegistersToSave.rend();it++) {
         inserter.insertAssembly("pop " + *it);
     }
     if (instrumentation.preserveFlags == PRESERVE_FLAGS && eflagsAlive) {
         inserter.insertAssembly("popf");
     }
-    if (info.isLeafFunction) {
+    for (std::size_t i = 0;i<xmmRegistersToSave.size();i++) {
+        inserter.insertAssembly("movdqu " + xmmRegistersToSave[i] + ", [rsp + " + toHex(i * 16) + "]");
+    }
+    if (stackOffset > 0) {
         // use lea instead of add/sub to preserve flags
-        inserter.insertAssembly("lea rsp, [rsp + " + toHex(leafFunctionOffset) + "]");
+        inserter.insertAssembly("lea rsp, [rsp + " + toHex(stackOffset) + "]");
     }
 
     if (instrumentation.removeOriginalInstruction == REMOVE_ORIGINAL_INSTRUCTION && !dryRun) {
