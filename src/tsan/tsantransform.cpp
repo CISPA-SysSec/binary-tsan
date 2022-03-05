@@ -552,7 +552,9 @@ std::optional<OperationInstrumentation> TSanTransform::getConditionalInstrumenta
                 // this is the easiest way to invert the condition without handling all the different cases
                 conditionalJump + " %L1",
                 "jmp %L2",
-                "L1: call 0",
+                // needed as a jump target if tsan calls are not added (therefore, the label can not be at the call instruction)
+                "L1: xor rax, rax",
+                "call 0",
                 // just needed as a jump target for the label
                 "L2: xor rax, rax"
             },
