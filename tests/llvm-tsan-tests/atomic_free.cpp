@@ -3,10 +3,8 @@
 // Also check that atomics instrumentation can be configured by either driver or
 // legacy flags:
 
-// RUN: %clangxx_tsan -O1 %s -o %t -fno-sanitize-thread-atomics && not %deflake %run %t 2>&1 \
-// RUN:   | FileCheck --allow-empty --check-prefix=CHECK-NO-ATOMICS %s
-// RUN: %clangxx_tsan -O1 %s -o %t -mllvm -tsan-instrument-atomics=0 && not %deflake %run %t 2>&1 \
-// RUN:   | FileCheck --allow-empty --check-prefix=CHECK-NO-ATOMICS %s <%t
+// RUN: %clangxx_tsan -O1 %s -o %t -fno-sanitize-thread-atomics && not %deflake %run %t 2>&1 | FileCheck --allow-empty --check-prefix=CHECK-NO-ATOMICS %s
+// RUN: %clangxx_tsan -O1 %s -o %t -mllvm -tsan-instrument-atomics=0 && not %deflake %run %t 2>&1 | FileCheck --allow-empty --check-prefix=CHECK-NO-ATOMICS %s <%t
 
 #include "test.h"
 

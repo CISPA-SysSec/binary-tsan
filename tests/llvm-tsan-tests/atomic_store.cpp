@@ -45,5 +45,5 @@ int main() {
 // CHECK:     #0 main
 // CHECK:   Previous write
 // CHECK:     #0 Thread1
-// CHECK:   Location is global 'Data'
+// CHECK:   Location is global
 // CHECK: DONE

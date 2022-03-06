@@ -13,25 +13,25 @@ void *Thread1(void *x) {
   barrier_wait(&barrier);
   // CHECK: ThreadSanitizer: data race
   // CHECK: Write of size 4
-  // CHECK: #0 Thread1{{.*}}ignorelist2.cpp:[[@LINE+1]]
+  // CHECK: #0 Thread1
   Global++;
   return NULL;
 }
 
 __attribute__((noinline)) void TouchGlobal() {
   // CHECK: Previous write of size 4
-  // CHECK: #0 TouchGlobal{{.*}}ignorelist2.cpp:[[@LINE+1]]
+  // CHECK: #0 TouchGlobal
   Global--;
 }
 
 __attribute__((noinline)) void CallTouchGlobal() {
-  // CHECK: #1 CallTouchGlobal{{.*}}ignorelist2.cpp:[[@LINE+1]]
+  // CHECK: #1 CallTouchGlobal
   TouchGlobal();
 }
 
 void *Ignorelisted_Thread2(void *x) {
   Global--;
-  // CHECK: #2 Ignorelisted_Thread2{{.*}}ignorelist2.cpp:[[@LINE+1]]
+  // CHECK: #2 Ignorelisted_Thread2
   CallTouchGlobal();
   barrier_wait(&barrier);
   return NULL;

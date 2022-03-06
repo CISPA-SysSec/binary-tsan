@@ -9,13 +9,19 @@ if len(sys.argv) != 3:
     print("Usage: python3 " + sys.argv[0] + " thread-sanitizer-script output-folder")
     quit()
 
+# TODO: do not hardcode
+clang = "/home/andi/git/llvm-project/build/bin/clang"
+
 numThread = 3
 #tsandir = os.path.realpath("../tests/bugs")
+#tsandir = os.path.realpath("../tests/repstring")
 #tsandir = os.path.realpath("../tests/atomics")
 tsandir = os.path.realpath("../tests/llvm-tsan-tests")
 outputdir = os.path.realpath(sys.argv[2])
 runScript = os.path.realpath(sys.argv[1])
 
+scriptPath = os.path.dirname(os.path.abspath(__file__))
+toolPath = os.path.abspath(os.path.join(scriptPath, "../tools"))
 os.chdir(outputdir)
 
 exclude = []
@@ -27,6 +33,20 @@ total = 0
 failed = 0
 setupFailed = 0
 compilerTSanFailed = 0
+
+def performBasicReplacements(line):
+    p1 = line.replace("// RUN: ", "").replace("\n", "")
+    p1 = p1.replace("%env_tsan_opts", "env TSAN_OPTIONS")
+    p1 = p1.replace("FileCheck", toolPath + "/FileCheck")
+    if p1.startswith("not "):
+        p1 = " " + p1
+    p1 = p1.replace(" not ", " " + toolPath + "/not ")
+    p1 = p1.replace("%deflake", scriptPath + "/deflake.bash 10")
+    p1 = p1.replace("%link_libcxx_tsan", "") # not supported for now
+    p1 = p1.replace("%darwin_min_target_with_tls_support", "")
+    p1 = p1.replace("%os", "Linux")
+    p1 = p1.replace("%run", "")
+    return p1
 
 def checkFile(filename):
     global total
@@ -42,91 +62,77 @@ def checkFile(filename):
             runLines.append(line)
     
     for line in runLines:
-        p1 = line.split("&&")[0]
-        p1 = p1.replace("// RUN: ", "").replace("\n", "")
-        if "lang" in p1 or "gcc" in p1:
-            p1 = p1.replace("%s", f)
-            c1 = p1.replace("%t", outfile)
-            c1 = c1.replace("%clang_tsan", "clang -lpthread -ltsan")
-            c1 = c1.replace("%gcc_tsan", "gcc -lpthread -ltsan")
-            c1 = c1.replace("%clangxx_tsan", "clang -lpthread -ltsan -lstdc++")
-            c2 = p1.replace("%t", outfile + "-thread")
-            c2 = c2.replace("%clang_tsan", "clang -fsanitize=thread")
-            c2 = c2.replace("%gcc_tsan", "gcc -fsanitize=thread")
-            c2 = c2.replace("%clangxx_tsan", "clang -fsanitize=thread -lstdc++")
-            
-            if not "%" in c1 and not "%" in c2:
-                res = subprocess.run(c1.split(" "), capture_output=True)
-                if res.returncode != 0:
-                    setupFailed = setupFailed + 1
-                    print("Test: " + filename)
-                    print("\tFailed to compile " + filename)
-                    #os.system(c1)
-                    return
-                res = subprocess.run(c2.split(" "), capture_output=True)
-                if res.returncode != 0:
-                    setupFailed = setupFailed + 1
-                    print("Test: " + filename)
-                    print("\tFailed to compile " + filename)
-                    return
-                if not os.path.isfile(outfile): # might be compiled to a shared library
-                    setupFailed = setupFailed + 1
-                    print("Test: " + filename)
-                    print("\tThe compilation result is not an executable")
-                    return
-                
-                try: 
-                    res1 = subprocess.run([outfile + "-thread"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
-                except:
-                    print("Test: " + filename)
-                    print("\tCompiler thread sanitized binary timed out!")
-                    compilerTSanFailed = compilerTSanFailed + 1
-                    return
-                
-                # TODO: implicit-check-not for filecheck
-                res = filecheck.checkLines(f, str(res1.stdout).split("\\n"))
-                if res[0] != 0:
-                    print("Test: " + filename + " (compiler thread sanitized)")
-                    print("\t" + res[1])
-                    compilerTSanFailed = compilerTSanFailed + 1
-                    return
-                
-                instrumentedBinary = outfile + "-mod"
-                res = subprocess.run([runScript, outfile, instrumentedBinary], capture_output=True)
-                if res.returncode != 0:
-                    print("Test: " + filename)
-                    print("\tInstrumenting the binary failed:")
-                    print(str(res.stdout).replace("\\n", "\n"))
-                    print(str(res.stderr).replace("\\n", "\n"))
-                    invalid.append(filename)
-                    failed = failed + 1
-                    total = total + 1
-                    return
-                
-                total = total + 1
-                try:
-                    res2 = subprocess.run([outfile + "-mod"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
-                except:
-                    print("Test: " + filename)
-                    print("\tInstrumented binary timed out!")
-                    invalid.append(filename)
-                    failed = failed + 1
-                    return
-                
-                res = filecheck.checkLines(f, str(res2.stdout).split("\\n"))
-                if res[0] != 0:
-                    print("Test: " + filename)
-                    print("\t" + res[1])
-                    invalid.append(filename)
-                    failed = failed + 1
-                    return
-                
-                if res1.returncode != res2.returncode:
-                    invalid.append(filename)
-                    failed = failed + 1
-                    print("Test: " + filename)
-                    print("\tFailed (got exitcode " + str(res2.returncode) + ", expected " + str(res1.returncode) + ")!")
-                    return
+        p1 = performBasicReplacements(line)
+        c2 = p1.replace("%t", outfile + "-thread")
+        c2 = c2.replace("%clang_tsan", clang + " -fsanitize=thread")
+        c2 = c2.replace("%gcc_tsan", "gcc -fsanitize=thread -lpthread")
+        c2 = c2.replace("%g++_tsan", "g++ -fsanitize=thread -lpthread")
+        c2 = c2.replace("%clangxx_tsan", clang + " -fsanitize=thread -lstdc++")
+        c2 = c2.replace("%s", f)
+        
+        try: 
+            res = subprocess.run(c2, timeout=60, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        except:
+            print("Test: " + filename)
+            print("\tCompiler tsan command timed out!")
+            compilerTSanFailed = compilerTSanFailed + 1
+            return
+        if res.returncode != 0:
+            print("Test: " + filename)
+            print("\tFailed to run ordinary tests")
+            compilerTSanFailed = compilerTSanFailed + 1
+            return
+        
+    instrumentedBinary = outfile + "-mod"
+    for line in runLines:
+        p1 = performBasicReplacements(line)
+        c1 = p1.replace("%clang_tsan", clang + " -lpthread -ltsan")
+        c1 = c1.replace("%gcc_tsan", "gcc -lpthread")
+        c1 = c1.replace("%g++_tsan", "g++ -lpthread")
+        c1 = c1.replace("%clangxx_tsan", clang + " -lpthread -ltsan -lstdc++")
+        c1 = c1.replace("%s", f)
+        if not "%clang" in p1 and not "%gcc" in p1 and not "%g++" in p1:
+            c1 = c1.replace("%t", instrumentedBinary)
+            os.system(c1)
+            continue
+        
+        compileCommand = c1.split("&&")[0]
+        compileCommand = compileCommand.replace("%t", outfile)
+        res = subprocess.run(compileCommand.split(" "), capture_output=True)
+        if res.returncode != 0:
+            setupFailed = setupFailed + 1
+            print("Test: " + filename)
+            print("\tFailed to compile " + filename)
+            return
+        
+        total = total + 1
+        
+        res = subprocess.run([runScript, outfile, instrumentedBinary], capture_output=True)
+        if res.returncode != 0:
+            print("Test: " + filename)
+            print("\tInstrumenting the binary failed:")
+            print(str(res.stdout).replace("\\n", "\n"))
+            print(str(res.stderr).replace("\\n", "\n"))
+            invalid.append(filename)
+            failed = failed + 1
+            return
+        
+        runCommand = c1.replace(c1.split("&&")[0] + "&&", "")
+        runCommand = runCommand.replace("%t", instrumentedBinary)
+        try: 
+            res = subprocess.run(runCommand, timeout=60, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        except:
+            print("Test: " + filename)
+            print("\tCommand timed out!")
+            invalid.append(filename)
+            failed = failed + 1
+            return
+        if res.returncode != 0:
+            print("Test: " + filename)
+            print("\tCommand failed")
+            invalid.append(filename)
+            failed = failed + 1
+            return
 
     print("Tests in: " + filename + " succeeded")
 

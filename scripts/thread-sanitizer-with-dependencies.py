@@ -13,7 +13,7 @@ if not os.path.isdir(binaryFolder):
     exit(1)
 
 
-LIBRARY_WHITELIST = ["libglib-2.0.so", "libxcb.so", "libdbus-1.so", "libQt5Core.so", "libQt5DBus.so", "libQt5Widgets.so", "libQt5XcbQpa.so"]
+LIBRARY_WHITELIST = ["libQt5Core.so", "libgomp.so.1"] #["libglib-2.0.so", "libxcb.so", "libdbus-1.so", "libQt5Core.so", "libQt5DBus.so", "libQt5XcbQpa.so", "libgomp.so.1"]
 
 ADDITIONAL_DEPENDENCIES = [ ["libQt5Core.so", ["libQt5DBus.so.5"]] ]
 
@@ -150,3 +150,5 @@ print("\n\nInstrumenting successfull, please run the target binary like this:")
 print("LD_LIBRARY_PATH=" + instrumentedBinariesFolder + " ./" + outputBinary)
 print("or")
 print("LD_LIBRARY_PATH=" + instrumentedBinariesFolder + " unbuffer ./" + outputBinary + " 2>&1 | " + binaryFolder + "/ps-plugin/translate-stacktrace")
+print("or")
+print("LD_LIBRARY_PATH=" + instrumentedBinariesFolder + " TSAN_OPTIONS=\"suppressions=../suppression.txt\" unbuffer ./" + outputBinary + " 2>&1 | " + binaryFolder + "/ps-plugin/translate-stacktrace")

@@ -9,11 +9,12 @@ if len(sys.argv) != 2:
 os.chdir(sys.argv[1])
 
 # TODO: make these command line arguments
-inFile = "libgomp-orig.so.1.0.0"
-outFile = "instrumented-libraries/libgomp.so.1.0.0"
-runFile = "./critical"
+inFile = "freqmine"
+outFile = "freqmine-mod"
+runFile = ["./freqmine-mod", "kosarak_250k.dat", "220"]
+timeoutIsFailure = True
 
-
+# TODO: clear environment variables
 
 # TODO: print error if it fails
 print("Getting function names")
@@ -42,22 +43,31 @@ while len(functionNames) > 1:
     environmentVariables = dict(os.environ)
     environmentVariables["LD_LIBRARY_PATH"] = "/home/andi/Masterarbeit/binary-tsan/build/instrumented-libraries"
     environmentVariables["TSAN_OPTIONS"] = "exitcode=0"
-    try: 
-        res = subprocess.run([runFile], env=environmentVariables, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
-        hasProblem = res.returncode != 0
-        if "ThreadSanitizer: SEGV" in str(res.stdout):
-            hasProblem = True
-    except:
-        hasProblem = True
+    hasProblem = False
+    for i in range(50):
+        try: 
+            res = subprocess.run(runFile, env=environmentVariables, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=50)
+            hasProblem = res.returncode != 0
+            outStr = str(res.stdout)
+            if "ThreadSanitizer: SEGV" in outStr or "Aborted" in outStr or "FATAL: ThreadSanitizer CHECK failed:" in outStr:
+                hasProblem = True
+                break
+        except:
+            print("Execution timeout")
+            if timeoutIsFailure:
+                hasProblem = True
+                break
     
     if hasProblem:
         print("The problem is in this subset")
         functionNames = p1
+        if len(p1) < 10:
+            print(p1)
     else:
         print("There is no problem in this subset")
         functionNames = p2
 
 print("Problem function: " + functionNames[0])
-    
+print("Generate with: ./thread-sanitizer.sh " + inFile + " " + outFile + " --instrumentOnlyFunctions=" + functionFileName)
 
 # TODO: delete function name file

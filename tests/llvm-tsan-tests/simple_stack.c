@@ -51,35 +51,33 @@ int main() {
 // Also check that functions instrumentation can be configured by either driver
 // or legacy flags:
 
-// RUN: %clangxx_tsan -O1 %s -o %t -fno-sanitize-thread-func-entry-exit && %deflake %run %t 2>&1 \
-// RUN:   | FileCheck --check-prefix=CHECK-FUNC-ENTRY-EXIT-OFF %s
-// RUN: %clangxx_tsan -O1 %s -o %t -mllvm -tsan-instrument-func-entry-exit=0 && %deflake %run %t 2>&1 \
-// RUN:   | FileCheck --check-prefix=CHECK-FUNC-ENTRY-EXIT-OFF %s
+// RUN: %clangxx_tsan -O1 %s -o %t -fno-sanitize-thread-func-entry-exit && %deflake %run %t 2>&1 | FileCheck --check-prefix=CHECK-FUNC-ENTRY-EXIT-OFF %s
+// RUN: %clangxx_tsan -O1 %s -o %t -mllvm -tsan-instrument-func-entry-exit=0 && %deflake %run %t 2>&1 | FileCheck --check-prefix=CHECK-FUNC-ENTRY-EXIT-OFF %s
 
 // CHECK:      WARNING: ThreadSanitizer: data race
 // CHECK-NEXT:   Write of size 4 at {{.*}} by thread T1:
-// CHECK-NEXT:     #0 foo1{{.*}} {{.*}}simple_stack.c:6{{(:10)?}} ({{.*}})
-// CHECK-NEXT:     #1 bar1{{.*}} {{.*}}simple_stack.c:11{{(:3)?}} ({{.*}})
-// CHECK-NEXT:     #2 Thread1{{.*}} {{.*}}simple_stack.c:25{{(:3)?}} ({{.*}})
+// CHECK-NEXT:     #0 foo1{{.*}}
+// CHECK-NEXT:     #1 bar1{{.*}}
+// CHECK-NEXT:     #2 Thread1{{.*}}
 // CHECK:        Previous read of size 4 at {{.*}} by thread T2:
-// CHECK-NEXT:     #0 foo2{{.*}} {{.*}}simple_stack.c:15{{(:20)?}} ({{.*}})
-// CHECK-NEXT:     #1 bar2{{.*}} {{.*}}simple_stack.c:20{{(:3)?}} ({{.*}})
-// CHECK-NEXT:     #2 Thread2{{.*}} {{.*}}simple_stack.c:30{{(:3)?}} ({{.*}})
+// CHECK-NEXT:     #0 foo2{{.*}}
+// CHECK-NEXT:     #1 bar2{{.*}}
+// CHECK-NEXT:     #2 Thread2{{.*}}
 // CHECK:        Thread T1 (tid={{.*}}, running) created by main thread at:
 // CHECK-NEXT:     #0 pthread_create {{.*}} ({{.*}})
-// CHECK-NEXT:     #1 StartThread{{.*}} {{.*}}simple_stack.c:36{{(:3)?}} ({{.*}})
-// CHECK-NEXT:     #2 main{{.*}} {{.*}}simple_stack.c:42{{(:3)?}} ({{.*}})
+// CHECK-NEXT:     #1 StartThread{{.*}}
+// CHECK-NEXT:     #2 main{{.*}} {{.*}}
 // CHECK:        Thread T2 ({{.*}}) created by main thread at:
 // CHECK-NEXT:     #0 pthread_create {{.*}} ({{.*}})
-// CHECK-NEXT:     #1 StartThread{{.*}} {{.*}}simple_stack.c:36{{(:3)?}} ({{.*}})
-// CHECK-NEXT:     #2 main{{.*}} {{.*}}simple_stack.c:43{{(:3)?}} ({{.*}})
+// CHECK-NEXT:     #1 StartThread{{.*}}
+// CHECK-NEXT:     #2 main{{.*}}
 
 // CHECK-FUNC-ENTRY-EXIT-OFF:      WARNING: ThreadSanitizer: data race
 // CHECK-FUNC-ENTRY-EXIT-OFF-NEXT:   Write of size 4 at {{.*}} by thread T1:
-// CHECK-FUNC-ENTRY-EXIT-OFF-NEXT:     #0 foo1{{.*}} {{.*}}simple_stack.c:6{{(:10)?}} ({{.*}})
+// CHECK-FUNC-ENTRY-EXIT-OFF-NEXT:     #0 foo1{{.*}}
 // CHECK-FUNC-ENTRY-EXIT-OFF:        Previous read of size 4 at {{.*}} by thread T2:
-// CHECK-FUNC-ENTRY-EXIT-OFF-NEXT:     #0 foo2{{.*}} {{.*}}simple_stack.c:15{{(:20)?}} ({{.*}})
+// CHECK-FUNC-ENTRY-EXIT-OFF-NEXT:     #0 foo2{{.*}}
 // CHECK-FUNC-ENTRY-EXIT-OFF:        Thread T1 (tid={{.*}}, running) created by main thread at:
 // CHECK-FUNC-ENTRY-EXIT-OFF-NEXT:     #0 pthread_create {{.*}} ({{.*}})
-// CHECK-FUNC-ENTRY-EXIT-OFF:        Thread T2 ({{.*}}) created by main thread at:
+// CHECK-FUNC-ENTRY-EXIT-OFF:        Thread T2
 // CHECK-FUNC-ENTRY-EXIT-OFF-NEXT:     #0 pthread_create {{.*}} ({{.*}})

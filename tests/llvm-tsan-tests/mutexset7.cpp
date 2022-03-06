@@ -1,5 +1,4 @@
-// RUN: %clangxx_tsan %darwin_min_target_with_tls_support -O1 %s -o %t && \
-// RUN:   %deflake %run %t | FileCheck %s
+// RUN: %clangxx_tsan %darwin_min_target_with_tls_support -O1 %s -o %t && %deflake %run %t | FileCheck %s
 #include "test.h"
 
 int Global;
