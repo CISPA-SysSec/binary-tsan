@@ -293,7 +293,8 @@ static void checkNoReturnRecursive(Function_t *function, std::set<Function_t*> &
     // TODO: functionName == "_Unwind_Resumepart1@plt"
     if (functionName == "exitpart1@plt" || functionName == "abortpart1@plt" ||
             functionName == "pthread_exitpart1@plt" || functionName == "__assert_failpart1@plt" ||
-            functionName == "__cxa_throwpart1@plt") {
+            functionName == "__cxa_throwpart1@plt" || functionName == "__cxa_rethrowpart1@plt" ||
+            functionName == "__stack_chk_failpart1@plt" || contains(functionName, "__throw_")) {
         noReturnFunctions.insert(function);
         return;
     }

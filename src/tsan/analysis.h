@@ -39,6 +39,7 @@ public:
     void printStatistics() const;
     std::function<void()> getInstructionCounter() { return [this](){ instrumentationInstructions++; }; }
     void countAddInstrumentationInstruction() { instrumentationInstructions++; }
+    const std::set<IRDB_SDK::Function_t*>& getNoReturnFunctions() const { return noReturnFunctions; }
 
 private:
     std::set<IRDB_SDK::Instruction_t*> detectStaticVariableGuards(IRDB_SDK::Function_t *function) const;

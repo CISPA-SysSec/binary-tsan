@@ -3,6 +3,8 @@
 #include <irdb-cfg>
 #include <numeric>
 
+#include "helper.h"
+
 using namespace IRDB_SDK;
 
 bool FixedPointAnalysis::canHandle(IRDB_SDK::Function_t *function)
@@ -34,9 +36,20 @@ struct InstructionInfo {
     InstructionAnalysis data;
 };
 
+static bool isNoReturnCall(Instruction_t *instruction,  const std::set<IRDB_SDK::Function_t*> &noReturnFunctions)
+{
+    const auto decoded = DecodedInstruction_t::factory(instruction);
+    if (!decoded->isCall() || instruction->getTarget() == nullptr) {
+        return false;
+    }
+    // currently not included in the no return analysis
+    const bool isUnwindResume = targetFunctionName(instruction) == "_Unwind_Resumepart1@plt";
+    return noReturnFunctions.find(instruction->getTarget()->getFunction()) != noReturnFunctions.end() || isUnwindResume;
+}
+
 // TODO: deal with exit node -> entry node loop and nop blocks
 template<typename InstructionAnalysis, typename AnalysisCommon>
-std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runAnalysis(Function_t *function)
+std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runAnalysis(Function_t *function, const std::set<IRDB_SDK::Function_t*> &noReturnFunctions)
 {
     using InstructionIndex = int;
 
@@ -61,8 +74,10 @@ std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runA
             auto &info = instructionData[instructionIndexMap[instructions[i]]];
             if (InstructionAnalysis::isForwardAnalysis()) {
                 if (i == instructions.size()-1) {
-                    for (const auto succ : block->getSuccessors()) {
-                        info.nextInstructions.push_back(instructionIndexMap[succ->getInstructions()[0]]);
+                    if (!isNoReturnCall(instructions[i], noReturnFunctions)) {
+                        for (const auto succ : block->getSuccessors()) {
+                            info.nextInstructions.push_back(instructionIndexMap[succ->getInstructions()[0]]);
+                        }
                     }
                 } else {
                     info.nextInstructions.push_back(instructionIndexMap[instructions[i+1]]);
@@ -70,7 +85,10 @@ std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runA
             } else {
                 if (i == 0) {
                     for (const auto pred : block->getPredecessors()) {
-                        info.nextInstructions.push_back(instructionIndexMap[pred->getInstructions().back()]);
+                        Instruction_t *prevInstruction = pred->getInstructions().back();
+                        if (!isNoReturnCall(prevInstruction, noReturnFunctions)) {
+                            info.nextInstructions.push_back(instructionIndexMap[prevInstruction]);
+                        }
                     }
                 } else {
                     info.nextInstructions.push_back(instructionIndexMap[instructions[i-1]]);
@@ -184,5 +202,5 @@ std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(Function_t *f
 #include "pointeranalysis.h"
 template std::map<Instruction_t *, PointerAnalysis> FixedPointAnalysis::runForward<PointerAnalysis>(Function_t *function, PointerAnalysis atFunctionEntry);
 #include "deadregisteranalysis.h"
-template std::map<Instruction_t*, DeadRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(Function_t *function);
-template std::map<Instruction_t*, UndefinedRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(Function_t *function);
+template std::map<Instruction_t*, DeadRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(Function_t *function, const std::set<IRDB_SDK::Function_t*> &noReturnFunctions);
+template std::map<Instruction_t*, UndefinedRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(Function_t *function, const std::set<IRDB_SDK::Function_t*> &noReturnFunctions);
