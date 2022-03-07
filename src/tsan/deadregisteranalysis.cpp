@@ -17,12 +17,36 @@ static bool isPartOfGroup(const cs_insn *instruction, const x86_insn_group group
     return it != std::end(instruction->detail->groups);
 }
 
-static std::vector<x86_reg> getReadRegisters(cs_insn *decoded)
+static bool isFalseRead(cs_insn *decoded)
+{
+    // instructions like xor eax, eax do not read eax for practical purposes
+    const bool isXorOrSbb = std::string(decoded->mnemonic) == "xor" || std::string(decoded->mnemonic) == "sbb";
+    auto x86 = decoded->detail->x86;
+    const bool sameRegisters = x86.op_count == 2 && x86.operands[0].type == X86_OP_REG && x86.operands[1].type == X86_OP_REG && x86.operands[0].reg == x86.operands[1].reg;
+    if (isXorOrSbb && sameRegisters) {
+        return true;
+    }
+
+    // TODO: less than 64 bit operand size
+    const bool isOr = std::string(decoded->mnemonic) == "or";
+    const bool allOnes = x86.operands[0].type == X86_OP_REG && x86.operands[1].type == X86_OP_IMM && x86.operands[1].imm == -1;
+    if (isOr && allOnes) {
+        return true;
+    }
+    return false;
+}
+
+// TODO: if sse masks are used, the written operand is also read
+static std::vector<x86_reg> getReadRegisters(cs_insn *decoded, bool checkFalseReads)
 {
     std::vector<x86_reg> readRegisters;
     for (int i = 0;i<decoded->detail->regs_read_count;i++) {
         const x86_reg reg = (x86_reg)decoded->detail->regs_read[i];
         readRegisters.push_back(reg);
+    }
+    // instructions like xor rax, rax do not read their explicit operands for practical purposes
+    if (checkFalseReads && isFalseRead(decoded)) {
+        return readRegisters;
     }
     auto x86 = decoded->detail->x86;
     for (int i = 0;i<x86.op_count;i++) {
@@ -59,19 +83,6 @@ static std::vector<x86_reg> getWrittenRegisters(cs_insn *decoded)
     return writtenRegisters;
 }
 
-// TODO: false read: or r8d, 0xffffffff
-static bool isFalseRead(cs_insn *decoded)
-{
-    // instructions like xor eax, eax do not read eax for practical purposes
-    const bool isXor = std::string(decoded->mnemonic) == "xor";
-    auto x86 = decoded->detail->x86;
-    const bool sameRegisters = x86.op_count == 2 && x86.operands[0].type == X86_OP_REG && x86.operands[1].type == X86_OP_REG && x86.operands[0].reg == x86.operands[1].reg;
-    if (isXor && sameRegisters) {
-        return true;
-    }
-    return false;
-}
-
 DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *instruction, const RegisterAnalysisCommon &common)
 {
     const std::string instructionData = instruction->getDataBits();
@@ -84,12 +95,8 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
     for (x86_reg reg : getWrittenRegisters(decoded)) {
         setBits(writtenRegs, reg);
     }
-    for (x86_reg reg : getReadRegisters(decoded)) {
+    for (x86_reg reg : getReadRegisters(decoded, true)) {
         setBits(readRegs, reg);
-    }
-    // handle special cases that do not read the register for practical purposes (for example xor eax, eax)
-    if (isFalseRead(decoded)) {
-        readRegs.reset();
     }
 
     // special cases for the assumed calling convention
@@ -187,11 +194,8 @@ UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instr
     for (x86_reg reg : getWrittenRegisters(decoded)) {
         makeDefined[registerBitIndex(reg)] = true;
     }
-    for (x86_reg reg : getReadRegisters(decoded)) {
+    for (x86_reg reg : getReadRegisters(decoded, true)) {
         readRegs[registerBitIndex(reg)] = true;
-    }
-    if (isFalseRead(decoded)) {
-        readRegs.reset();
     }
 
     if (isPartOfGroup(decoded, X86_GRP_CALL)) {
