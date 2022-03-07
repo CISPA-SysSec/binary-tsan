@@ -44,14 +44,14 @@ public:
 
 private:
     static std::vector<int> registerBitIndices(x86_reg reg);
-    static void setBits(std::bitset<40> &bitset, x86_reg reg);
+    static void setBits(std::bitset<56> &bitset, x86_reg reg);
 
 private:
-    std::bitset<40> before;
-    std::bitset<40> after;
+    std::bitset<56> before;
+    std::bitset<56> after;
 
-    std::bitset<40> writtenRegs;
-    std::bitset<40> readRegs;
+    std::bitset<56> writtenRegs;
+    std::bitset<56> readRegs;
 };
 
 class UndefinedRegisterInstructionAnalysis
@@ -82,14 +82,14 @@ private:
     static int registerBitIndex(x86_reg reg);
 
 private:
-    std::bitset<11> undefinedBefore;
-    std::bitset<11> undefinedAfter;
+    std::bitset<27> undefinedBefore;
+    std::bitset<27> undefinedAfter;
 
-    std::bitset<11> makeUndefined;
-    std::bitset<11> makeDefined;
-    std::bitset<11> readRegs;
+    std::bitset<27> makeUndefined;
+    std::bitset<27> makeDefined;
+    std::bitset<27> readRegs;
 
-    static constexpr int INVALID_BIT = 10;
+    static constexpr int INVALID_BIT = 26;
 };
 
 #endif // DEADREGISTERANALYSIS_H

@@ -8,7 +8,11 @@ using namespace IRDB_SDK;
 static const std::vector<x86_reg> callerSaveRegisters = {
     X86_REG_RAX, X86_REG_RCX, X86_REG_RDX, X86_REG_RSI,
     X86_REG_RDI, X86_REG_R8, X86_REG_R9, X86_REG_R10,
-    X86_REG_R11, X86_REG_EFLAGS,
+    X86_REG_R11, X86_REG_EFLAGS, X86_REG_XMM0, X86_REG_XMM1,
+    X86_REG_XMM2, X86_REG_XMM3, X86_REG_XMM4, X86_REG_XMM5,
+    X86_REG_XMM6, X86_REG_XMM7, X86_REG_XMM8, X86_REG_XMM9,
+    X86_REG_XMM10, X86_REG_XMM11, X86_REG_XMM12, X86_REG_XMM13,
+    X86_REG_XMM14, X86_REG_XMM15
 };
 
 static bool isPartOfGroup(const cs_insn *instruction, const x86_insn_group group)
@@ -103,6 +107,8 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
     if (isPartOfGroup(decoded, X86_GRP_RET)) {
         setBits(readRegs, X86_REG_RAX);
         setBits(readRegs, X86_REG_RDX);
+        setBits(readRegs, X86_REG_XMM0);
+        setBits(readRegs, X86_REG_XMM1);
     }
     // tail call optimization leads to jumps to other functions, these have be treated like calls since the arguments are in the registers
     const bool isJump = isPartOfGroup(decoded, X86_GRP_JUMP);
@@ -115,6 +121,9 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
         setBits(readRegs, X86_REG_RCX);
         setBits(readRegs, X86_REG_R8);
         setBits(readRegs, X86_REG_R9);
+        for (int i = 0;i<8;i++) {
+            setBits(readRegs, static_cast<x86_reg>(X86_REG_XMM0 + i));
+        }
 
         // all caller save registers and flags are dirtied
         writtenRegs.set();
@@ -135,7 +144,7 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
     after.set();
 }
 
-void DeadRegisterInstructionAnalysis::setBits(std::bitset<40> &bitset, x86_reg reg)
+void DeadRegisterInstructionAnalysis::setBits(std::bitset<56> &bitset, x86_reg reg)
 {
     const auto bits = registerBitIndices(reg);
     for (int bit : bits) {
@@ -155,7 +164,11 @@ std::vector<int> DeadRegisterInstructionAnalysis::registerBitIndices(x86_reg reg
         {X86_REG_R9, {27, 28, 29, 30}}, {X86_REG_R9D, {28, 29, 30}}, {X86_REG_R9W, {29, 30}}, {X86_REG_R9B, {30}},
         {X86_REG_R10, {31, 32, 33, 34}}, {X86_REG_R10D, {32, 33, 34}}, {X86_REG_R10W, {33, 34}}, {X86_REG_R10B, {34}},
         {X86_REG_R11, {35, 36, 37, 38}}, {X86_REG_R11D, {36, 37, 38}}, {X86_REG_R11W, {37, 38}}, {X86_REG_R11B, {38}},
-        {X86_REG_EFLAGS, {39}}
+        {X86_REG_EFLAGS, {39}},
+        {X86_REG_XMM0, {40}}, {X86_REG_XMM1, {41}}, {X86_REG_XMM2, {42}}, {X86_REG_XMM3, {43}}, {X86_REG_XMM4, {44}},
+        {X86_REG_XMM5, {45}}, {X86_REG_XMM6, {46}}, {X86_REG_XMM7, {47}}, {X86_REG_XMM8, {48}}, {X86_REG_XMM9, {49}},
+        {X86_REG_XMM10, {50}}, {X86_REG_XMM11, {51}}, {X86_REG_XMM12, {52}}, {X86_REG_XMM13, {53}}, {X86_REG_XMM14, {54}},
+        {X86_REG_XMM15, {55}},
     };
 
     auto it = indexMap.find(reg);
@@ -203,6 +216,8 @@ UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instr
         makeUndefined.set();
         makeDefined[registerBitIndex(X86_REG_RAX)] = true;
         makeDefined[registerBitIndex(X86_REG_RDX)] = true;
+        makeDefined[registerBitIndex(X86_REG_XMM0)] = true;
+        makeDefined[registerBitIndex(X86_REG_XMM1)] = true;
     }
     // for the syscall instruction (while it does not define all registers, this is safer)
     if (isPartOfGroup(decoded, X86_GRP_INT)) {
@@ -228,7 +243,11 @@ int UndefinedRegisterInstructionAnalysis::registerBitIndex(x86_reg reg)
         {X86_REG_R9, 6}, {X86_REG_R9D, 6}, {X86_REG_R9W, 6}, {X86_REG_R9B, 6},
         {X86_REG_R10, 7}, {X86_REG_R10D, 7}, {X86_REG_R10W, 7}, {X86_REG_R10B, 7},
         {X86_REG_R11, 8}, {X86_REG_R11D, 8}, {X86_REG_R11W, 8}, {X86_REG_R11B, 8},
-        {X86_REG_EFLAGS, 9}
+        {X86_REG_EFLAGS, 9},
+        {X86_REG_XMM0, {10}}, {X86_REG_XMM1, {11}}, {X86_REG_XMM2, {12}}, {X86_REG_XMM3, {13}}, {X86_REG_XMM4, {14}},
+        {X86_REG_XMM5, {15}}, {X86_REG_XMM6, {16}}, {X86_REG_XMM7, {17}}, {X86_REG_XMM8, {18}}, {X86_REG_XMM9, {19}},
+        {X86_REG_XMM10, {20}}, {X86_REG_XMM11, {21}}, {X86_REG_XMM12, {22}}, {X86_REG_XMM13, {23}}, {X86_REG_XMM14, {24}},
+        {X86_REG_XMM15, {25}},
     };
 
     auto it = indexMap.find(reg);
