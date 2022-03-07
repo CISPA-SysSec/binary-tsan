@@ -310,7 +310,7 @@ static void checkNoReturnRecursive(Function_t *function, std::set<Function_t*> &
         const bool tailJump = decoded->isBranch() && !decoded->isCall() && getJumpInfo(instruction).isTailCall;
         const bool isCall = decoded->isCall();
         if (tailJump || isCall) {
-            if (instruction->getTarget() == nullptr) {
+            if (instruction->getTarget() == nullptr || instruction->getTarget()->getTarget() == nullptr) {
                 return;
             }
             checkNoReturnRecursive(instruction->getTarget()->getFunction(), noReturnFunctions, visited);
