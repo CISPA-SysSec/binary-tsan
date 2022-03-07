@@ -86,6 +86,8 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
             addTsanCalls = false;
         } else if (option == "--save-xmm-registers") {
             saveXmmRegisters = true;
+        } else if (option == "--no-add-libtsan-dependency") {
+            addLibTsanDependency = false;
         } else {
             std::cout <<"Unrecognized option: "<<option<<std::endl;
             return false;
@@ -823,9 +825,13 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 void TSanTransform::registerDependencies()
 {
     auto elfDeps = ElfDependencies_t::factory(getFileIR());
-    elfDeps->prependLibraryDepedencies("libgcc_s.so.1");
-    elfDeps->prependLibraryDepedencies("libstdc++.so.6");
-    elfDeps->prependLibraryDepedencies("libtsan.so.0");
+
+    // for shared libraries, it is not necessary (and sometimes harmful) to add this as the executable will also have it
+    if (addLibTsanDependency) {
+        elfDeps->prependLibraryDepedencies("libgcc_s.so.1");
+        elfDeps->prependLibraryDepedencies("libstdc++.so.6");
+        elfDeps->prependLibraryDepedencies("libtsan.so.0");
+    }
     tsanFunctionEntry = elfDeps->appendPltEntry("__tsan_func_entry");
     tsanFunctionExit = elfDeps->appendPltEntry("__tsan_func_exit");
     for (int s : {1, 2, 4, 8, 16}) {

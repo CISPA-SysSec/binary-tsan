@@ -23,6 +23,12 @@ cd $last
 # the basic run command without additional tsan options
 runCommand="$PSZ $1 $2 -c rida -c move_globals -o --elftables-only -o --no-use-stars --step-option zipr:\"--zipr:seed 42\" -c tsan -o --register-analysis=custom"
 
+file $1 |egrep  "ELF.*shared object" > /dev/null 2>&1 
+if [ $? = 0 ]; then
+    echo "Detected ELF shared object, not adding libtsan.so dependency"
+    runCommand="${runCommand} -o --no-add-libtsan-dependency"
+fi
+
 # add tsan options to the run command
 i=$(($#-3))
 while [ $i -ge 0 ];

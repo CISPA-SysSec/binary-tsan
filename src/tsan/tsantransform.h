@@ -89,6 +89,7 @@ private:
     // if it contains at least one element, instrument only those functions
     std::set<std::string> instrumentOnlyFunctions;
     bool saveXmmRegisters = false;
+    bool addLibTsanDependency = true;
 
     std::map<IRDB_SDK::Instruction_t*, std::set<x86_reg>> deadRegisters;
 
