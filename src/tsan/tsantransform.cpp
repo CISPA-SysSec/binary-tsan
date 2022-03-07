@@ -98,6 +98,13 @@ bool TSanTransform::executeStep()
 {
     FileIR_t *ir = getFileIR();
 
+    for (auto function : ir->getFunctions()) {
+        if (startsWith(function->getName(), "__tsan_func_entry")) {
+            std::cout <<"ERROR: this binary is already thread sanitized!"<<std::endl;
+            return false;
+        }
+    }
+
     // compute this before any instructions are added
     if (deadRegisterAnalysisType == DeadRegisterAnalysisType::STARS) {
         const auto registerAnalysis = DeepAnalysis_t::factory(ir);
