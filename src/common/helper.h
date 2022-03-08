@@ -157,7 +157,10 @@ inline std::string disassembly(const IRDB_SDK::Instruction_t *instruction)
     const auto decoded = IRDB_SDK::DecodedInstruction_t::factory(instruction);
     if (decoded->isCall()) {
         const std::string target = targetFunctionName(instruction);
-        return "call " + target;
+        // indirect calls do not have a target name
+        if (target.size() > 0) {
+            return "call " + target;
+        }
     }
     const std::string prefix = isAtomic(instruction) ? "lock " : decoded->hasRelevantRepPrefix() ? "rep " : decoded->hasRelevantRepnePrefix() ? "repne " : "";
     return prefix + instruction->getDisassembly();

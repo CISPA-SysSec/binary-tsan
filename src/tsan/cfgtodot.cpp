@@ -38,10 +38,11 @@ std::string CFGToDot::createDotFromCFG(const std::unique_ptr<ControlFlowGraph_t>
             // align operands after mnemonic
             const std::string prefix = isAtomic(instruction) ? "lock " : decoded->hasRelevantRepPrefix() ? "rep " : decoded->hasRelevantRepnePrefix() ? "repne " : "";
             std::string mnemonic = prefix + decoded->getMnemonic();
-            const std::string instructionString = mnemonic + std::string(assembly.begin() + mnemonic.size(), assembly.end());
+            const std::string operandPart = std::string(assembly.begin() + mnemonic.size(), assembly.end());
             while (mnemonic.size() < 7) {
                 mnemonic.push_back(' ');
             }
+            const std::string instructionString = mnemonic + operandPart;
             result <<std::hex<<instruction->getAddress()->getVirtualOffset()<<": "<<instructionString<<"\\l";
         }
         // select a monospace font to make alignment work
