@@ -121,6 +121,7 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
         setBits(readRegs, X86_REG_RCX);
         setBits(readRegs, X86_REG_R8);
         setBits(readRegs, X86_REG_R9);
+        setBits(readRegs, X86_REG_R10);
         for (int i = 0;i<8;i++) {
             setBits(readRegs, static_cast<x86_reg>(X86_REG_XMM0 + i));
         }
