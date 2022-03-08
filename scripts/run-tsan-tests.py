@@ -13,10 +13,10 @@ if len(sys.argv) != 3:
 clang = "/home/andi/git/llvm-project/build/bin/clang"
 
 numThread = 3
-#tsandir = os.path.realpath("../tests/bugs")
+tsandir = os.path.realpath("../tests/bugs")
 #tsandir = os.path.realpath("../tests/repstring")
 #tsandir = os.path.realpath("../tests/atomics")
-tsandir = os.path.realpath("../tests/llvm-tsan-tests")
+#tsandir = os.path.realpath("../tests/llvm-tsan-tests")
 outputdir = os.path.realpath(sys.argv[2])
 runScript = os.path.realpath(sys.argv[1])
 
@@ -25,7 +25,7 @@ toolPath = os.path.abspath(os.path.join(scriptPath, "../tools"))
 os.chdir(outputdir)
 
 exclude = []
-runOnly = []
+runOnly = ["floatreturn.cpp"]
 
 invalid = []
 
@@ -112,7 +112,6 @@ def checkFile(filename):
             print("Test: " + filename)
             print("\tInstrumenting the binary failed:")
             print(str(res.stdout).replace("\\n", "\n"))
-            print(str(res.stderr).replace("\\n", "\n"))
             invalid.append(filename)
             failed = failed + 1
             return
