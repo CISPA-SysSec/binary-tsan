@@ -157,19 +157,21 @@ bool TSanTransform::executeStep()
                 for (const auto &[instruction, analysis] : analysisResult) {
                     deadRegisters.insert({instruction, analysis.getDeadRegisters()});
                 }
-                const auto undefinedResult = FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(function, functionAnalysis.getNoReturnFunctions());
-                const bool hasProblem = std::any_of(undefinedResult.begin(), undefinedResult.end(), [](const auto &r) {
-                    return r.second.hasProblem();
-                });
-                if (!hasProblem) {
-                    for (const auto &[instruction, analysis] : undefinedResult) {
-                        auto it = deadRegisters.find(instruction);
-                        for (auto reg : analysis.getDeadRegisters()) {
-                            it->second.insert(reg);
+                if (useUndefinedRegisterAnalysis) {
+                    const auto undefinedResult = FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(function, functionAnalysis.getNoReturnFunctions());
+                    const bool hasProblem = std::any_of(undefinedResult.begin(), undefinedResult.end(), [](const auto &r) {
+                        return r.second.hasProblem();
+                    });
+                    if (!hasProblem) {
+                        for (const auto &[instruction, analysis] : undefinedResult) {
+                            auto it = deadRegisters.find(instruction);
+                            for (auto reg : analysis.getDeadRegisters()) {
+                                it->second.insert(reg);
+                            }
                         }
+                    } else {
+                        std::cout <<"WARNING: undefined register analysis problem in: "<<function->getName()<<std::endl;
                     }
-                } else {
-                    std::cout <<"WARNING: undefined register analysis problem in: "<<function->getName()<<std::endl;
                 }
             }
         }

@@ -90,6 +90,7 @@ private:
     std::set<std::string> instrumentOnlyFunctions;
     bool saveXmmRegisters = false;
     bool addLibTsanDependency = true;
+    bool useUndefinedRegisterAnalysis = false;
 
     std::map<IRDB_SDK::Instruction_t*, std::set<x86_reg>> deadRegisters;
 
