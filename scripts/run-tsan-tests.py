@@ -42,7 +42,7 @@ def performBasicReplacements(line):
         p1 = " " + p1
     p1 = p1.replace(" not ", " " + toolPath + "/not ")
     p1 = p1.replace("%deflake", scriptPath + "/deflake.bash 10")
-    p1 = p1.replace("%link_libcxx_tsan", "") # not supported for now
+    p1 = p1.replace("%link_libcxx_tsan", "-ldl")
     p1 = p1.replace("%darwin_min_target_with_tls_support", "")
     p1 = p1.replace("%os", "Linux")
     p1 = p1.replace("%run", "")
@@ -83,7 +83,6 @@ def checkFile(filename):
             compilerTSanFailed = compilerTSanFailed + 1
             return
         
-    instrumentedBinary = outfile + "-mod"
     for line in runLines:
         p1 = performBasicReplacements(line)
         c1 = p1.replace("%clang_tsan", clang + " -lpthread -ltsan")
@@ -92,11 +91,18 @@ def checkFile(filename):
         c1 = c1.replace("%clangxx_tsan", clang + " -lpthread -ltsan -lstdc++")
         c1 = c1.replace("%s", f)
         if not "%clang" in p1 and not "%gcc" in p1 and not "%g++" in p1:
+            instrumentedBinary = outfile + "-mod"
             c1 = c1.replace("%t", instrumentedBinary)
             os.system(c1)
             continue
         
         compileCommand = c1.split("&&")[0]
+        fullOutFile = "%t"
+        if "%t" in compileCommand:
+            matches = re.findall("-o (%t[^\s]+) ?", compileCommand)
+            if len(matches) > 0:
+                fullOutFile = matches[0].strip()
+        
         compileCommand = compileCommand.replace("%t", outfile)
         res = subprocess.run(compileCommand.split(" "), capture_output=True)
         if res.returncode != 0:
@@ -107,7 +113,9 @@ def checkFile(filename):
         
         total = total + 1
         
-        instrumentParts = [runScript, outfile, instrumentedBinary]
+        inputBinary = fullOutFile.replace("%t", outfile)
+        instrumentedBinary = fullOutFile.replace("%t", outfile + "-mod")
+        instrumentParts = [runScript, inputBinary, instrumentedBinary]
         if "-fno-sanitize-thread-atomics" in compileCommand or "-tsan-instrument-atomics=0" in compileCommand:
             instrumentParts.append("--no-instrument-atomics")
         res = subprocess.run(instrumentParts, capture_output=True)
