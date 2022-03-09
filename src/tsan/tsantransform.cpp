@@ -88,6 +88,8 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
             saveXmmRegisters = true;
         } else if (option == "--no-add-libtsan-dependency") {
             addLibTsanDependency = false;
+        } else if (option == "--no-instrument-atomics") {
+            noInstrumentAtomics = true;
         } else {
             std::cout <<"Unrecognized option: "<<option<<std::endl;
             return false;
@@ -604,6 +606,9 @@ std::optional<OperationInstrumentation> TSanTransform::getInstrumentation(Instru
     const bool isExchange = decoded->getMnemonic() == "xchg";
     const bool atomic = isAtomic(instruction) || isInferredAtomic || isExchange;
     if (atomic) {
+        if (noInstrumentAtomics) {
+            return {};
+        }
         const __tsan_memory_order memOrder = isInferredAtomic ? inferredIt->second : __tsan_memory_order_acq_rel;
         auto instrumentation = getAtomicInstrumentation(instruction, operand, memOrder);
         if (instrumentation.has_value()) {

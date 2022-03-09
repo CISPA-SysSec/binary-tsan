@@ -107,7 +107,10 @@ def checkFile(filename):
         
         total = total + 1
         
-        res = subprocess.run([runScript, outfile, instrumentedBinary], capture_output=True)
+        instrumentParts = [runScript, outfile, instrumentedBinary]
+        if "-fno-sanitize-thread-atomics" in compileCommand or "-tsan-instrument-atomics=0" in compileCommand:
+            instrumentParts.append("--no-instrument-atomics")
+        res = subprocess.run(instrumentParts, capture_output=True)
         if res.returncode != 0:
             print("Test: " + filename)
             print("\tInstrumenting the binary failed:")
