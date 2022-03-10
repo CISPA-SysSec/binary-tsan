@@ -44,6 +44,7 @@ static bool isFalseRead(cs_insn *decoded)
 static std::vector<x86_reg> getReadRegisters(cs_insn *decoded, bool checkFalseReads)
 {
     std::vector<x86_reg> readRegisters;
+    readRegisters.reserve(decoded->detail->regs_read_count + 1);
     for (int i = 0;i<decoded->detail->regs_read_count;i++) {
         const x86_reg reg = (x86_reg)decoded->detail->regs_read[i];
         readRegisters.push_back(reg);
@@ -71,6 +72,7 @@ static std::vector<x86_reg> getReadRegisters(cs_insn *decoded, bool checkFalseRe
 static std::vector<x86_reg> getWrittenRegisters(cs_insn *decoded)
 {
     std::vector<x86_reg> writtenRegisters;
+    writtenRegisters.reserve(decoded->detail->regs_write_count + 1);
     for (int i = 0;i<decoded->detail->regs_write_count;i++) {
         const x86_reg reg = (x86_reg)decoded->detail->regs_write[i];
         writtenRegisters.push_back(reg);
@@ -153,25 +155,25 @@ void DeadRegisterInstructionAnalysis::setBits(std::bitset<56> &bitset, x86_reg r
     }
 }
 
+static const std::map<x86_reg, std::vector<int>> indexMap = {
+    {X86_REG_RAX, {0, 1, 2, 3, 4}}, {X86_REG_EAX, {1, 2, 3, 4}}, {X86_REG_AX, {2, 3, 4}}, {X86_REG_AH, {3}}, {X86_REG_AL, {4}},
+    {X86_REG_RCX, {5, 6, 7, 8, 9}}, {X86_REG_ECX, {6, 7, 8, 9}}, {X86_REG_CX, {7, 8, 9}}, {X86_REG_CH, {8}}, {X86_REG_CL, {9}},
+    {X86_REG_RDX, {10, 11, 12, 13, 14}}, {X86_REG_EDX, {11, 12, 13, 14}}, {X86_REG_DX, {12, 13, 14}}, {X86_REG_DH, {13}}, {X86_REG_DL, {14}},
+    {X86_REG_RSI, {15, 16, 17, 18}}, {X86_REG_ESI, {16, 17, 18}}, {X86_REG_SI, {17, 18}}, {X86_REG_SIL, {18}},
+    {X86_REG_RDI, {19, 20, 21, 22}}, {X86_REG_EDI, {20, 21, 22}}, {X86_REG_DI, {21, 22}}, {X86_REG_DIL, {22}},
+    {X86_REG_R8, {23, 24, 25, 26}}, {X86_REG_R8D, {24, 25, 26}}, {X86_REG_R8W, {25, 26}}, {X86_REG_R8B, {26}},
+    {X86_REG_R9, {27, 28, 29, 30}}, {X86_REG_R9D, {28, 29, 30}}, {X86_REG_R9W, {29, 30}}, {X86_REG_R9B, {30}},
+    {X86_REG_R10, {31, 32, 33, 34}}, {X86_REG_R10D, {32, 33, 34}}, {X86_REG_R10W, {33, 34}}, {X86_REG_R10B, {34}},
+    {X86_REG_R11, {35, 36, 37, 38}}, {X86_REG_R11D, {36, 37, 38}}, {X86_REG_R11W, {37, 38}}, {X86_REG_R11B, {38}},
+    {X86_REG_EFLAGS, {39}},
+    {X86_REG_XMM0, {40}}, {X86_REG_XMM1, {41}}, {X86_REG_XMM2, {42}}, {X86_REG_XMM3, {43}}, {X86_REG_XMM4, {44}},
+    {X86_REG_XMM5, {45}}, {X86_REG_XMM6, {46}}, {X86_REG_XMM7, {47}}, {X86_REG_XMM8, {48}}, {X86_REG_XMM9, {49}},
+    {X86_REG_XMM10, {50}}, {X86_REG_XMM11, {51}}, {X86_REG_XMM12, {52}}, {X86_REG_XMM13, {53}}, {X86_REG_XMM14, {54}},
+    {X86_REG_XMM15, {55}},
+};
+
 std::vector<int> DeadRegisterInstructionAnalysis::registerBitIndices(x86_reg reg)
 {
-    const std::map<x86_reg, std::vector<int>> indexMap = {
-        {X86_REG_RAX, {0, 1, 2, 3, 4}}, {X86_REG_EAX, {1, 2, 3, 4}}, {X86_REG_AX, {2, 3, 4}}, {X86_REG_AH, {3}}, {X86_REG_AL, {4}},
-        {X86_REG_RCX, {5, 6, 7, 8, 9}}, {X86_REG_ECX, {6, 7, 8, 9}}, {X86_REG_CX, {7, 8, 9}}, {X86_REG_CH, {8}}, {X86_REG_CL, {9}},
-        {X86_REG_RDX, {10, 11, 12, 13, 14}}, {X86_REG_EDX, {11, 12, 13, 14}}, {X86_REG_DX, {12, 13, 14}}, {X86_REG_DH, {13}}, {X86_REG_DL, {14}},
-        {X86_REG_RSI, {15, 16, 17, 18}}, {X86_REG_ESI, {16, 17, 18}}, {X86_REG_SI, {17, 18}}, {X86_REG_SIL, {18}},
-        {X86_REG_RDI, {19, 20, 21, 22}}, {X86_REG_EDI, {20, 21, 22}}, {X86_REG_DI, {21, 22}}, {X86_REG_DIL, {22}},
-        {X86_REG_R8, {23, 24, 25, 26}}, {X86_REG_R8D, {24, 25, 26}}, {X86_REG_R8W, {25, 26}}, {X86_REG_R8B, {26}},
-        {X86_REG_R9, {27, 28, 29, 30}}, {X86_REG_R9D, {28, 29, 30}}, {X86_REG_R9W, {29, 30}}, {X86_REG_R9B, {30}},
-        {X86_REG_R10, {31, 32, 33, 34}}, {X86_REG_R10D, {32, 33, 34}}, {X86_REG_R10W, {33, 34}}, {X86_REG_R10B, {34}},
-        {X86_REG_R11, {35, 36, 37, 38}}, {X86_REG_R11D, {36, 37, 38}}, {X86_REG_R11W, {37, 38}}, {X86_REG_R11B, {38}},
-        {X86_REG_EFLAGS, {39}},
-        {X86_REG_XMM0, {40}}, {X86_REG_XMM1, {41}}, {X86_REG_XMM2, {42}}, {X86_REG_XMM3, {43}}, {X86_REG_XMM4, {44}},
-        {X86_REG_XMM5, {45}}, {X86_REG_XMM6, {46}}, {X86_REG_XMM7, {47}}, {X86_REG_XMM8, {48}}, {X86_REG_XMM9, {49}},
-        {X86_REG_XMM10, {50}}, {X86_REG_XMM11, {51}}, {X86_REG_XMM12, {52}}, {X86_REG_XMM13, {53}}, {X86_REG_XMM14, {54}},
-        {X86_REG_XMM15, {55}},
-    };
-
     auto it = indexMap.find(reg);
     if (it != indexMap.end()) {
         return it->second;
@@ -232,27 +234,27 @@ UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instr
     readRegs[INVALID_BIT] = 0;
 }
 
+static const std::map<x86_reg, int> undefinedRegIndexMap = {
+    {X86_REG_RAX, 0}, {X86_REG_EAX, 0}, {X86_REG_AX, 0}, {X86_REG_AH, 0}, {X86_REG_AL, 0},
+    {X86_REG_RCX, 1}, {X86_REG_ECX, 1}, {X86_REG_CX, 1}, {X86_REG_CH, 1}, {X86_REG_CL, 1},
+    {X86_REG_RDX, 2}, {X86_REG_EDX, 2}, {X86_REG_DX, 2}, {X86_REG_DH, 2}, {X86_REG_DL, 2},
+    {X86_REG_RSI, 3}, {X86_REG_ESI, 3}, {X86_REG_SI, 3}, {X86_REG_SIL, 3},
+    {X86_REG_RDI, 4}, {X86_REG_EDI, 4}, {X86_REG_DI, 4}, {X86_REG_DIL, 4},
+    {X86_REG_R8, 5}, {X86_REG_R8D, 5}, {X86_REG_R8W, 5}, {X86_REG_R8B, 5},
+    {X86_REG_R9, 6}, {X86_REG_R9D, 6}, {X86_REG_R9W, 6}, {X86_REG_R9B, 6},
+    {X86_REG_R10, 7}, {X86_REG_R10D, 7}, {X86_REG_R10W, 7}, {X86_REG_R10B, 7},
+    {X86_REG_R11, 8}, {X86_REG_R11D, 8}, {X86_REG_R11W, 8}, {X86_REG_R11B, 8},
+    {X86_REG_EFLAGS, 9},
+    {X86_REG_XMM0, {10}}, {X86_REG_XMM1, {11}}, {X86_REG_XMM2, {12}}, {X86_REG_XMM3, {13}}, {X86_REG_XMM4, {14}},
+    {X86_REG_XMM5, {15}}, {X86_REG_XMM6, {16}}, {X86_REG_XMM7, {17}}, {X86_REG_XMM8, {18}}, {X86_REG_XMM9, {19}},
+    {X86_REG_XMM10, {20}}, {X86_REG_XMM11, {21}}, {X86_REG_XMM12, {22}}, {X86_REG_XMM13, {23}}, {X86_REG_XMM14, {24}},
+    {X86_REG_XMM15, {25}},
+};
+
 int UndefinedRegisterInstructionAnalysis::registerBitIndex(x86_reg reg)
 {
-    const std::map<x86_reg, int> indexMap = {
-        {X86_REG_RAX, 0}, {X86_REG_EAX, 0}, {X86_REG_AX, 0}, {X86_REG_AH, 0}, {X86_REG_AL, 0},
-        {X86_REG_RCX, 1}, {X86_REG_ECX, 1}, {X86_REG_CX, 1}, {X86_REG_CH, 1}, {X86_REG_CL, 1},
-        {X86_REG_RDX, 2}, {X86_REG_EDX, 2}, {X86_REG_DX, 2}, {X86_REG_DH, 2}, {X86_REG_DL, 2},
-        {X86_REG_RSI, 3}, {X86_REG_ESI, 3}, {X86_REG_SI, 3}, {X86_REG_SIL, 3},
-        {X86_REG_RDI, 4}, {X86_REG_EDI, 4}, {X86_REG_DI, 4}, {X86_REG_DIL, 4},
-        {X86_REG_R8, 5}, {X86_REG_R8D, 5}, {X86_REG_R8W, 5}, {X86_REG_R8B, 5},
-        {X86_REG_R9, 6}, {X86_REG_R9D, 6}, {X86_REG_R9W, 6}, {X86_REG_R9B, 6},
-        {X86_REG_R10, 7}, {X86_REG_R10D, 7}, {X86_REG_R10W, 7}, {X86_REG_R10B, 7},
-        {X86_REG_R11, 8}, {X86_REG_R11D, 8}, {X86_REG_R11W, 8}, {X86_REG_R11B, 8},
-        {X86_REG_EFLAGS, 9},
-        {X86_REG_XMM0, {10}}, {X86_REG_XMM1, {11}}, {X86_REG_XMM2, {12}}, {X86_REG_XMM3, {13}}, {X86_REG_XMM4, {14}},
-        {X86_REG_XMM5, {15}}, {X86_REG_XMM6, {16}}, {X86_REG_XMM7, {17}}, {X86_REG_XMM8, {18}}, {X86_REG_XMM9, {19}},
-        {X86_REG_XMM10, {20}}, {X86_REG_XMM11, {21}}, {X86_REG_XMM12, {22}}, {X86_REG_XMM13, {23}}, {X86_REG_XMM14, {24}},
-        {X86_REG_XMM15, {25}},
-    };
-
-    auto it = indexMap.find(reg);
-    if (it != indexMap.end()) {
+    auto it = undefinedRegIndexMap.find(reg);
+    if (it != undefinedRegIndexMap.end()) {
         return it->second;
     }
     return INVALID_BIT;
