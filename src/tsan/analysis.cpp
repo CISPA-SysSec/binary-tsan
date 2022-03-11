@@ -214,7 +214,8 @@ std::set<Instruction_t*> Analysis::findSpinLocks(ControlFlowGraph_t *cfg) const
                 const auto decoded = DecodedInstruction_t::factory(instruction);
                 if (decoded->isCall()) {
                     // some functions calls are allowed in a spin lock
-                    if (!contains(targetFunctionName(instruction), "usleep")) {
+                    const std::string targetName = targetFunctionName(instruction);
+                    if (!contains(targetName, "usleep") && !contains(targetName, "sched_yield")) {
                         foundBad = true;
                         break;
                     }
