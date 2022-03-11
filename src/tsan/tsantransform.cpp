@@ -213,7 +213,7 @@ bool TSanTransform::executeStep()
 
         if (info.addEntryExitInstrumentation && instrumentFunctionEntryExit) {
             // TODO: what if the first instruction is atomic and thus removed?
-            insertFunctionEntry(info.properEntryPoint);
+            insertFunctionEntry(function, info.properEntryPoint);
             for (Instruction_t *ret : info.exitPoints) {
                 insertFunctionExit(ret);
             }
@@ -238,7 +238,7 @@ static std::string toHex(const int num)
     return result.str();
 }
 
-void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
+void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *insertBefore)
 {
     // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)
     FileIR_t *ir = getFileIR();
@@ -257,6 +257,19 @@ void TSanTransform::insertFunctionEntry(Instruction_t *insertBefore)
     }
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
         inserter.insertAssembly("pop " + *it);
+    }
+
+    // jump targets that go to the very beginning of the function must skip the entry instrumentation
+    // TODO: recursive tail call to itself
+    // TODO: fallthrough to the function entry
+    // TODO: endbr instruction might be in the way
+    getFileIR()->assembleRegistry();
+    Instruction_t *originalInstruction = inserter.getLastInserted()->getFallthrough();
+    for (auto instruction : function->getInstructions()) {
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        if (instruction->getTarget() == insertBefore && !decoded->isCall()) {
+            instruction->setTarget(originalInstruction);
+        }
     }
 }
 
