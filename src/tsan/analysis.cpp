@@ -58,6 +58,7 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
         result.properEntryPoint = result.properEntryPoint->getFallthrough();
     }
 
+    bool hasProblem = false;
     for (const auto block : cfg->getBlocks()) {
         if (!block->getIsExitBlock()) {
             continue;
@@ -77,10 +78,9 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
         if (contains(instruction->getDisassembly(), "nop")) {
             continue;
         }
-        // TODO: causes problems in libQt5Core
-        const bool isSimpleConstJump = false;//decoded->isUnconditionalBranch() && (decoded->getOperand(0)->isConstant() || decoded->getOperand(0)->isPcrel());
-        if (!decoded->isReturn() && !isSimpleConstJump) {
+        if (!decoded->isReturn()) {
             result.exitPoints.clear();
+            hasProblem = true;
             break;
         }
         result.exitPoints.push_back(instruction);
@@ -94,6 +94,9 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
             result.addEntryExitInstrumentation = true;
             entryExitInstrumentedFunctions++;
         }
+    } else if (!hasProblem) {
+        result.addEntryExitInstrumentation = true;
+        entryExitInstrumentedFunctions++;
     }
 
     const bool stackLeavesFunction = doesStackLeaveFunction(function);

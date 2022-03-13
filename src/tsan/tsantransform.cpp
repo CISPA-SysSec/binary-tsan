@@ -231,13 +231,6 @@ bool TSanTransform::executeStep()
     return true;
 }
 
-static std::string toHex(const int num)
-{
-    std::stringstream result;
-    result <<"0x"<<std::hex<<num;
-    return result.str();
-}
-
 void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *insertBefore)
 {
     // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)

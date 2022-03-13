@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <string>
+#include <sstream>
 
 inline std::vector<std::string> split(const std::string &txt, char ch)
 {
@@ -27,6 +28,13 @@ inline bool contains(const std::string &str, const std::string &search)
 inline bool startsWith(const std::string &str, const std::string &search)
 {
     return str.rfind(search, 0) == 0;
+}
+
+inline std::string toHex(const int num)
+{
+    std::stringstream result;
+    result <<"0x"<<std::hex<<num;
+    return result.str();
 }
 
 #endif // STRINGHELPER_H
