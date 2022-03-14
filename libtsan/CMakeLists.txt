@@ -1,0 +1,3 @@
+add_subdirectory(tsan)
+add_subdirectory(interception)
+add_subdirectory(sanitizer_common)

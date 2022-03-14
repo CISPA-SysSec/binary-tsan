@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.11.0)
-project(binary-tsan)
+project(binary-tsan CXX ASM)
 enable_testing()
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 include(CheckCXXCompilerFlag)
@@ -66,3 +66,4 @@ target_include_directories(zipr-sdk INTERFACE "${ZIPR_LOCATION}/zipr-sdk/include
 find_package(Protobuf 3.3.0 REQUIRED)
 
 add_subdirectory(src)
+add_subdirectory(libtsan)
