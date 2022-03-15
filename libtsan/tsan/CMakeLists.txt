@@ -1,5 +1,23 @@
 SET(CMAKE_ASM_FLAGS "${CFLAGS} -x assembler-with-cpp")
 
+add_library(libtsan-nosse STATIC
+    tsan_rtl.cpp
+
+    tsan_rtl.h
+)
+
+target_link_libraries(libtsan-nosse
+    PRIVATE interception
+    PRIVATE sanitizer_common
+)
+
+set_property(TARGET libtsan-nosse PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+target_compile_options(libtsan-nosse
+    PRIVATE -mno-sse
+    INTERFACE ${LIBTSAN_COMPILER_FLAGS}
+)
+
 add_library(libtsan SHARED
     tsan_clock.cpp
 	tsan_debugging.cpp
@@ -24,16 +42,15 @@ add_library(libtsan SHARED
 	tsan_platform_posix.cpp
 	tsan_platform_windows.cpp
 	tsan_report.cpp
-	tsan_rtl.cpp
-	tsan_rtl_mutex.cpp
-	tsan_rtl_proc.cpp
-	tsan_rtl_report.cpp
-	tsan_rtl_thread.cpp
 	tsan_stack_trace.cpp
 	tsan_stat.cpp
 	tsan_suppressions.cpp
 	tsan_symbolize.cpp
     tsan_sync.cpp
+    tsan_rtl_mutex.cpp
+    tsan_rtl_proc.cpp
+    tsan_rtl_report.cpp
+    tsan_rtl_thread.cpp
 
     tsan_clock.h
     tsan_defs.h
@@ -53,7 +70,6 @@ add_library(libtsan SHARED
     tsan_platform.h
     tsan_ppc_regs.h
     tsan_report.h
-    tsan_rtl.h
     tsan_stack_trace.h
     tsan_stat.h
     tsan_suppressions.h
@@ -69,6 +85,7 @@ add_library(libtsan SHARED
 target_link_libraries(libtsan
     PRIVATE interception
     PRIVATE sanitizer_common
+    PRIVATE libtsan-nosse
 )
 
-target_compile_options(libtsan INTERFACE -Wall -W -Wno-unused-parameter -Wwrite-strings -pedantic -Wno-long-long  -fPIC -fno-builtin -fno-exceptions -fno-rtti -fomit-frame-pointer -funwind-tables -fvisibility=hidden -Wno-variadic-macros)
+target_compile_options(libtsan INTERFACE ${LIBTSAN_COMPILER_FLAGS})

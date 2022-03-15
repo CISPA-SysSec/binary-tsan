@@ -168,7 +168,7 @@ add_library(sanitizer_common STATIC
     sanitizer_win.h
 )
 
-target_compile_options(sanitizer_common INTERFACE -Wall -W -Wno-unused-parameter -Wwrite-strings -pedantic -Wno-long-long  -fPIC -fno-builtin -fno-exceptions -fno-rtti -fomit-frame-pointer -funwind-tables -fvisibility=hidden -Wno-variadic-macros)
+target_compile_options(sanitizer_common INTERFACE ${LIBTSAN_COMPILER_FLAGS})
 
 
 set_property(TARGET sanitizer_common PROPERTY POSITION_INDEPENDENT_CODE ON)

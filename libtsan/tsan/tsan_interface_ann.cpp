@@ -443,10 +443,6 @@ int INTERFACE_ATTRIBUTE RunningOnValgrind() {
   return flags()->running_on_valgrind;
 }
 
-double __attribute__((weak)) INTERFACE_ATTRIBUTE ValgrindSlowdown(void) {
-  return 10.0;
-}
-
 const char INTERFACE_ATTRIBUTE* ThreadSanitizerQuery(const char *query) {
   if (internal_strcmp(query, "pure_happens_before") == 0)
     return "1";
