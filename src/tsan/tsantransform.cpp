@@ -155,12 +155,13 @@ bool TSanTransform::executeStep()
             deadRegisters.clear();
 
             if (FixedPointAnalysis::canHandle(function)) {
-                const auto analysisResult = FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(function, {});
+                RegisterAnalysisCommon deadRegisterCommon;
+                const auto analysisResult = FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(function, {}, deadRegisterCommon);
                 for (const auto &[instruction, analysis] : analysisResult) {
                     deadRegisters.insert({instruction, analysis.getDeadRegisters()});
                 }
                 if (useUndefinedRegisterAnalysis) {
-                    const auto undefinedResult = FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(function, functionAnalysis.getNoReturnFunctions());
+                    const auto undefinedResult = FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(function, functionAnalysis.getNoReturnFunctions(), deadRegisterCommon);
                     const bool hasProblem = std::any_of(undefinedResult.begin(), undefinedResult.end(), [](const auto &r) {
                         return r.second.hasProblem();
                     });

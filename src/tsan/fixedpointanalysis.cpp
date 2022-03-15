@@ -49,12 +49,14 @@ static bool isNoReturnCall(Instruction_t *instruction,  const std::set<IRDB_SDK:
 
 // TODO: deal with exit node -> entry node loop and nop blocks
 template<typename InstructionAnalysis, typename AnalysisCommon>
-std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runAnalysis(Function_t *function, const std::set<IRDB_SDK::Function_t*> &noReturnFunctions)
+std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runAnalysis(
+        Function_t *function,
+        const std::set<IRDB_SDK::Function_t*> &noReturnFunctions,
+        const AnalysisCommon &commonData)
 {
     using InstructionIndex = int;
 
     const auto &allInstructions = function->getInstructions();
-    const AnalysisCommon commonData;
 
     // initialize basic data
     std::vector<InstructionInfo<InstructionAnalysis, AnalysisCommon>> instructionData;
@@ -202,5 +204,5 @@ std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(Function_t *f
 #include "pointeranalysis.h"
 template std::map<Instruction_t *, PointerAnalysis> FixedPointAnalysis::runForward<PointerAnalysis>(Function_t *function, PointerAnalysis atFunctionEntry);
 #include "deadregisteranalysis.h"
-template std::map<Instruction_t*, DeadRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(Function_t *function, const std::set<IRDB_SDK::Function_t*> &noReturnFunctions);
-template std::map<Instruction_t*, UndefinedRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(Function_t *function, const std::set<IRDB_SDK::Function_t*> &noReturnFunctions);
+template std::map<Instruction_t*, DeadRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(Function_t *function, const std::set<IRDB_SDK::Function_t*> &noReturnFunctions, const RegisterAnalysisCommon&);
+template std::map<Instruction_t*, UndefinedRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(Function_t *function, const std::set<IRDB_SDK::Function_t*> &noReturnFunctions, const RegisterAnalysisCommon&);
