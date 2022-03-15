@@ -611,7 +611,43 @@ extern "C" void __tsan_trace_switch() {
 }
 
 extern "C" void __tsan_report_race() {
+    alignas(16) char xmmData[16 * 16];
+      asm ( "movdqu %%xmm0, %0\n"
+            "movdqu %%xmm1, 0x10%0\n"
+            "movdqu %%xmm2, 0x20%0\n"
+            "movdqu %%xmm3, 0x30%0\n"
+            "movdqu %%xmm4, 0x40%0\n"
+            "movdqu %%xmm5, 0x50%0\n"
+            "movdqu %%xmm6, 0x60%0\n"
+            "movdqu %%xmm7, 0x70%0\n"
+            "movdqu %%xmm8, 0x80%0\n"
+            "movdqu %%xmm9, 0x90%0\n"
+            "movdqu %%xmm10, 0xA0%0\n"
+            "movdqu %%xmm11, 0xB0%0\n"
+            "movdqu %%xmm12, 0xC0%0\n"
+            "movdqu %%xmm13, 0xD0%0\n"
+            "movdqu %%xmm14, 0xE0%0\n"
+            "movdqu %%xmm15, 0xF0%0\n"
+          : "=o"(xmmData)
+          : : );
   ReportRace(cur_thread());
+  asm ( "movdqu %0, %%xmm0\n"
+        "movdqu 0x10%0, %%xmm1\n"
+        "movdqu 0x20%0, %%xmm2\n"
+        "movdqu 0x30%0, %%xmm3\n"
+        "movdqu 0x40%0, %%xmm4\n"
+        "movdqu 0x50%0, %%xmm5\n"
+        "movdqu 0x60%0, %%xmm6\n"
+        "movdqu 0x70%0, %%xmm7\n"
+        "movdqu 0x80%0, %%xmm8\n"
+        "movdqu 0x90%0, %%xmm9\n"
+        "movdqu 0xA0%0, %%xmm10\n"
+        "movdqu 0xB0%0, %%xmm11\n"
+        "movdqu 0xC0%0, %%xmm12\n"
+        "movdqu 0xD0%0, %%xmm13\n"
+        "movdqu 0xE0%0, %%xmm14\n"
+        "movdqu 0xF0%0, %%xmm15\n"
+      : : "o"(xmmData) : );
 }
 #endif
 
