@@ -92,6 +92,7 @@ private:
     bool addLibTsanDependency = true;
     bool useUndefinedRegisterAnalysis = false;
     bool noInstrumentAtomics = false;
+    bool useCustomLibTsan = true;
 
     std::map<IRDB_SDK::Instruction_t*, std::set<x86_reg>> deadRegisters;
 

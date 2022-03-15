@@ -24,3 +24,5 @@ target_link_libraries(tsan
 )
 # the .exe postfix is required by the zipr framework
 set_target_properties(tsan PROPERTIES OUTPUT_NAME "tsan.exe")
+
+add_compile_definitions(LIBTSANLOCATION=\"${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/liblibtsan.so\")

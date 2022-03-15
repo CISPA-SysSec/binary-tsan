@@ -90,6 +90,9 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
             addLibTsanDependency = false;
         } else if (option == "--no-instrument-atomics") {
             noInstrumentAtomics = true;
+        } else if (option == "--use-system-libtsan") {
+            useCustomLibTsan = false;
+            saveXmmRegisters = true;
         } else {
             std::cout <<"Unrecognized option: "<<option<<std::endl;
             return false;
@@ -844,7 +847,13 @@ void TSanTransform::registerDependencies()
     if (addLibTsanDependency) {
         elfDeps->prependLibraryDepedencies("libgcc_s.so.1");
         elfDeps->prependLibraryDepedencies("libstdc++.so.6");
-        elfDeps->prependLibraryDepedencies("libtsan.so.0");
+        elfDeps->prependLibraryDepedencies("libm.so.6");
+        if (useCustomLibTsan) {
+            elfDeps->prependLibraryDepedencies("libc.so.6");
+            elfDeps->prependLibraryDepedencies(LIBTSANLOCATION);
+        } else {
+            elfDeps->prependLibraryDepedencies("libtsan.so.0");
+        }
     }
     tsanFunctionEntry = elfDeps->appendPltEntry("__tsan_func_entry");
     tsanFunctionExit = elfDeps->appendPltEntry("__tsan_func_exit");
