@@ -33,19 +33,42 @@ add_library(libtsan SHARED
 	tsan_stat.cpp
 	tsan_suppressions.cpp
 	tsan_symbolize.cpp
-	tsan_sync.cpp 
+    tsan_sync.cpp
+
+    tsan_clock.h
+    tsan_defs.h
+    tsan_dense_alloc.h
+    tsan_dispatch_defs.h
+    tsan_fd.h
+    tsan_flags.h
+    tsan_ignoreset.h
+    tsan_interceptors.h
+    tsan_interface_ann.h
+    tsan_interface_inl.h
+    tsan_interface_java.h
+    tsan_interface.h
+    tsan_mman.h
+    tsan_mutex.h
+    tsan_mutexset.h
+    tsan_platform.h
+    tsan_ppc_regs.h
+    tsan_report.h
+    tsan_rtl.h
+    tsan_stack_trace.h
+    tsan_stat.h
+    tsan_suppressions.h
+    tsan_symbolize.h
+    tsan_sync.h
+    tsan_trace.h
+    tsan_update_shadow_word_inl.h
+    tsan_flags.inc
     
     tsan_rtl_amd64.S
 )
 
-set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
-set(THREADS_PREFER_PTHREAD_FLAG TRUE)
-find_package(Threads REQUIRED)
-
 target_link_libraries(libtsan
     PRIVATE interception
     PRIVATE sanitizer_common
-    PUBLIC Threads::Threads
 )
 
 target_compile_options(libtsan INTERFACE -Wall -W -Wno-unused-parameter -Wwrite-strings -pedantic -Wno-long-long  -fPIC -fno-builtin -fno-exceptions -fno-rtti -fomit-frame-pointer -funwind-tables -fvisibility=hidden -Wno-variadic-macros)
