@@ -5,6 +5,8 @@
 #include <capstone/capstone.h>
 #include <capstone/x86.h>
 
+#include "register.h"
+
 struct RegisterAnalysisCommon
 {
     RegisterAnalysisCommon() {
@@ -38,7 +40,7 @@ public:
         return after != prevAfter;
     }
 
-    std::set<x86_reg> getDeadRegisters() const;
+    CallerSaveRegisterSet getDeadRegisters() const;
 
     static bool isForwardAnalysis() { return false; }
 
@@ -72,24 +74,19 @@ public:
         return undefinedBefore != prevBefore;
     }
 
-    std::set<x86_reg> getDeadRegisters() const;
+    CallerSaveRegisterSet getDeadRegisters() const;
 
     bool hasProblem() const { return (undefinedBefore & readRegs).any(); }
 
     static bool isForwardAnalysis() { return true; }
 
 private:
-    static int registerBitIndex(x86_reg reg);
+    CallerSaveRegisterSet undefinedBefore;
+    CallerSaveRegisterSet undefinedAfter;
 
-private:
-    std::bitset<27> undefinedBefore;
-    std::bitset<27> undefinedAfter;
-
-    std::bitset<27> makeUndefined;
-    std::bitset<27> makeDefined;
-    std::bitset<27> readRegs;
-
-    static constexpr int INVALID_BIT = 26;
+    CallerSaveRegisterSet makeUndefined;
+    CallerSaveRegisterSet makeDefined;
+    CallerSaveRegisterSet readRegs;
 };
 
 #endif // DEADREGISTERANALYSIS_H

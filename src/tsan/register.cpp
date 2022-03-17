@@ -173,3 +173,81 @@ x86_reg Register::registerIDToCapstoneRegister(IRDB_SDK::RegisterID reg)
         default: throw std::invalid_argument("Could not convert registers");
     }
 }
+
+static int getCallerSaveRegisterIndex(x86_reg reg)
+{
+    if (reg >= X86_REG_XMM0 && reg <= X86_REG_XMM15) {
+        return 10 + int(reg - X86_REG_XMM0);
+    }
+    switch (reg) {
+    case X86_REG_RAX:
+    case X86_REG_EAX:
+    case X86_REG_AX:
+    case X86_REG_AH:
+    case X86_REG_AL:
+        return 0;
+    case X86_REG_RCX:
+    case X86_REG_ECX:
+    case X86_REG_CX:
+    case X86_REG_CH:
+    case X86_REG_CL:
+        return 1;
+    case X86_REG_RDX:
+    case X86_REG_EDX:
+    case X86_REG_DX:
+    case X86_REG_DH:
+    case X86_REG_DL:
+        return 2;
+    case X86_REG_RSI:
+    case X86_REG_ESI:
+    case X86_REG_SI:
+    case X86_REG_SIL:
+        return 3;
+    case X86_REG_RDI:
+    case X86_REG_EDI:
+    case X86_REG_DI:
+    case X86_REG_DIL:
+        return 4;
+    case X86_REG_R8:
+    case X86_REG_R8D:
+    case X86_REG_R8W:
+    case X86_REG_R8B:
+        return 5;
+    case X86_REG_R9:
+    case X86_REG_R9D:
+    case X86_REG_R9W:
+    case X86_REG_R9B:
+        return 6;
+    case X86_REG_R10:
+    case X86_REG_R10D:
+    case X86_REG_R10W:
+    case X86_REG_R10B:
+        return 7;
+    case X86_REG_R11:
+    case X86_REG_R11D:
+    case X86_REG_R11W:
+    case X86_REG_R11B:
+        return 8;
+    case X86_REG_EFLAGS:
+        return 9;
+    default:
+        return -1;
+    }
+}
+
+void Register::setCallerSaveRegister(CallerSaveRegisterSet &registers, x86_reg reg)
+{
+    int index = getCallerSaveRegisterIndex(reg);
+    if (index >= 0) {
+        registers[index] = true;
+    }
+}
+
+bool Register::hasCallerSaveRegister(CallerSaveRegisterSet &registers, x86_reg reg)
+{
+    int index = getCallerSaveRegisterIndex(reg);
+    if (index >= 0) {
+        return registers[index];
+    }
+    return false;
+}

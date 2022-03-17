@@ -117,12 +117,14 @@ bool TSanTransform::executeStep()
         const auto registerAnalysis = DeepAnalysis_t::factory(ir);
         auto starsDead = registerAnalysis->getDeadRegisters();
         for (const auto &[instruction, registers] : *starsDead) {
-            std::set<x86_reg> capstoneRegs;
+            CallerSaveRegisterSet capstoneRegs;
             for (const auto reg : registers) {
                 // also insert the original register (for eflags etc.)
-                capstoneRegs.insert(Register::registerIDToCapstoneRegister(reg));
+                // TODO: upgrading the register bit width might be a problem if the larger part is not dead
+                Register::setCallerSaveRegister(capstoneRegs, Register::registerIDToCapstoneRegister(reg));
                 const auto largeReg = convertRegisterTo64bit(reg);
-                capstoneRegs.insert(Register::registerIDToCapstoneRegister(largeReg));
+                // TODO: is this even still necessary
+                Register::setCallerSaveRegister(capstoneRegs, Register::registerIDToCapstoneRegister(largeReg));
             }
             deadRegisters[instruction] = capstoneRegs;
         }
@@ -171,9 +173,7 @@ bool TSanTransform::executeStep()
                     if (!hasProblem) {
                         for (const auto &[instruction, analysis] : undefinedResult) {
                             auto it = deadRegisters.find(instruction);
-                            for (auto reg : analysis.getDeadRegisters()) {
-                                it->second.insert(reg);
-                            }
+                            it->second |= analysis.getDeadRegisters();
                         }
                     } else {
                         std::cout <<"WARNING: undefined register analysis problem in: "<<function->getName()<<std::endl;
@@ -300,6 +300,7 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
 
 std::set<std::string> TSanTransform::getSaveRegisters(Instruction_t *instruction, bool addXmmRegisters)
 {
+    // TODO: do not use a set here
     std::set<x86_reg> registersToSave = {X86_REG_RAX, X86_REG_RCX, X86_REG_RDX, X86_REG_RSI, X86_REG_RDI, X86_REG_R8, X86_REG_R9, X86_REG_R10, X86_REG_R11};
     if (addXmmRegisters) {
         for (int i = 0;i<16;i++) {
@@ -307,14 +308,11 @@ std::set<std::string> TSanTransform::getSaveRegisters(Instruction_t *instruction
         }
     }
     const auto dead = deadRegisters.find(instruction);
-    if (dead != deadRegisters.end()) {
-        for (x86_reg r : dead->second) {
-            registersToSave.erase(r);
-        }
-    }
     std::set<std::string> result;
     for (auto reg : registersToSave) {
-        result.insert(Register::registerToString(reg));
+        if (dead == deadRegisters.end() || !Register::hasCallerSaveRegister(dead->second, reg)) {
+            result.insert(Register::registerToString(reg));
+        }
     }
     return result;
 }
@@ -698,8 +696,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     const auto deadRegisterSet = deadRegisters.find(instruction);
     if (deadRegisterSet != deadRegisters.end()) {
-        const auto eflagsIt = std::find(deadRegisterSet->second.begin(), deadRegisterSet->second.end(), X86_REG_EFLAGS);
-        eflagsAlive = eflagsIt == deadRegisterSet->second.end();
+        eflagsAlive = !Register::hasCallerSaveRegister(deadRegisterSet->second, X86_REG_EFLAGS);
     }
 
     // the instruction pointer no longer points to the original instruction, make sure that it is not used

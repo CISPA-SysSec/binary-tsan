@@ -94,7 +94,7 @@ private:
     bool noInstrumentAtomics = false;
     bool useCustomLibTsan = true;
 
-    std::map<IRDB_SDK::Instruction_t*, std::set<x86_reg>> deadRegisters;
+    std::map<IRDB_SDK::Instruction_t*, CallerSaveRegisterSet> deadRegisters;
 
     Analysis functionAnalysis;
 

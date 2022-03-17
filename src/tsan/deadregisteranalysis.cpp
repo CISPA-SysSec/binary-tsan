@@ -181,9 +181,9 @@ std::vector<int> DeadRegisterInstructionAnalysis::registerBitIndices(x86_reg reg
     return {};
 }
 
-std::set<x86_reg> DeadRegisterInstructionAnalysis::getDeadRegisters() const
+CallerSaveRegisterSet DeadRegisterInstructionAnalysis::getDeadRegisters() const
 {
-    std::set<x86_reg> result;
+    CallerSaveRegisterSet result;
     for (const auto capstoneReg : callerSaveRegisters) {
         // all subregisters must be dead for the whole register to count as dead
         bool isDead = true;
@@ -191,7 +191,7 @@ std::set<x86_reg> DeadRegisterInstructionAnalysis::getDeadRegisters() const
             isDead &= before[bit];
         }
         if (isDead) {
-            result.insert(capstoneReg);
+            Register::setCallerSaveRegister(result, capstoneReg);
         }
     }
     return result;
@@ -208,19 +208,19 @@ UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instr
         return;
     }
     for (x86_reg reg : getWrittenRegisters(decoded)) {
-        makeDefined[registerBitIndex(reg)] = true;
+        Register::setCallerSaveRegister(makeDefined, reg);
     }
     for (x86_reg reg : getReadRegisters(decoded, true)) {
-        readRegs[registerBitIndex(reg)] = true;
+        Register::setCallerSaveRegister(readRegs, reg);
     }
 
     if (isPartOfGroup(decoded, X86_GRP_CALL)) {
         // all caller save registers and flags are undefined after a function call
         makeUndefined.set();
-        makeDefined[registerBitIndex(X86_REG_RAX)] = true;
-        makeDefined[registerBitIndex(X86_REG_RDX)] = true;
-        makeDefined[registerBitIndex(X86_REG_XMM0)] = true;
-        makeDefined[registerBitIndex(X86_REG_XMM1)] = true;
+        Register::setCallerSaveRegister(makeDefined, X86_REG_RAX);
+        Register::setCallerSaveRegister(makeDefined, X86_REG_RDX);
+        Register::setCallerSaveRegister(makeDefined, X86_REG_XMM0);
+        Register::setCallerSaveRegister(makeDefined, X86_REG_XMM1);
     }
     // for the syscall instruction (while it does not define all registers, this is safer)
     if (isPartOfGroup(decoded, X86_GRP_INT)) {
@@ -228,45 +228,9 @@ UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instr
     }
 
     cs_free(decoded, 1);
-
-    makeDefined[INVALID_BIT] = 0;
-    makeUndefined[INVALID_BIT] = 0;
-    readRegs[INVALID_BIT] = 0;
 }
 
-static const std::map<x86_reg, int> undefinedRegIndexMap = {
-    {X86_REG_RAX, 0}, {X86_REG_EAX, 0}, {X86_REG_AX, 0}, {X86_REG_AH, 0}, {X86_REG_AL, 0},
-    {X86_REG_RCX, 1}, {X86_REG_ECX, 1}, {X86_REG_CX, 1}, {X86_REG_CH, 1}, {X86_REG_CL, 1},
-    {X86_REG_RDX, 2}, {X86_REG_EDX, 2}, {X86_REG_DX, 2}, {X86_REG_DH, 2}, {X86_REG_DL, 2},
-    {X86_REG_RSI, 3}, {X86_REG_ESI, 3}, {X86_REG_SI, 3}, {X86_REG_SIL, 3},
-    {X86_REG_RDI, 4}, {X86_REG_EDI, 4}, {X86_REG_DI, 4}, {X86_REG_DIL, 4},
-    {X86_REG_R8, 5}, {X86_REG_R8D, 5}, {X86_REG_R8W, 5}, {X86_REG_R8B, 5},
-    {X86_REG_R9, 6}, {X86_REG_R9D, 6}, {X86_REG_R9W, 6}, {X86_REG_R9B, 6},
-    {X86_REG_R10, 7}, {X86_REG_R10D, 7}, {X86_REG_R10W, 7}, {X86_REG_R10B, 7},
-    {X86_REG_R11, 8}, {X86_REG_R11D, 8}, {X86_REG_R11W, 8}, {X86_REG_R11B, 8},
-    {X86_REG_EFLAGS, 9},
-    {X86_REG_XMM0, {10}}, {X86_REG_XMM1, {11}}, {X86_REG_XMM2, {12}}, {X86_REG_XMM3, {13}}, {X86_REG_XMM4, {14}},
-    {X86_REG_XMM5, {15}}, {X86_REG_XMM6, {16}}, {X86_REG_XMM7, {17}}, {X86_REG_XMM8, {18}}, {X86_REG_XMM9, {19}},
-    {X86_REG_XMM10, {20}}, {X86_REG_XMM11, {21}}, {X86_REG_XMM12, {22}}, {X86_REG_XMM13, {23}}, {X86_REG_XMM14, {24}},
-    {X86_REG_XMM15, {25}},
-};
-
-int UndefinedRegisterInstructionAnalysis::registerBitIndex(x86_reg reg)
+CallerSaveRegisterSet UndefinedRegisterInstructionAnalysis::getDeadRegisters() const
 {
-    auto it = undefinedRegIndexMap.find(reg);
-    if (it != undefinedRegIndexMap.end()) {
-        return it->second;
-    }
-    return INVALID_BIT;
-}
-
-std::set<x86_reg> UndefinedRegisterInstructionAnalysis::getDeadRegisters() const
-{
-    std::set<x86_reg> result;
-    for (const auto capstoneReg : callerSaveRegisters) {
-        if (undefinedBefore[registerBitIndex(capstoneReg)]) {
-            result.insert(capstoneReg);
-        }
-    }
-    return result;
+    return undefinedBefore;
 }
