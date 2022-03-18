@@ -7,6 +7,8 @@
 #include <functional>
 #include <irdb-deep>
 
+#include "register.h"
+
 // from tsan-interface-atomic.h, do not change
 typedef enum {
     __tsan_memory_order_relaxed = 0,
@@ -40,6 +42,7 @@ public:
     std::function<void()> getInstructionCounter() { return [this](){ instrumentationInstructions++; }; }
     void countAddInstrumentationInstruction() { instrumentationInstructions++; }
     const std::set<IRDB_SDK::Function_t*>& getNoReturnFunctions() const { return noReturnFunctions; }
+    const std::map<IRDB_SDK::Function_t*, CallerSaveRegisterSet> &getWrittenRegisters() const { return functionWrittenRegisters; }
 
 private:
     std::set<IRDB_SDK::Instruction_t*> detectStaticVariableGuards(IRDB_SDK::Function_t *function) const;
@@ -49,11 +52,14 @@ private:
     bool isDataConstant(IRDB_SDK::FileIR_t *ir, IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand);
     std::set<IRDB_SDK::Instruction_t *> findSpinLocks(IRDB_SDK::ControlFlowGraph_t *cfg) const;
     std::set<IRDB_SDK::Function_t*> findNoReturnFunctions() const;
+    void computeFunctionRegisterWrites();
+    void findWrittenRegistersRecursive(IRDB_SDK::Function_t *function, std::set<IRDB_SDK::Function_t*> &visited, CapstoneHandle &capstone);
 
 private:
     IRDB_SDK::FileIR_t *ir;
 
     std::set<IRDB_SDK::Function_t*> noReturnFunctions;
+    std::map<IRDB_SDK::Function_t*, CallerSaveRegisterSet> functionWrittenRegisters;
 
     // statistics
 

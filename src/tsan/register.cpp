@@ -2,6 +2,8 @@
 
 #include <stdexcept>
 
+using namespace IRDB_SDK;
+
 std::string Register::registerToString(x86_reg reg)
 {
     if (reg >= X86_REG_XMM0 && reg <= X86_REG_XMM31) {
@@ -243,11 +245,36 @@ void Register::setCallerSaveRegister(CallerSaveRegisterSet &registers, x86_reg r
     }
 }
 
-bool Register::hasCallerSaveRegister(CallerSaveRegisterSet &registers, x86_reg reg)
+bool Register::hasCallerSaveRegister(const CallerSaveRegisterSet &registers, x86_reg reg)
 {
     int index = getCallerSaveRegisterIndex(reg);
     if (index >= 0) {
         return registers[index];
     }
     return false;
+}
+
+CallerSaveRegisterSet Register::getWrittenCallerSaveRegisters(CapstoneHandle &capstone, Instruction_t *instruction)
+{
+    CallerSaveRegisterSet writtenRegisters;
+    const std::string instructionData = instruction->getDataBits();
+    cs_insn *decoded = nullptr;
+    const int count = cs_disasm(capstone.handle, (uint8_t*)instructionData.data(), instructionData.size(), 0, 1, &decoded);
+    if (count == 0) {
+        throw std::invalid_argument("could not disassemble instruction");
+    }
+    for (int i = 0;i<decoded->detail->regs_write_count;i++) {
+        const x86_reg reg = (x86_reg)decoded->detail->regs_write[i];
+        setCallerSaveRegister(writtenRegisters, reg);
+    }
+    auto x86 = decoded->detail->x86;
+    for (int i = 0;i<x86.op_count;i++) {
+        const auto &op = x86.operands[i];
+        if (op.type == X86_OP_REG) {
+            if (op.access & CS_AC_WRITE) {
+                setCallerSaveRegister(writtenRegisters, op.reg);
+            }
+        }
+    }
+    return writtenRegisters;
 }

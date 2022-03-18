@@ -160,7 +160,7 @@ bool TSanTransform::executeStep()
             deadRegisters.clear();
 
             if (FixedPointAnalysis::canHandle(function)) {
-                RegisterAnalysisCommon deadRegisterCommon;
+                RegisterAnalysisCommon deadRegisterCommon(functionAnalysis.getWrittenRegisters());
                 const auto analysisResult = FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(function, {}, deadRegisterCommon);
                 for (const auto &[instruction, analysis] : analysisResult) {
                     deadRegisters.insert({instruction, analysis.getDeadRegisters()});

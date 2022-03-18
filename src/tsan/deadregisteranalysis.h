@@ -9,16 +9,11 @@
 
 struct RegisterAnalysisCommon
 {
-    RegisterAnalysisCommon() {
-        cs_open(CS_ARCH_X86, CS_MODE_64, &capstoneHandle);
-        cs_option(capstoneHandle, CS_OPT_DETAIL, CS_OPT_ON);
-        cs_option(capstoneHandle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
-    }
-    ~RegisterAnalysisCommon() {
-        cs_close(&capstoneHandle);
-    }
-
-    csh capstoneHandle;
+    RegisterAnalysisCommon(const std::map<IRDB_SDK::Function_t*, CallerSaveRegisterSet> &functionWrittenRegisters) :
+        functionWrittenRegisters(functionWrittenRegisters)
+    { }
+    CapstoneHandle capstoneHandle;
+    const std::map<IRDB_SDK::Function_t*, CallerSaveRegisterSet> &functionWrittenRegisters;
 };
 
 class DeadRegisterInstructionAnalysis
@@ -54,6 +49,8 @@ private:
 
     std::bitset<56> writtenRegs;
     std::bitset<56> readRegs;
+
+    CallerSaveRegisterSet writtenInFunction;
 };
 
 class UndefinedRegisterInstructionAnalysis
@@ -70,6 +67,7 @@ public:
     // returns true if the data has changed
     inline bool mergeFrom(const UndefinedRegisterInstructionAnalysis &predecessor) {
         const auto prevBefore = undefinedBefore;
+        // TODO: das kann auch verundet werden
         undefinedBefore |= predecessor.undefinedAfter;
         return undefinedBefore != prevBefore;
     }

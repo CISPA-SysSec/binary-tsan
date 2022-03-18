@@ -93,7 +93,7 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
 {
     const std::string instructionData = instruction->getDataBits();
     cs_insn *decoded = nullptr;
-    const int count = cs_disasm(common.capstoneHandle, (uint8_t*)instructionData.data(), instructionData.size(), 0, 1, &decoded);
+    const int count = cs_disasm(common.capstoneHandle.handle, (uint8_t*)instructionData.data(), instructionData.size(), 0, 1, &decoded);
     if (count == 0) {
         std::cout <<"ERROR: no disassembly!"<<std::endl;
         return;
@@ -128,15 +128,27 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
             setBits(readRegs, static_cast<x86_reg>(X86_REG_XMM0 + i));
         }
 
-        // all caller save registers and flags are dirtied
-        writtenRegs.set();
+        if (instruction->getTarget() != nullptr) {
+            auto targetIt = common.functionWrittenRegisters.find(instruction->getTarget()->getFunction());
+            if (targetIt != common.functionWrittenRegisters.end()) {
+                for (auto reg : callerSaveRegisters) {
+                    // TODO: what if only a subregister is written?
+                    if (Register::hasCallerSaveRegister(targetIt->second, reg)) {
+                        setBits(writtenRegs, reg);
+                    }
+                }
+            }
+        } else {
+            writtenRegs.set();
+        }
+
 
         // TODO: handle known common functions like stack_chk_fail
     }
     // for the syscall instruction (while it does not read and write all registers, this is safe enough)
     if (isPartOfGroup(decoded, X86_GRP_INT)) {
         readRegs.set();
-        writtenRegs.set();
+        // TODO: determine which registers are definitely written
     }
     // TODO: jumps that leave the function
 
@@ -145,6 +157,11 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
     // initially consider all registers dead
     before.set();
     after.set();
+
+    auto ownFunctionIt = common.functionWrittenRegisters.find(instruction->getFunction());
+    if (ownFunctionIt != common.functionWrittenRegisters.end()) {
+        writtenInFunction = ownFunctionIt->second;
+    }
 }
 
 void DeadRegisterInstructionAnalysis::setBits(std::bitset<56> &bitset, x86_reg reg)
@@ -194,7 +211,8 @@ CallerSaveRegisterSet DeadRegisterInstructionAnalysis::getDeadRegisters() const
             Register::setCallerSaveRegister(result, capstoneReg);
         }
     }
-    return result;
+    // only registers written in the function can be dead
+    return result & writtenInFunction;
 }
 
 // TODO: am anfang der funktion sind register die nicht für argumente da sind undefiniert (aufpassen mit EH handlern)
@@ -202,7 +220,7 @@ UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instr
 {
     const std::string instructionData = instruction->getDataBits();
     cs_insn *decoded = nullptr;
-    const int count = cs_disasm(common.capstoneHandle, (uint8_t*)instructionData.data(), instructionData.size(), 0, 1, &decoded);
+    const int count = cs_disasm(common.capstoneHandle.handle, (uint8_t*)instructionData.data(), instructionData.size(), 0, 1, &decoded);
     if (count == 0) {
         std::cout <<"ERROR: no disassembly!"<<std::endl;
         return;

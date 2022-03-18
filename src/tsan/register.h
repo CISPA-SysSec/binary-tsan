@@ -1,11 +1,27 @@
 #ifndef REGISTER_H
 #define REGISTER_H
 
+#include <capstone/capstone.h>
 #include <capstone/x86.h>
 #include <string>
 #include <irdb-util>
 
 using CallerSaveRegisterSet = std::bitset<26>;
+
+class CapstoneHandle
+{
+public:
+    CapstoneHandle() {
+        cs_open(CS_ARCH_X86, CS_MODE_64, &handle);
+        cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON);
+        cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
+    }
+    ~CapstoneHandle() {
+        cs_close(&handle);
+    }
+
+    csh handle;
+};
 
 namespace Register
 {
@@ -16,7 +32,9 @@ namespace Register
     // all non caller-save registers are ignored
     // subregisters like eax are upgraded to their 64-bit variant (rax)
     void setCallerSaveRegister(CallerSaveRegisterSet &registers, x86_reg reg);
-    bool hasCallerSaveRegister(CallerSaveRegisterSet &registers, x86_reg reg);
+    bool hasCallerSaveRegister(const CallerSaveRegisterSet &registers, x86_reg reg);
+
+    CallerSaveRegisterSet getWrittenCallerSaveRegisters(CapstoneHandle &capstone, IRDB_SDK::Instruction_t *instruction);
 };
 
 #endif // REGISTER_H

@@ -13,6 +13,7 @@ Analysis::Analysis(FileIR_t *ir) :
     ir(ir)
 {
     noReturnFunctions = findNoReturnFunctions();
+    computeFunctionRegisterWrites();
 }
 
 static bool isLeafFunction(const Function_t *function)
@@ -342,11 +343,66 @@ std::set<Function_t*> Analysis::findNoReturnFunctions() const
         checkNoReturnRecursive(function, noReturnFunctions, visited);
     }
 
-//    for (auto f : noReturnFunctions) {
-//        std::cout <<"no return: "<<std::hex<<f->getEntryPoint()->getAddress()->getVirtualOffset()<<" "<<f->getName()<<std::endl;
-//    }
-
     return noReturnFunctions;
+}
+
+void Analysis::findWrittenRegistersRecursive(IRDB_SDK::Function_t *function, std::set<IRDB_SDK::Function_t*> &visited, CapstoneHandle &capstone)
+{
+    if (function == nullptr) {
+        return;
+    }
+    if (visited.find(function) != visited.end()) {
+        return;
+    }
+    visited.insert(function);
+
+    CallerSaveRegisterSet writtenRegisters;
+    for (Instruction_t *instruction : function->getInstructions()) {
+        writtenRegisters |= Register::getWrittenCallerSaveRegisters(capstone, instruction);
+    }
+    // set it here first in case of some indirect recursive functions
+    functionWrittenRegisters[function] = writtenRegisters;
+
+    for (Instruction_t *instruction : function->getInstructions()) {
+        const auto decoded = DecodedInstruction_t::factory(instruction);
+        // do not consider tail call jumps to a register since they could also stay in the function (switch tables or similar)
+        if (decoded->isUnconditionalBranch() && instruction->getTarget() != nullptr && instruction->getTarget()->getFunction() != function) {
+            Function_t *targetFunction = instruction->getTarget()->getFunction();
+            findWrittenRegistersRecursive(targetFunction, visited, capstone);
+            writtenRegisters |= functionWrittenRegisters[targetFunction];
+        } else if (decoded->isUnconditionalBranch() && instruction->getTarget() == nullptr && instruction->getRelocations().size() > 0) {
+            // for a thunk, consider it to write all caller save registers
+            writtenRegisters.set();
+            break;
+        }
+        if (decoded->isCall()) {
+            // indirect calls are considered to write all registers
+            if (instruction->getTarget() == nullptr) {
+                writtenRegisters.set();
+                break;
+            } else if (instruction->getTarget()->getFunction() != function) {
+                Function_t *targetFunction = instruction->getTarget()->getFunction();
+                findWrittenRegistersRecursive(targetFunction, visited, capstone);
+                writtenRegisters |= functionWrittenRegisters[targetFunction];
+            }
+        }
+    }
+    functionWrittenRegisters[function] = writtenRegisters;
+}
+
+void Analysis::computeFunctionRegisterWrites()
+{
+    std::set<Function_t*> visited;
+    CapstoneHandle capstone;
+    for (Function_t *function : ir->getFunctions()) {
+        findWrittenRegistersRecursive(function, visited, capstone);
+    }
+//    for (Function_t *function : ir->getFunctions()) {
+//        auto regs = functionWrittenRegisters[function];
+//        if (regs.count() != regs.size()) {
+//            std::cout <<function->getName()<<" "<<regs.count()<<std::endl;
+//        }
+//    }
 }
 
 bool Analysis::isDataConstant(FileIR_t *ir, Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand)
