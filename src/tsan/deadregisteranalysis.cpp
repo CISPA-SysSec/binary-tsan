@@ -142,7 +142,6 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
             writtenRegs.set();
         }
 
-
         // TODO: handle known common functions like stack_chk_fail
     }
     // for the syscall instruction (while it does not read and write all registers, this is safe enough)
@@ -234,7 +233,15 @@ UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instr
 
     if (isPartOfGroup(decoded, X86_GRP_CALL)) {
         // all caller save registers and flags are undefined after a function call
-        makeUndefined.set();
+        if (instruction->getTarget() != nullptr) {
+            auto targetIt = common.functionWrittenRegisters.find(instruction->getTarget()->getFunction());
+            if (targetIt != common.functionWrittenRegisters.end()) {
+                makeUndefined = targetIt->second;
+            }
+        } else {
+            makeUndefined.set();
+        }
+
         Register::setCallerSaveRegister(makeDefined, X86_REG_RAX);
         Register::setCallerSaveRegister(makeDefined, X86_REG_RDX);
         Register::setCallerSaveRegister(makeDefined, X86_REG_XMM0);
