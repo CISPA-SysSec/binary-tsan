@@ -11,6 +11,7 @@
 #include "protobuf/instrumentationmap.pb.h"
 #include "analysis.h"
 #include "register.h"
+#include "helper.h"
 
 enum RemoveOption {
     REMOVE_ORIGINAL_INSTRUCTION,
@@ -67,6 +68,18 @@ private:
     std::optional<OperationInstrumentation> getRepInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::unique_ptr<IRDB_SDK::DecodedInstruction_t> &decoded) const;
     std::optional<OperationInstrumentation> getConditionalInstrumentation(const std::unique_ptr<IRDB_SDK::DecodedInstruction_t> &decoded,
                                                                           const std::shared_ptr<IRDB_SDK::DecodedOperand_t> &operand) const;
+
+    struct SaveStateInfo {
+        std::vector<std::string> xmmRegistersToSave;
+        std::vector<std::string> generalPurposeRegistersToSave;
+        int directStackOffset;
+        // the number of bytes between the rsp before and after saving the registers
+        int totalStackOffset;
+        bool flagsAreSaved;
+    };
+    SaveStateInfo saveStateToStack(InstructionInserter &inserter, IRDB_SDK::Instruction_t *before, bool preserveFlags,
+                                   const std::vector<std::string> &ignoreRegisters, const FunctionInfo &info);
+    void restoreStateFromStack(const SaveStateInfo &state, InstructionInserter &inserter);
 
 private:
     struct Instrumentation {
