@@ -21,13 +21,9 @@ export ZIPR_PLUGIN_PATH=$ZIPR_PLUGIN_PATH:@ZIPR_PLUGIN_PATH@
 cd $last
 
 # the basic run command without additional tsan options
-runCommand="$PSZ $1 $2 -c rida -c move_globals -o --elftables-only -o --no-use-stars --step-option zipr:\"--zipr:seed 42\" -c tsan -o --register-analysis=custom"
-
-file $1 |egrep  "ELF.*shared object" > /dev/null 2>&1 
-if [ $? = 0 ]; then
-    echo "Detected ELF shared object, not adding libtsan.so dependency"
-    runCommand="${runCommand} -o --no-add-libtsan-dependency"
-fi
+inputbase=$(basename $1)
+tempdir=tsan_temp.${inputbase}.$$
+runCommand="$PSZ $1 $2 --tempdir ${tempdir} -c rida -c move_globals -o --elftables-only -o --no-use-stars --step-option zipr:\"--zipr:seed 42\" -c tsan -o --register-analysis=custom"
 
 # add tsan options to the run command
 i=$(($#-3))
@@ -39,3 +35,10 @@ done
 
 # run the binary tsan
 eval $runCommand
+
+# copy and rename instrumentation info file
+if [ $? -eq 0 ]
+then
+    outputbase=$(basename $2)
+    cp ${tempdir}/tsan-instrumentation-info.dat ${outputbase}.instrinfo
+fi
