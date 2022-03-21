@@ -11,6 +11,7 @@
 #include "protobuf/instrumentationmap.pb.h"
 #include "analysis.h"
 #include "register.h"
+#include "annotations.h"
 #include "helper.h"
 
 enum RemoveOption {
@@ -68,6 +69,7 @@ private:
     std::optional<OperationInstrumentation> getRepInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::unique_ptr<IRDB_SDK::DecodedInstruction_t> &decoded) const;
     std::optional<OperationInstrumentation> getConditionalInstrumentation(const std::unique_ptr<IRDB_SDK::DecodedInstruction_t> &decoded,
                                                                           const std::shared_ptr<IRDB_SDK::DecodedOperand_t> &operand) const;
+    void instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, const std::vector<HappensBeforeAnnotation> &annotations, const FunctionInfo &info);
 
     struct SaveStateInfo {
         std::vector<std::string> xmmRegistersToSave;
@@ -106,6 +108,7 @@ private:
     bool useUndefinedRegisterAnalysis = false;
     bool noInstrumentAtomics = false;
     bool useCustomLibTsan = true;
+    Annotations annotations;
 
     std::map<IRDB_SDK::Instruction_t*, CallerSaveRegisterSet> deadRegisters;
 
@@ -138,6 +141,9 @@ private:
     std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicFetchXor;
     // int(int*, int, int, __tsan_memory_order, __tsan_memory_order)
     std::array<IRDB_SDK::Instruction_t*, 17> tsanAtomicCompareExchangeVal;
+    // void(int*)
+    IRDB_SDK::Instruction_t *tsanAcquire;
+    IRDB_SDK::Instruction_t *tsanRelease;
 
     const std::string MOVE_OPERAND_RDI = "__move_operand_to_rdi";
 };

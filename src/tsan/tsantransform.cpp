@@ -37,8 +37,7 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
         // should be an absolute path to be useful
         const std::string dumpFunctionsOption = "--dumpFunctionNamesTo=";
         if (startsWith(option, dumpFunctionsOption)) {
-            std::string filename = option;
-            filename.erase(filename.begin(), filename.begin() + dumpFunctionsOption.size());
+            const std::string filename(option.begin() + dumpFunctionsOption.size(), option.end());
             std::cout <<"Dumping function names to: "<<filename<<std::endl;
             FileIR_t *ir = getFileIR();
             ofstream file(filename, ios_base::binary);
@@ -54,8 +53,7 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
         // should be an absolute path to be useful
         const std::string instrumentOnlyOption = "--instrumentOnlyFunctions=";
         if (startsWith(option, instrumentOnlyOption)) {
-            std::string filename = option;
-            filename.erase(filename.begin(), filename.begin() + instrumentOnlyOption.size());
+            const std::string filename(option.begin() + instrumentOnlyOption.size(), option.end());
             std::cout <<"Reading filenames from: "<<filename<<std::endl;
             ifstream file(filename);
             if (!file) {
@@ -67,6 +65,15 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
                 instrumentOnlyFunctions.insert(line);
             }
             std::cout <<"Loaded "<<instrumentOnlyFunctions.size()<<" functions to instrument"<<std::endl;
+            continue;
+        }
+        const std::string annotationsOptions = "--annotations=";
+        if (startsWith(option, annotationsOptions)) {
+            const std::string filename(option.begin() + annotationsOptions.size(), option.end());
+            const bool res = annotations.parseFromFile(getFileIR(), filename);
+            if (!res) {
+                throw std::invalid_argument("Could not load annotations!");
+            }
             continue;
         }
         if (option == "--register-analysis=stars") {
@@ -295,6 +302,67 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
     }
     if (!isSimpleReturn) {
         inserter.insertAssembly("add rsp, 0xff");
+    }
+}
+
+void TSanTransform::instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, const std::vector<HappensBeforeAnnotation> &annotations, const FunctionInfo &info)
+{
+    InstructionInserter inserter(getFileIR(), instruction, functionAnalysis.getInstructionCounter(), dryRun);
+    std::vector<HappensBeforeAnnotation> afterAnnotations;
+    for (const auto &annotation : annotations) {
+        if (annotation.isBefore) {
+            const SaveStateInfo saveState = saveStateToStack(inserter, instruction, true, {}, info);
+            if (annotation.registerForPointer != "rdi") {
+                inserter.insertAssembly("mov rdi, " + annotation.registerForPointer);
+            }
+            // TODO: these functions might not be sse safe
+            Instruction_t *target = annotation.operation == HappensBeforeOperation::Acquire ? tsanAcquire : tsanRelease;
+            inserter.insertAssembly("call 0", target);
+            restoreStateFromStack(saveState, inserter);
+        } else {
+            afterAnnotations.push_back(annotation);
+        }
+    }
+    if (afterAnnotations.size() == 0) {
+        return;
+    }
+
+    const auto decoded = DecodedInstruction_t::factory(instruction);
+    if (!decoded->isCall()) {
+        std::cout <<"WARNING: skipping after annotations for instruction: "<<disassembly(instruction)<<std::endl;
+        return;
+    }
+
+    for (const auto &annot : afterAnnotations) {
+        inserter.insertAssembly("push " + annot.registerForPointer);
+    }
+    // the stack must be aligned to 16 bytes for a function call
+    if (afterAnnotations.size() % 2 == 1) {
+        inserter.insertAssembly("sub rsp, 8");
+    }
+    inserter.insertAssembly("call 0", afterAnnotations[0].function->getEntryPoint());
+    if (afterAnnotations.size() % 2 == 1) {
+        inserter.insertAssembly("add rsp, 8");
+    }
+    // TODO: this does not work if registerForPointer is rax or rdx
+    for (auto it = afterAnnotations.rbegin();it!=afterAnnotations.rend();it++) {
+        inserter.insertAssembly("pop " + it->registerForPointer);
+    }
+
+    for (const auto &annotation : afterAnnotations) {
+        const SaveStateInfo saveState = saveStateToStack(inserter, nullptr, true, {}, info);
+        if (annotation.registerForPointer != "rdi") {
+            inserter.insertAssembly("mov rdi, " + annotation.registerForPointer);
+        }
+        // TODO: these functions might not be sse safe
+        Instruction_t *target = annotation.operation == HappensBeforeOperation::Acquire ? tsanAcquire : tsanRelease;
+        inserter.insertAssembly("call 0", target);
+        restoreStateFromStack(saveState, inserter);
+    }
+
+    if (!dryRun) {
+        auto inserted = inserter.getLastInserted();
+        inserted->setFallthrough(inserted->getFallthrough()->getFallthrough());
     }
 }
 
@@ -882,6 +950,8 @@ void TSanTransform::registerDependencies()
     }
     tsanReadRange = elfDeps->appendPltEntry("__tsan_read_range");
     tsanWriteRange = elfDeps->appendPltEntry("__tsan_write_range");
+    tsanAcquire = elfDeps->appendPltEntry("__tsan_acquire");
+    tsanRelease = elfDeps->appendPltEntry("__tsan_release");
 
     getFileIR()->assembleRegistry();
 }

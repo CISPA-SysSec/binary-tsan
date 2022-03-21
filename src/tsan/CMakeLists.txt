@@ -16,6 +16,8 @@ add_executable(tsan
     register.h
     exceptionhandling.cpp
     exceptionhandling.h
+    annotations.cpp
+    annotations.h
 )
 target_link_libraries(tsan
     PRIVATE irdb-sdk
