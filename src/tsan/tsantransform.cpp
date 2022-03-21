@@ -205,6 +205,10 @@ bool TSanTransform::executeStep()
             }
         }
 
+        // make a copy of the instruction set before changing it
+        const std::set<Instruction_t*> instructions = function->getInstructions();
+
+        // instrument all memory operations
         for (Instruction_t *instruction : info.instructionsToInstrument) {
             const auto decoded = DecodedInstruction_t::factory(instruction);
             const DecodedOperandVector_t operands = decoded->getOperands();
@@ -220,6 +224,21 @@ bool TSanTransform::executeStep()
                     }
                 }
             }
+        }
+
+        // add instrumentation for the annotations
+        getFileIR()->assembleRegistry();
+        for (Instruction_t *instruction : instructions) {
+            if (instruction->getTarget() == nullptr || instruction->getTarget()->getFunction() == nullptr) {
+                continue;
+            }
+            auto targetFunction = instruction->getTarget()->getFunction();
+            auto annotationIt = annotations.happensBefore.find(targetFunction);
+            if (annotationIt == annotations.happensBefore.end()) {
+                continue;
+            }
+            std::cout <<"Add instrumentation for annotation at: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<std::endl;
+            instrumentAnnotation(instruction, annotationIt->second, info);
         }
 
         if (info.addEntryExitInstrumentation && instrumentFunctionEntryExit) {
