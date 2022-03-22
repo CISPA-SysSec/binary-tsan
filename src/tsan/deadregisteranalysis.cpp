@@ -25,7 +25,8 @@ static bool isFalseRead(cs_insn *decoded)
 {
     // instructions like xor eax, eax do not read eax for practical purposes
     const bool isXorOrSbb = std::string(decoded->mnemonic) == "xor" || std::string(decoded->mnemonic) == "sbb" ||
-            std::string(decoded->mnemonic) == "pxor" || std::string(decoded->mnemonic) == "xorps";
+            std::string(decoded->mnemonic) == "pxor" || std::string(decoded->mnemonic) == "xorps" ||
+            std::string(decoded->mnemonic) == "xorpd";
     auto x86 = decoded->detail->x86;
     const bool sameRegisters = x86.op_count == 2 && x86.operands[0].type == X86_OP_REG && x86.operands[1].type == X86_OP_REG && x86.operands[0].reg == x86.operands[1].reg;
     if (isXorOrSbb && sameRegisters) {
@@ -46,9 +47,14 @@ static std::vector<x86_reg> getReadRegisters(cs_insn *decoded, bool checkFalseRe
 {
     std::vector<x86_reg> readRegisters;
     readRegisters.reserve(decoded->detail->regs_read_count + 1);
+    const bool isRepInstruction = startsWith(decoded->mnemonic, "rep ") || startsWith(decoded->mnemonic, "repe ");
     for (int i = 0;i<decoded->detail->regs_read_count;i++) {
         const x86_reg reg = (x86_reg)decoded->detail->regs_read[i];
-        readRegisters.push_back(reg);
+        // the rep instructions are classified as reading the eflags register,
+        // but they do not depend on the values of the eflags before the instruction
+        if (reg != X86_REG_EFLAGS || !isRepInstruction) {
+            readRegisters.push_back(reg);
+        }
     }
     // instructions like xor rax, rax do not read their explicit operands for practical purposes
     if (checkFalseReads && isFalseRead(decoded)) {
