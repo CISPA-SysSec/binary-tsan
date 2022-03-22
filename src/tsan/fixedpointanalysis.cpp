@@ -36,27 +36,16 @@ struct InstructionInfo {
     InstructionAnalysis data;
 };
 
-static bool isNoReturnCall(Instruction_t *instruction,  const std::set<IRDB_SDK::Function_t*> &noReturnFunctions)
-{
-    const auto decoded = DecodedInstruction_t::factory(instruction);
-    if (!decoded->isCall() || instruction->getTarget() == nullptr) {
-        return false;
-    }
-    // currently not included in the no return analysis
-    const bool isUnwindResume = targetFunctionName(instruction) == "_Unwind_Resumepart1@plt";
-    return noReturnFunctions.find(instruction->getTarget()->getFunction()) != noReturnFunctions.end() || isUnwindResume;
-}
-
 // TODO: deal with exit node -> entry node loop and nop blocks
 template<typename InstructionAnalysis, typename AnalysisCommon>
 std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runAnalysis(
-        Function_t *function,
-        const std::set<IRDB_SDK::Function_t*> &noReturnFunctions,
+        ControlFlowGraph_t *cfg,
+        const std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> &removeEdges,
         const AnalysisCommon &commonData)
 {
     using InstructionIndex = int;
 
-    const auto &allInstructions = function->getInstructions();
+    const auto &allInstructions = cfg->getFunction()->getInstructions();
 
     // initialize basic data
     std::vector<InstructionInfo<InstructionAnalysis, AnalysisCommon>> instructionData;
@@ -69,15 +58,14 @@ std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runA
     }
 
     // fill in instruction predecessors
-    const auto cfg = ControlFlowGraph_t::factory(function);
     for (const auto block : cfg->getBlocks()) {
         const auto &instructions = block->getInstructions();
         for (std::size_t i = 0;i<instructions.size();i++) {
             auto &info = instructionData[instructionIndexMap[instructions[i]]];
             if (InstructionAnalysis::isForwardAnalysis()) {
                 if (i == instructions.size()-1) {
-                    if (!isNoReturnCall(instructions[i], noReturnFunctions)) {
-                        for (const auto succ : block->getSuccessors()) {
+                    for (const auto succ : block->getSuccessors()) {
+                        if (removeEdges.find({block, succ}) == removeEdges.end()) {
                             info.nextInstructions.push_back(instructionIndexMap[succ->getInstructions()[0]]);
                         }
                     }
@@ -87,8 +75,8 @@ std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runA
             } else {
                 if (i == 0) {
                     for (const auto pred : block->getPredecessors()) {
-                        Instruction_t *prevInstruction = pred->getInstructions().back();
-                        if (!isNoReturnCall(prevInstruction, noReturnFunctions)) {
+                        if (removeEdges.find({pred, block}) == removeEdges.end()) {
+                            Instruction_t *prevInstruction = pred->getInstructions().back();
                             info.nextInstructions.push_back(instructionIndexMap[prevInstruction]);
                         }
                     }
@@ -204,5 +192,5 @@ std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(Function_t *f
 #include "pointeranalysis.h"
 template std::map<Instruction_t *, PointerAnalysis> FixedPointAnalysis::runForward<PointerAnalysis>(Function_t *function, PointerAnalysis atFunctionEntry);
 #include "deadregisteranalysis.h"
-template std::map<Instruction_t*, DeadRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(Function_t *function, const std::set<IRDB_SDK::Function_t*> &noReturnFunctions, const RegisterAnalysisCommon&);
-template std::map<Instruction_t*, UndefinedRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(Function_t *function, const std::set<IRDB_SDK::Function_t*> &noReturnFunctions, const RegisterAnalysisCommon&);
+template std::map<Instruction_t*, DeadRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(ControlFlowGraph_t *function, const std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> &noReturnFunctions, const RegisterAnalysisCommon&);
+template std::map<Instruction_t*, UndefinedRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(ControlFlowGraph_t *function, const std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> &noReturnFunctions, const RegisterAnalysisCommon&);

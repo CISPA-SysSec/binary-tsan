@@ -25,7 +25,6 @@ std::string CFGToDot::createDotFromCFG(const std::unique_ptr<ControlFlowGraph_t>
     std::stringstream result;
 
     result <<"digraph \"CFG\" {"<<std::endl;
-    result <<"size = \"5, 10\";"<<std::endl;
 //    result <<"splines = ortho;"<<std::endl;
     result <<"margin=0;"<<std::endl;
     for (const auto block : cfg->getBlocks()) {

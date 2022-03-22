@@ -2,6 +2,7 @@
 #define FIXEDPOINTANALYSIS_H
 
 #include <irdb-core>
+#include <irdb-cfg>
 
 namespace FixedPointAnalysis
 {
@@ -14,8 +15,8 @@ namespace FixedPointAnalysis
 
     template<typename BackwardsInstructionAnalysis, typename AnalysisCommon>
     std::map<IRDB_SDK::Instruction_t*, BackwardsInstructionAnalysis> runAnalysis(
-            IRDB_SDK::Function_t *function,
-            const std::set<IRDB_SDK::Function_t*> &noReturnFunctions,
+            IRDB_SDK::ControlFlowGraph_t *cfg,
+            const std::set<std::pair<IRDB_SDK::BasicBlock_t*, IRDB_SDK::BasicBlock_t*>> &removeEdges,
             const AnalysisCommon &commonData);
 
     // TODO: check for syscalls

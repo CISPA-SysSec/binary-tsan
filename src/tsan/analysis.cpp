@@ -690,6 +690,17 @@ std::set<Instruction_t*> Analysis::detectStaticVariableGuards(Function_t *functi
     return result;
 }
 
+bool Analysis::isNoReturnCall(Instruction_t *instruction) const
+{
+    const auto decoded = DecodedInstruction_t::factory(instruction);
+    if (!decoded->isCall() || instruction->getTarget() == nullptr) {
+        return false;
+    }
+    // currently not included in the no return analysis
+    const bool isUnwindResume = targetFunctionName(instruction) == "_Unwind_Resumepart1@plt";
+    return noReturnFunctions.find(instruction->getTarget()->getFunction()) != noReturnFunctions.end() || isUnwindResume;
+}
+
 void Analysis::printStatistics() const
 {
     std::cout <<std::dec;

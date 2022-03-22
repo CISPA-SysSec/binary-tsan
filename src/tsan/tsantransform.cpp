@@ -167,13 +167,45 @@ bool TSanTransform::executeStep()
             deadRegisters.clear();
 
             if (FixedPointAnalysis::canHandle(function)) {
+                const auto cfg = ControlFlowGraph_t::factory(function);
                 RegisterAnalysisCommon deadRegisterCommon(functionAnalysis.getWrittenRegisters());
-                const auto analysisResult = FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(function, {}, deadRegisterCommon);
+                const auto analysisResult = FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(&*cfg, {}, deadRegisterCommon);
                 for (const auto &[instruction, analysis] : analysisResult) {
                     deadRegisters.insert({instruction, analysis.getDeadRegisters()});
                 }
                 if (useUndefinedRegisterAnalysis) {
-                    const auto undefinedResult = FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(function, functionAnalysis.getNoReturnFunctions(), deadRegisterCommon);
+                    std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> removeEdges;
+                    for (const auto block : cfg->getBlocks()) {
+                        const auto lastInstruction = block->getInstructions().back();
+                        const auto lastDecoded = DecodedInstruction_t::factory(lastInstruction);
+                        if (!lastDecoded->isCall()) {
+                            continue;
+                        }
+                        if (functionAnalysis.isNoReturnCall(lastInstruction)) {
+                            for (const auto succ : block->getSuccessors()) {
+                                removeEdges.insert({block, succ});
+                            }
+                            continue;
+                        }
+                        for (const auto succ : block->getSuccessors()) {
+                            const auto &edgeType = cfg->getEdgeType(block, succ);
+                            if (edgeType.find(cetFallthroughEdge) == edgeType.end()) {
+                                continue;
+                            }
+                            const auto instruction = succ->getInstructions()[0];
+                            const auto decoded = DecodedInstruction_t::factory(instruction);
+                            if (succ->getInstructions().size() == 1 && decoded->getMnemonic() == "nop") {
+                                if (succ->getSuccessors().size() > 0 && (*succ->getSuccessors().begin())->getPredecessors().size() == 1) {
+                                    continue;
+                                }
+                            } else if (succ->getPredecessors().size() == 1) {
+                                continue;
+                            }
+                            removeEdges.insert({block, succ});
+//                            std::cout <<"Remove edge: "<<function->getName()<<" "<<std::hex<<lastInstruction->getAddress()->getVirtualOffset()<<" "<<disassembly(lastInstruction)<<std::endl;
+                        }
+                    }
+                    const auto undefinedResult = FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(&*cfg, removeEdges, deadRegisterCommon);
                     const bool hasProblem = std::any_of(undefinedResult.begin(), undefinedResult.end(), [](const auto &r) {
                         return r.second.hasProblem();
                     });

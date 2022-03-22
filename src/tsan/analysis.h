@@ -41,7 +41,7 @@ public:
     void printStatistics() const;
     std::function<void()> getInstructionCounter() { return [this](){ instrumentationInstructions++; }; }
     void countAddInstrumentationInstruction() { instrumentationInstructions++; }
-    const std::set<IRDB_SDK::Function_t*>& getNoReturnFunctions() const { return noReturnFunctions; }
+    bool isNoReturnCall(IRDB_SDK::Instruction_t *instruction) const;
     const std::map<IRDB_SDK::Function_t*, CallerSaveRegisterSet> &getWrittenRegisters() const { return functionWrittenRegisters; }
 
 private:

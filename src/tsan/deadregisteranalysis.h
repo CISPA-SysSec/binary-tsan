@@ -67,7 +67,6 @@ public:
     // returns true if the data has changed
     inline bool mergeFrom(const UndefinedRegisterInstructionAnalysis &predecessor) {
         const auto prevBefore = undefinedBefore;
-        // TODO: das kann auch verundet werden
         undefinedBefore |= predecessor.undefinedAfter;
         return undefinedBefore != prevBefore;
     }
