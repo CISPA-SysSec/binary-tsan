@@ -24,7 +24,8 @@ static bool isPartOfGroup(const cs_insn *instruction, const x86_insn_group group
 static bool isFalseRead(cs_insn *decoded)
 {
     // instructions like xor eax, eax do not read eax for practical purposes
-    const bool isXorOrSbb = std::string(decoded->mnemonic) == "xor" || std::string(decoded->mnemonic) == "sbb" || std::string(decoded->mnemonic) == "pxor";
+    const bool isXorOrSbb = std::string(decoded->mnemonic) == "xor" || std::string(decoded->mnemonic) == "sbb" ||
+            std::string(decoded->mnemonic) == "pxor" || std::string(decoded->mnemonic) == "xorps";
     auto x86 = decoded->detail->x86;
     const bool sameRegisters = x86.op_count == 2 && x86.operands[0].type == X86_OP_REG && x86.operands[1].type == X86_OP_REG && x86.operands[0].reg == x86.operands[1].reg;
     if (isXorOrSbb && sameRegisters) {
@@ -85,6 +86,10 @@ static std::vector<x86_reg> getWrittenRegisters(cs_insn *decoded)
                 writtenRegisters.push_back(op.reg);
             }
         }
+    }
+    // add registers that are missing in the capstone list
+    if (decoded->mnemonic == std::string("lock cmpxchg") || decoded->mnemonic == std::string("cmpxchg")) {
+        writtenRegisters.push_back(X86_REG_EFLAGS);
     }
     return writtenRegisters;
 }
