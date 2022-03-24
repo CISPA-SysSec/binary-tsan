@@ -4,6 +4,7 @@
 
 using namespace IRDB_SDK;
 
+// TODO: use cs_reg_name instead
 std::string Register::registerToString(x86_reg reg)
 {
     if (reg >= X86_REG_XMM0 && reg <= X86_REG_XMM31) {
@@ -237,6 +238,37 @@ static int getCallerSaveRegisterIndex(x86_reg reg)
     }
 }
 
+x86_reg Register::getCallerSaveRegisterForIndex(size_t index)
+{
+    if (index >= 10 && index < 26) {
+        return static_cast<x86_reg>(X86_REG_XMM0 + index - 10);
+    }
+    switch (index) {
+    case 0:
+        return X86_REG_RAX;
+    case 1:
+        return X86_REG_RCX;
+    case 2:
+        return X86_REG_RDX;
+    case 3:
+        return X86_REG_RSI;
+    case 4:
+        return X86_REG_RDI;
+    case 5:
+        return X86_REG_R8;
+    case 6:
+        return X86_REG_R9;
+    case 7:
+        return X86_REG_R10;
+    case 8:
+        return X86_REG_R11;
+    case 9:
+        return X86_REG_EFLAGS;
+    default:
+        return X86_REG_INVALID;
+    }
+}
+
 void Register::setCallerSaveRegister(CallerSaveRegisterSet &registers, x86_reg reg)
 {
     int index = getCallerSaveRegisterIndex(reg);
@@ -277,4 +309,23 @@ CallerSaveRegisterSet Register::getWrittenCallerSaveRegisters(CapstoneHandle &ca
         }
     }
     return writtenRegisters;
+}
+
+CallerSaveRegisterSet Register::registerSet(const std::vector<x86_reg> &regs)
+{
+    CallerSaveRegisterSet result;
+    for (auto reg : regs) {
+        Register::setCallerSaveRegister(result, reg);
+    }
+    return result;
+}
+
+CallerSaveRegisterSet Register::xmmRegisterSet()
+{
+    CallerSaveRegisterSet result;
+    auto baseIndex = getCallerSaveRegisterIndex(X86_REG_XMM0);
+    for (int i = 0;i<16;i++) {
+        result[baseIndex + i] = true;
+    }
+    return result;
 }

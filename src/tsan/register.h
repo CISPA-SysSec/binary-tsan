@@ -34,6 +34,11 @@ namespace Register
     void setCallerSaveRegister(CallerSaveRegisterSet &registers, x86_reg reg);
     bool hasCallerSaveRegister(const CallerSaveRegisterSet &registers, x86_reg reg);
 
+    x86_reg getCallerSaveRegisterForIndex(std::size_t index);
+
+    CallerSaveRegisterSet registerSet(const std::vector<x86_reg> &regs);
+    CallerSaveRegisterSet xmmRegisterSet();
+
     CallerSaveRegisterSet getWrittenCallerSaveRegisters(CapstoneHandle &capstone, IRDB_SDK::Instruction_t *instruction);
 };
 
