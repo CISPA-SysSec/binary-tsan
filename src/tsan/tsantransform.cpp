@@ -297,7 +297,7 @@ void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *ins
 {
     // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)
     FileIR_t *ir = getFileIR();
-    const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, Register::xmmRegisterSet());
+    const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, Register::xmmRegisterSet() | tsanFunctionEntry.preserveRegisters);
     InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(), dryRun);
 
     // for this to work without any additional rsp wrangling, it must be inserted at the very start of the function
@@ -331,7 +331,7 @@ void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *ins
 void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
 {
     FileIR_t *ir = getFileIR();
-    const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, Register::xmmRegisterSet());
+    const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, Register::xmmRegisterSet() | tsanFunctionExit.preserveRegisters);
     InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(), dryRun);
 
     const auto decoded = DecodedInstruction_t::factory(insertBefore);
@@ -1029,8 +1029,13 @@ void TSanTransform::registerDependencies()
             elfDeps->prependLibraryDepedencies("libtsan.so.0");
         }
     }
-    tsanFunctionEntry = elfDeps->appendPltEntry("__tsan_func_entry");
-    tsanFunctionExit = elfDeps->appendPltEntry("__tsan_func_exit");
+    if (useWrapperFunctions) {
+        tsanFunctionEntry = createWrapper(elfDeps->appendPltEntry("__tsan_func_entry"));
+        tsanFunctionExit = createWrapper(elfDeps->appendPltEntry("__tsan_func_exit"));
+    } else {
+        tsanFunctionEntry = elfDeps->appendPltEntry("__tsan_func_entry");
+        tsanFunctionExit = elfDeps->appendPltEntry("__tsan_func_exit");
+    }
     for (int s : {1, 2, 4, 8, 16}) {
         if (useWrapperFunctions) {
             tsanWrite[s] = createWrapper(elfDeps->appendPltEntry("__tsan_write" + std::to_string(s) + "_pc"));
