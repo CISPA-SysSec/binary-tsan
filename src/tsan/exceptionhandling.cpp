@@ -36,12 +36,14 @@ void ExceptionHandling::handleFunction(Function_t *function, InstructionInserter
     const auto instructions = function->getInstructions();
 
     // create eh landing pad code
-    Instruction_t *insertPoint = function->getEntryPoint()->getFallthrough();
+    Instruction_t *insertPoint = function->getEntryPoint();
+
+    if (insertPoint->getFallthrough() == nullptr) {
+        return;
+    }
+
     inserter.setInsertAfter(insertPoint);
     inserter.insertAssembly("jmp 0", insertPoint->getFallthrough());
-
-    // a very inefficient data structure, but it will do for now
-    std::map<std::vector<std::string>, Instruction_t*> ehProgramToLandingPad;
 
     // set eh callsite for all instructions
     for (Instruction_t *instruction : instructions) {
@@ -52,11 +54,8 @@ void ExceptionHandling::handleFunction(Function_t *function, InstructionInserter
             continue;
         }
 
-        std::vector<std::string> prog = instruction->getEhProgram()->getCIEProgram();
-        const auto fde = instruction->getEhProgram()->getFDEProgram();
-        prog.insert(prog.end(), fde.begin(), fde.end());
-        // TODO: more efficient data structure
-        auto it = ehProgramToLandingPad.find(prog);
+        const EhProgramHolder program(instruction->getEhProgram());
+        auto it = ehProgramToLandingPad.find(program);
 
         // TODO: test if registers are restored correctly
         Instruction_t *landingPad;
@@ -80,7 +79,7 @@ void ExceptionHandling::handleFunction(Function_t *function, InstructionInserter
                 unwindCall->setEhProgram(unwindResumeEhProg);
             }
 
-            ehProgramToLandingPad[prog] = landingPad;
+            ehProgramToLandingPad[program] = landingPad;
         } else {
             landingPad = it->second;
         }
