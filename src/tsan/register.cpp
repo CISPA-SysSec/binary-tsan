@@ -308,6 +308,7 @@ CallerSaveRegisterSet Register::getWrittenCallerSaveRegisters(CapstoneHandle &ca
             }
         }
     }
+    cs_free(decoded, 1);
     return writtenRegisters;
 }
 
