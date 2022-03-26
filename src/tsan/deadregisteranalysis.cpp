@@ -47,7 +47,7 @@ static std::vector<x86_reg> getReadRegisters(cs_insn *decoded, bool checkFalseRe
 {
     std::vector<x86_reg> readRegisters;
     readRegisters.reserve(decoded->detail->regs_read_count + 1);
-    const bool isRepInstruction = startsWith(decoded->mnemonic, "rep ") || startsWith(decoded->mnemonic, "repe ");
+    const bool isRepInstruction = startsWith(decoded->mnemonic, "rep ") || startsWith(decoded->mnemonic, "repe ") || startsWith(decoded->mnemonic, "repne ");
     for (int i = 0;i<decoded->detail->regs_read_count;i++) {
         const x86_reg reg = (x86_reg)decoded->detail->regs_read[i];
         // the rep instructions are classified as reading the eflags register,

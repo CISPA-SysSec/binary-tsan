@@ -22,7 +22,8 @@ namespace FixedPointAnalysis
     // TODO: check for syscalls
     // TODO: check if function entry point exists
     // TODO: check and abort on exceptions in the function
-    bool canHandle(IRDB_SDK::Function_t*function);
+    // returns {can handle backward analysis, can handle forward analysis}
+    std::pair<bool, bool> canHandle(IRDB_SDK::Function_t*function);
 };
 
 #endif // FIXEDPOINTANALYSIS_H

@@ -166,14 +166,15 @@ bool TSanTransform::executeStep()
         if (deadRegisterAnalysisType == DeadRegisterAnalysisType::CUSTOM) {
             deadRegisters.clear();
 
-            if (FixedPointAnalysis::canHandle(function)) {
+            const auto [canHandleBackward, canHandleForward] = FixedPointAnalysis::canHandle(function);
+            if (canHandleBackward) {
                 const auto cfg = ControlFlowGraph_t::factory(function);
                 RegisterAnalysisCommon deadRegisterCommon(functionAnalysis.getWrittenRegisters());
                 const auto analysisResult = FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(&*cfg, {}, deadRegisterCommon);
                 for (const auto &[instruction, analysis] : analysisResult) {
                     deadRegisters.insert({instruction, analysis.getDeadRegisters()});
                 }
-                if (useUndefinedRegisterAnalysis) {
+                if (useUndefinedRegisterAnalysis && canHandleForward) {
                     std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> removeEdges;
                     for (const auto block : cfg->getBlocks()) {
                         const auto lastInstruction = block->getInstructions().back();
