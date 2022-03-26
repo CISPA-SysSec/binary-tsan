@@ -21,20 +21,21 @@ enum RemoveOption {
 
 struct LibraryFunction
 {
-    LibraryFunction() :
-        callTarget(nullptr)
-    { }
-    LibraryFunction(IRDB_SDK::Instruction_t *target) :
-        callTarget(target)
+    LibraryFunction(IRDB_SDK::Instruction_t *target, x86_reg reg = X86_REG_RDI) :
+        callTarget(target),
+        argumentRegister(reg)
         // no registers are preserved,
     { }
     IRDB_SDK::Instruction_t *callTarget;
+    x86_reg argumentRegister;
     CallerSaveRegisterSet preserveRegisters;
 };
 
+using LibraryFunctionOptions = std::vector<LibraryFunction>;
+
 struct OperationInstrumentation
 {
-    OperationInstrumentation(const std::vector<std::string> &i, std::vector<LibraryFunction> c, RemoveOption r,
+    OperationInstrumentation(const std::vector<std::string> &i, std::vector<LibraryFunctionOptions> c, RemoveOption r,
                              CallerSaveRegisterSet n) :
         instructions(i),
         callTargets(c),
@@ -46,7 +47,7 @@ struct OperationInstrumentation
     // the memory access location is already loaded into rdi
     std::vector<std::string> instructions;
     // is used as the target for any instruction that includes "call"
-    std::vector<LibraryFunction> callTargets;
+    std::vector<LibraryFunctionOptions> callTargets;
     RemoveOption removeOriginalInstruction;
     // do not save and restore these register to/from the stack
     CallerSaveRegisterSet noSaveRegisters;
@@ -75,7 +76,8 @@ private:
     std::optional<OperationInstrumentation> getConditionalInstrumentation(const std::unique_ptr<IRDB_SDK::DecodedInstruction_t> &decoded,
                                                                           const std::shared_ptr<IRDB_SDK::DecodedOperand_t> &operand) const;
     void instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, const std::vector<HappensBeforeAnnotation> &annotations, const FunctionInfo &info);
-    LibraryFunction createWrapper(IRDB_SDK::Instruction_t *target);
+    LibraryFunctionOptions createWrapper(IRDB_SDK::Instruction_t *target);
+    LibraryFunction selectFunctionVersion(IRDB_SDK::Instruction_t *before, const LibraryFunctionOptions &options) const;
 
     struct SaveStateInfo {
         std::vector<std::string> xmmRegistersToSave;
@@ -125,32 +127,32 @@ private:
 
     // tsan functions
     // void(void*)
-    LibraryFunction tsanFunctionEntry;
+    LibraryFunctionOptions tsanFunctionEntry;
     // void()
-    LibraryFunction tsanFunctionExit;
+    LibraryFunctionOptions tsanFunctionExit;
     // void(void*)
-    std::array<LibraryFunction, 17> tsanRead;
-    std::array<LibraryFunction, 17> tsanWrite;
+    std::array<LibraryFunctionOptions, 17> tsanRead;
+    std::array<LibraryFunctionOptions, 17> tsanWrite;
     // void(void*, unsigned long)
-    LibraryFunction tsanReadRange;
-    LibraryFunction tsanWriteRange;
+    LibraryFunctionOptions tsanReadRange;
+    LibraryFunctionOptions tsanWriteRange;
     // atomics
     // int(int*, __tsan_memory_order)
-    std::array<LibraryFunction, 17> tsanAtomicLoad;
+    std::array<LibraryFunctionOptions, 17> tsanAtomicLoad;
     // int(int*, int, __tsan_memory_order)
-    std::array<LibraryFunction, 17> tsanAtomicStore;
-    std::array<LibraryFunction, 17> tsanAtomicExchange;
+    std::array<LibraryFunctionOptions, 17> tsanAtomicStore;
+    std::array<LibraryFunctionOptions, 17> tsanAtomicExchange;
     // int(int*, int, __tsan_memory_order)
-    std::array<LibraryFunction, 17> tsanAtomicFetchAdd;
-    std::array<LibraryFunction, 17> tsanAtomicFetchSub;
-    std::array<LibraryFunction, 17> tsanAtomicFetchAnd;
-    std::array<LibraryFunction, 17> tsanAtomicFetchOr;
-    std::array<LibraryFunction, 17> tsanAtomicFetchXor;
+    std::array<LibraryFunctionOptions, 17> tsanAtomicFetchAdd;
+    std::array<LibraryFunctionOptions, 17> tsanAtomicFetchSub;
+    std::array<LibraryFunctionOptions, 17> tsanAtomicFetchAnd;
+    std::array<LibraryFunctionOptions, 17> tsanAtomicFetchOr;
+    std::array<LibraryFunctionOptions, 17> tsanAtomicFetchXor;
     // int(int*, int, int, __tsan_memory_order, __tsan_memory_order)
-    std::array<LibraryFunction, 17> tsanAtomicCompareExchangeVal;
+    std::array<LibraryFunctionOptions, 17> tsanAtomicCompareExchangeVal;
     // void(int*)
-    LibraryFunction tsanAcquire;
-    LibraryFunction tsanRelease;
+    LibraryFunctionOptions tsanAcquire;
+    LibraryFunctionOptions tsanRelease;
 
     const std::string MOVE_OPERAND_RDI = "__move_operand_to_rdi";
 };

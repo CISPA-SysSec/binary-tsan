@@ -15,10 +15,7 @@ using namespace IRDB_SDK;
 TSanTransform::TSanTransform(FileIR_t *file) :
     Transform_t(file),
     functionAnalysis(file)
-{
-    std::fill(tsanRead.begin(), tsanRead.end(), nullptr);
-    std::fill(tsanWrite.begin(), tsanWrite.end(), nullptr);
-}
+{ }
 
 TSanTransform::~TSanTransform()
 {
@@ -137,11 +134,9 @@ bool TSanTransform::executeStep()
         }
     }
 
-    if (!dryRun) {
-        registerDependencies();
-    }
+    registerDependencies();
 
-    ExceptionHandling exceptionHandling(ir, tsanFunctionExit.callTarget);
+    ExceptionHandling exceptionHandling(ir, tsanFunctionExit[0].callTarget);
 
     const std::vector<std::string> noInstrumentFunctions = {"_init", "_start", "__libc_csu_init", "__tsan_default_options", "_fini", "__libc_csu_fini",
                                                             "ThisIsNotAFunction", "__gmon_start__", "__do_global_ctors_aux", "__do_global_dtors_aux"};
@@ -298,7 +293,10 @@ void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *ins
 {
     // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)
     FileIR_t *ir = getFileIR();
-    const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, Register::xmmRegisterSet() | tsanFunctionEntry.preserveRegisters);
+    const LibraryFunction functionEntry = selectFunctionVersion(insertBefore, tsanFunctionEntry);
+    CallerSaveRegisterSet ignoreRegisters = Register::xmmRegisterSet() | functionEntry.preserveRegisters;
+    ignoreRegisters &= ~Register::registerSet({functionEntry.argumentRegister});
+    const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, ignoreRegisters);
     InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(), dryRun);
 
     // for this to work without any additional rsp wrangling, it must be inserted at the very start of the function
@@ -306,10 +304,11 @@ void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *ins
         inserter.insertAssembly("push " + reg);
     }
     if (registersToSave.size() > 0) {
-        inserter.insertAssembly("mov rdi, [rsp + " + toHex(registersToSave.size() * ir->getArchitectureBitWidth() / 8) + "]");
+        const std::string argumentRegister = Register::registerToString(functionEntry.argumentRegister);
+        inserter.insertAssembly("mov " + argumentRegister + ", [rsp + " + toHex(registersToSave.size() * ir->getArchitectureBitWidth() / 8) + "]");
     }
     if (addTsanCalls) {
-        inserter.insertAssembly("call 0", tsanFunctionEntry.callTarget);
+        inserter.insertAssembly("call 0", functionEntry.callTarget);
     }
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
         inserter.insertAssembly("pop " + *it);
@@ -319,6 +318,9 @@ void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *ins
     // TODO: recursive tail call to itself
     // TODO: fallthrough to the function entry
     // TODO: endbr instruction might be in the way
+    if (dryRun) {
+        return;
+    }
     getFileIR()->assembleRegistry();
     Instruction_t *originalInstruction = inserter.getLastInserted()->getFallthrough();
     for (auto instruction : function->getInstructions()) {
@@ -332,7 +334,8 @@ void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *ins
 void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
 {
     FileIR_t *ir = getFileIR();
-    const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, Register::xmmRegisterSet() | tsanFunctionExit.preserveRegisters);
+    const LibraryFunction functionExit = selectFunctionVersion(insertBefore, tsanFunctionExit);
+    const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, Register::xmmRegisterSet() | functionExit.preserveRegisters);
     InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(), dryRun);
 
     const auto decoded = DecodedInstruction_t::factory(insertBefore);
@@ -347,7 +350,7 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
         inserter.insertAssembly("push " + reg);
     }
     if (addTsanCalls) {
-        inserter.insertAssembly("call 0", tsanFunctionExit.callTarget);
+        inserter.insertAssembly("call 0", functionExit.callTarget);
     }
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
         inserter.insertAssembly("pop " + *it);
@@ -368,8 +371,8 @@ void TSanTransform::instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, c
                 inserter.insertAssembly("mov rdi, " + annotation.registerForPointer);
             }
             // TODO: these functions might not be sse safe
-            LibraryFunction target = annotation.operation == HappensBeforeOperation::Acquire ? tsanAcquire : tsanRelease;
-            inserter.insertAssembly("call 0", target.callTarget);
+            const LibraryFunctionOptions &target = annotation.operation == HappensBeforeOperation::Acquire ? tsanAcquire : tsanRelease;
+            inserter.insertAssembly("call 0", target[0].callTarget);
             restoreStateFromStack(saveState, inserter);
         } else {
             afterAnnotations.push_back(annotation);
@@ -407,8 +410,8 @@ void TSanTransform::instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, c
             inserter.insertAssembly("mov rdi, " + annotation.registerForPointer);
         }
         // TODO: these functions might not be sse safe
-        LibraryFunction target = annotation.operation == HappensBeforeOperation::Acquire ? tsanAcquire : tsanRelease;
-        inserter.insertAssembly("call 0", target.callTarget);
+        const LibraryFunctionOptions &target = annotation.operation == HappensBeforeOperation::Acquire ? tsanAcquire : tsanRelease;
+        inserter.insertAssembly("call 0", target[0].callTarget);
         restoreStateFromStack(saveState, inserter);
     }
 
@@ -416,6 +419,23 @@ void TSanTransform::instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, c
         auto inserted = inserter.getLastInserted();
         inserted->setFallthrough(inserted->getFallthrough()->getFallthrough());
     }
+}
+
+LibraryFunction TSanTransform::selectFunctionVersion(IRDB_SDK::Instruction_t *before, const LibraryFunctionOptions &options) const
+{
+    // no need for the map lookup
+    if (options.size() == 1) {
+        return options[0];
+    }
+    const auto dead = deadRegisters.find(before);
+    if (dead != deadRegisters.end()) {
+        for (const auto &f : options) {
+            if (Register::hasCallerSaveRegister(dead->second, f.argumentRegister)) {
+                return f;
+            }
+        }
+    }
+    return options[0];
 }
 
 std::vector<std::string> TSanTransform::getSaveRegisters(Instruction_t *instruction, CallerSaveRegisterSet ignoreRegisters)
@@ -465,9 +485,9 @@ static x86_reg stringToReg(const std::string &reg)
     return Register::registerIDToCapstoneRegister(IRDB_SDK::strToRegister(reg));
 }
 
-static LibraryFunction stripPreservedRegisters(const LibraryFunction &function)
+static LibraryFunctionOptions stripPreservedRegisters(const LibraryFunctionOptions &function)
 {
-    return LibraryFunction(function.callTarget);
+    return {LibraryFunction(function[0].callTarget)};
 }
 
 std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> &operand,
@@ -490,8 +510,8 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     const auto op0 = decoded->getOperand(0);
     if (!decoded->hasOperand(1)) {
         if (mnemonic == "inc" || mnemonic == "dec") {
-            const LibraryFunction tsanFunction = mnemonic == "inc" ? tsanAtomicFetchAdd[bytes] : tsanAtomicFetchSub[bytes];
-            const LibraryFunction strippedFunction = stripPreservedRegisters(tsanFunction);
+            const LibraryFunctionOptions &tsanFunction = mnemonic == "inc" ? tsanAtomicFetchAdd[bytes] : tsanAtomicFetchSub[bytes];
+            const LibraryFunctionOptions strippedFunction = stripPreservedRegisters(tsanFunction);
             return OperationInstrumentation({
                     "mov rsi, 1",
                     "mov rdx, " + memOrder,
@@ -535,7 +555,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     }
     // assumption: op0 is memory, op1 is register or constant
     if (mnemonic == "add" || mnemonic == "sub" || mnemonic == "and" || mnemonic == "or" || mnemonic == "xor") {
-        LibraryFunction f;
+        LibraryFunctionOptions f;
         if (mnemonic == "add") {
             f = tsanAtomicFetchAdd[bytes];
         } else if (mnemonic == "sub") {
@@ -547,7 +567,7 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
         } else if (mnemonic == "xor") {
             f = tsanAtomicFetchXor[bytes];
         }
-        const LibraryFunction strippedFunction = stripPreservedRegisters(f);
+        const LibraryFunctionOptions strippedFunction = stripPreservedRegisters(f);
         return OperationInstrumentation({
                 opHasRdi ? "mov " + scratchReg + ", rdi" : "",
                 MOVE_OPERAND_RDI,
@@ -632,7 +652,7 @@ std::optional<OperationInstrumentation> TSanTransform::getRepInstrumentation(Ins
         const bool isCmps = startsWith(decoded->getMnemonic(), "cmps");
         if (isMovs || isCmps) {
 
-            LibraryFunction firstTsanCall = isMovs ? tsanWriteRange : tsanReadRange;
+            const LibraryFunctionOptions &firstTsanCall = isMovs ? tsanWriteRange : tsanReadRange;
             const std::string originalRdiVal = "rax";
             const std::string originalRsiVal = "rdx";
             return OperationInstrumentation({
@@ -673,7 +693,7 @@ std::optional<OperationInstrumentation> TSanTransform::getRepInstrumentation(Ins
         const bool isStos = startsWith(decoded->getMnemonic(), "stos");
         const bool isScas = startsWith(decoded->getMnemonic(), "scas");
         if (isStos || isScas) {
-            LibraryFunction firstTsanCall = isStos ? tsanWriteRange : tsanReadRange;
+            const LibraryFunctionOptions &firstTsanCall = isStos ? tsanWriteRange : tsanReadRange;
             return OperationInstrumentation({
                     // store copy of the original rdi
                     "mov rsi, rdi",
@@ -711,7 +731,7 @@ std::optional<OperationInstrumentation> TSanTransform::getConditionalInstrumenta
         const int bytes = operand->getArgumentSizeInBytes();
         const std::string mnemonicStart = isCMov ? "cmov" : "set";
         const std::string conditionalJump = "j" + std::string(mnemonic.begin() + mnemonicStart.size(), mnemonic.end());
-        LibraryFunction target = isCMov ? tsanRead[bytes] : tsanWrite[bytes];
+        const LibraryFunctionOptions &target = isCMov ? tsanRead[bytes] : tsanWrite[bytes];
         return OperationInstrumentation({
                 // this is the easiest way to invert the condition without handling all the different cases
                 conditionalJump + " %L1",
@@ -861,8 +881,8 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     const uint bytes = instrumentationByteSize(operand);
     if (!dryRun && (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
-            (operand->isRead() && tsanRead[bytes].callTarget == nullptr) ||
-            (operand->isWritten() && tsanWrite[bytes].callTarget == nullptr))) {
+            (operand->isRead() && tsanRead[bytes][0].callTarget == nullptr) ||
+            (operand->isWritten() && tsanWrite[bytes][0].callTarget == nullptr))) {
         std::cout <<"WARNING: memory operation of size "<<bytes<<" is not instrumented: "<<instruction->getDisassembly()<<std::endl;
         return;
     }
@@ -878,9 +898,27 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     InstructionInserter inserter(ir, instruction, functionAnalysis.getInstructionCounter(), dryRun);
 
+    std::vector<LibraryFunction> callTargets;
+    callTargets.reserve(instrumentation.callTargets.size());
     CallerSaveRegisterSet requiredSaveRegisters;
     for (const auto &target : instrumentation.callTargets) {
-        requiredSaveRegisters |= ~target.preserveRegisters;
+        LibraryFunction selectedTarget = selectFunctionVersion(instruction, target);
+        bool hasDirectTarget = false;
+        if (operand->isMemory() && operand->hasBaseRegister() && !operand->hasIndexRegister() && !operand->hasMemoryDisplacement()) {
+            // TODO: direct conversion
+            const x86_reg reg = Register::registerIDToCapstoneRegister(IRDB_SDK::strToRegister(operand->getString()));
+            for (const LibraryFunction &f : target) {
+                if (f.argumentRegister == reg) {
+                    selectedTarget = f;
+                    hasDirectTarget = true;
+                }
+            }
+        }
+        if (!hasDirectTarget) {
+            Register::setCallerSaveRegister(requiredSaveRegisters, selectedTarget.argumentRegister);
+        }
+        requiredSaveRegisters |= ~selectedTarget.preserveRegisters;
+        callTargets.push_back(selectedTarget);
     }
     const CallerSaveRegisterSet ignoreRegisters = instrumentation.noSaveRegisters | ~requiredSaveRegisters;
     const SaveStateInfo saveState = saveStateToStack(inserter, instruction, ignoreRegisters, info);
@@ -900,21 +938,22 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
             continue;
         }
         if (assembly == MOVE_OPERAND_RDI) {
-            if (operand->getString() == "rdi") {
-                // nothing to do, the address is already in rdi
+            const std::string argumentRegister = Register::registerToString(callTargets[0].argumentRegister);
+            if (operand->getString() == argumentRegister) {
+                // nothing to do, the address is already in the target register
             } else if (operand->isPcrel()) {
                 // The memory displacement is relative the rip at the start of the NEXT instruction
                 // The lea instruction should have 7 bytes (if the memory displacement is encoded with 4 byte)
                 const auto offset = operand->getMemoryDisplacement() + decoded->length() - 7;
-                auto inserted = inserter.insertAssembly("lea rdi, [rel " + toHex(offset) + "]");
+                auto inserted = inserter.insertAssembly("lea " + argumentRegister + ", [rel " + toHex(offset) + "]");
                 if (!dryRun) {
                     ir->addNewRelocation(inserted, 0, "pcrel");
                 }
             } else {
                 if (contains(operand->getString(), "rsp")) {
-                    inserter.insertAssembly("lea rdi, [" + operand->getString() + " + " + toHex(saveState.totalStackOffset) + "]");
+                    inserter.insertAssembly("lea " + argumentRegister + ", [" + operand->getString() + " + " + toHex(saveState.totalStackOffset) + "]");
                 } else {
-                    inserter.insertAssembly("lea rdi, [" + operand->getString() + "]");
+                    inserter.insertAssembly("lea " + argumentRegister + ", [" + operand->getString() + "]");
                 }
             }
         } else {
@@ -948,8 +987,8 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
             const bool isCall = contains(strippedAssembly, "call");
             Instruction_t *callTarget = nullptr;
             if (isCall) {
-                callTarget = instrumentation.callTargets[0].callTarget;
-                instrumentation.callTargets.erase(instrumentation.callTargets.begin());
+                callTarget = callTargets[0].callTarget;
+                callTargets.erase(callTargets.begin());
                 if (!addTsanCalls) {
                     continue;
                 }
@@ -989,28 +1028,35 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     }
 }
 
-LibraryFunction TSanTransform::createWrapper(Instruction_t *target)
+LibraryFunctionOptions TSanTransform::createWrapper(Instruction_t *target)
 {
-    auto instruction = addNewAssembly("ret");
-    instruction->getAddress()->setFileID(getFileIR()->getFile()->getBaseID());
-    instruction->setFunction(target->getFunction());
-    functionAnalysis.getInstructionCounter()();
+    LibraryFunctionOptions result;
+    for (x86_reg reg : {X86_REG_RDI, X86_REG_RAX, X86_REG_RCX, X86_REG_RDX, X86_REG_RSI, X86_REG_R8, X86_REG_R9, X86_REG_R10, X86_REG_R11}) {
+        auto instruction = addNewAssembly("ret");
+        instruction->getAddress()->setFileID(getFileIR()->getFile()->getBaseID());
+        instruction->setFunction(target->getFunction());
+        functionAnalysis.getInstructionCounter()();
 
-    InstructionInserter inserter(getFileIR(), instruction, functionAnalysis.getInstructionCounter(), dryRun);
+        InstructionInserter inserter(getFileIR(), instruction, functionAnalysis.getInstructionCounter(), dryRun);
 
-    FunctionInfo info;
-    info.isLeafFunction = false;
-    const SaveStateInfo saveState = saveStateToStack(inserter, nullptr, Register::registerSet({X86_REG_RDI}), info);
+        FunctionInfo info;
+        info.isLeafFunction = false;
+        const SaveStateInfo saveState = saveStateToStack(inserter, nullptr, {}, info);
 
-    inserter.insertAssembly("mov rsi, [rsp + " + toHex(saveState.totalStackOffset) + "]");
-    inserter.insertAssembly("call 0", target);
+        if (reg != X86_REG_RDI) {
+            inserter.insertAssembly("mov rdi, " + Register::registerToString(reg));
+        }
+        inserter.insertAssembly("mov rsi, [rsp + " + toHex(saveState.totalStackOffset) + "]");
+        inserter.insertAssembly("call 0", target);
 
-    restoreStateFromStack(saveState, inserter);
+        restoreStateFromStack(saveState, inserter);
 
-    // this wrapper preserves everything except rdi
-    LibraryFunction result(instruction);
-    Register::setCallerSaveRegister(result.preserveRegisters, X86_REG_RDI);
-    result.preserveRegisters = ~result.preserveRegisters;
+        // this wrapper preserves all registers, even the argument register
+        LibraryFunction f(instruction, reg);
+        f.preserveRegisters.set();
+        result.push_back(f);
+    }
+
     return result;
 }
 
@@ -1034,31 +1080,31 @@ void TSanTransform::registerDependencies()
         tsanFunctionEntry = createWrapper(elfDeps->appendPltEntry("__tsan_func_entry"));
         tsanFunctionExit = createWrapper(elfDeps->appendPltEntry("__tsan_func_exit"));
     } else {
-        tsanFunctionEntry = elfDeps->appendPltEntry("__tsan_func_entry");
-        tsanFunctionExit = elfDeps->appendPltEntry("__tsan_func_exit");
+        tsanFunctionEntry = {elfDeps->appendPltEntry("__tsan_func_entry")};
+        tsanFunctionExit = {elfDeps->appendPltEntry("__tsan_func_exit")};
     }
     for (int s : {1, 2, 4, 8, 16}) {
         if (useWrapperFunctions) {
             tsanWrite[s] = createWrapper(elfDeps->appendPltEntry("__tsan_write" + std::to_string(s) + "_pc"));
             tsanRead[s] = createWrapper(elfDeps->appendPltEntry("__tsan_read" + std::to_string(s) + "_pc"));
         } else {
-            tsanWrite[s] = elfDeps->appendPltEntry("__tsan_write" + std::to_string(s));
-            tsanRead[s] = elfDeps->appendPltEntry("__tsan_read" + std::to_string(s));
+            tsanWrite[s] = {elfDeps->appendPltEntry("__tsan_write" + std::to_string(s))};
+            tsanRead[s] = {elfDeps->appendPltEntry("__tsan_read" + std::to_string(s))};
         }
-        tsanAtomicLoad[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_load");
-        tsanAtomicStore[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_store");
-        tsanAtomicExchange[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_exchange");
-        tsanAtomicFetchAdd[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_add");
-        tsanAtomicFetchSub[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_sub");
-        tsanAtomicFetchAnd[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_and");
-        tsanAtomicFetchOr[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_or");
-        tsanAtomicFetchXor[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_xor");
-        tsanAtomicCompareExchangeVal[s] = elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_compare_exchange_val");
+        tsanAtomicLoad[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_load")};
+        tsanAtomicStore[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_store")};
+        tsanAtomicExchange[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_exchange")};
+        tsanAtomicFetchAdd[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_add")};
+        tsanAtomicFetchSub[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_sub")};
+        tsanAtomicFetchAnd[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_and")};
+        tsanAtomicFetchOr[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_or")};
+        tsanAtomicFetchXor[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_xor")};
+        tsanAtomicCompareExchangeVal[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_compare_exchange_val")};
     }
-    tsanReadRange = elfDeps->appendPltEntry("__tsan_read_range");
-    tsanWriteRange = elfDeps->appendPltEntry("__tsan_write_range");
-    tsanAcquire = elfDeps->appendPltEntry("__tsan_acquire");
-    tsanRelease = elfDeps->appendPltEntry("__tsan_release");
+    tsanReadRange = {elfDeps->appendPltEntry("__tsan_read_range")};
+    tsanWriteRange = {elfDeps->appendPltEntry("__tsan_write_range")};
+    tsanAcquire = {elfDeps->appendPltEntry("__tsan_acquire")};
+    tsanRelease = {elfDeps->appendPltEntry("__tsan_release")};
 
     getFileIR()->assembleRegistry();
 }

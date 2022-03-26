@@ -30,7 +30,7 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
 {
     totalAnalysedFunctions++;
     totalAnalysedInstructions += function->getInstructions().size();
-    if (FixedPointAnalysis::canHandle(function)) {
+    if (FixedPointAnalysis::canHandle(function).first) {
         canDoRegisterAnalysisFunctions++;
     }
 
