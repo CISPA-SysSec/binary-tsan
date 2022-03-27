@@ -99,11 +99,6 @@ private:
     };
 
     // options
-    enum class DeadRegisterAnalysisType {
-        STARS,
-        CUSTOM,
-        NONE
-    };
     DeadRegisterAnalysisType deadRegisterAnalysisType = DeadRegisterAnalysisType::CUSTOM;
     bool dryRun = false;
     bool atomicsOnly = false;
@@ -119,8 +114,6 @@ private:
     bool useCustomLibTsan = true;
     bool useWrapperFunctions = false;
     Annotations annotations;
-
-    std::map<IRDB_SDK::Instruction_t*, CallerSaveRegisterSet> deadRegisters;
 
     Analysis functionAnalysis;
 

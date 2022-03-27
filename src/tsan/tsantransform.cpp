@@ -6,8 +6,6 @@
 
 #include "simplefile.h"
 #include "helper.h"
-#include "deadregisteranalysis.h"
-#include "fixedpointanalysis.h"
 #include "exceptionhandling.h"
 
 using namespace IRDB_SDK;
@@ -108,29 +106,12 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
 bool TSanTransform::executeStep()
 {
     FileIR_t *ir = getFileIR();
+    functionAnalysis.init(deadRegisterAnalysisType, useUndefinedRegisterAnalysis);
 
     for (auto function : ir->getFunctions()) {
         if (startsWith(function->getName(), "__tsan_func_entry")) {
             std::cout <<"ERROR: this binary is already thread sanitized!"<<std::endl;
             return false;
-        }
-    }
-
-    // compute this before any instructions are added
-    if (deadRegisterAnalysisType == DeadRegisterAnalysisType::STARS) {
-        const auto registerAnalysis = DeepAnalysis_t::factory(ir);
-        auto starsDead = registerAnalysis->getDeadRegisters();
-        for (const auto &[instruction, registers] : *starsDead) {
-            CallerSaveRegisterSet capstoneRegs;
-            for (const auto reg : registers) {
-                // also insert the original register (for eflags etc.)
-                // TODO: upgrading the register bit width might be a problem if the larger part is not dead
-                Register::setCallerSaveRegister(capstoneRegs, Register::registerIDToCapstoneRegister(reg));
-                const auto largeReg = convertRegisterTo64bit(reg);
-                // TODO: is this even still necessary
-                Register::setCallerSaveRegister(capstoneRegs, Register::registerIDToCapstoneRegister(largeReg));
-            }
-            deadRegisters[instruction] = capstoneRegs;
         }
     }
 
@@ -158,65 +139,6 @@ bool TSanTransform::executeStep()
         if (instrumentOnlyFunctions.size() > 0 && instrumentOnlyFunctions.find(functionName) == instrumentOnlyFunctions.end()) {
             continue;
         }
-
-        // register analysis
-        if (deadRegisterAnalysisType == DeadRegisterAnalysisType::CUSTOM) {
-            deadRegisters.clear();
-
-            const auto [canHandleBackward, canHandleForward] = FixedPointAnalysis::canHandle(function);
-            if (canHandleBackward) {
-                const auto cfg = ControlFlowGraph_t::factory(function);
-                RegisterAnalysisCommon deadRegisterCommon(functionAnalysis.getWrittenRegisters());
-                const auto analysisResult = FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(&*cfg, {}, deadRegisterCommon);
-                for (const auto &[instruction, analysis] : analysisResult) {
-                    deadRegisters.insert({instruction, analysis.getDeadRegisters()});
-                }
-                if (useUndefinedRegisterAnalysis && canHandleForward) {
-                    std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> removeEdges;
-                    for (const auto block : cfg->getBlocks()) {
-                        const auto lastInstruction = block->getInstructions().back();
-                        const auto lastDecoded = DecodedInstruction_t::factory(lastInstruction);
-                        if (!lastDecoded->isCall()) {
-                            continue;
-                        }
-                        if (functionAnalysis.isNoReturnCall(lastInstruction)) {
-                            for (const auto succ : block->getSuccessors()) {
-                                removeEdges.insert({block, succ});
-                            }
-                            continue;
-                        }
-                        for (const auto succ : block->getSuccessors()) {
-                            const auto &edgeType = cfg->getEdgeType(block, succ);
-                            if (edgeType.find(cetFallthroughEdge) == edgeType.end()) {
-                                continue;
-                            }
-                            const auto instruction = succ->getInstructions()[0];
-                            const auto decoded = DecodedInstruction_t::factory(instruction);
-                            if (succ->getInstructions().size() == 1 && decoded->getMnemonic() == "nop") {
-                                if (succ->getSuccessors().size() > 0 && (*succ->getSuccessors().begin())->getPredecessors().size() == 1) {
-                                    continue;
-                                }
-                            } else if (succ->getPredecessors().size() == 1) {
-                                continue;
-                            }
-                            removeEdges.insert({block, succ});
-//                            std::cout <<"Remove edge: "<<function->getName()<<" "<<std::hex<<lastInstruction->getAddress()->getVirtualOffset()<<" "<<disassembly(lastInstruction)<<std::endl;
-                        }
-                    }
-                    const auto undefinedResult = FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(&*cfg, removeEdges, deadRegisterCommon);
-                    const bool hasProblem = std::any_of(undefinedResult.begin(), undefinedResult.end(), [](const auto &r) {
-                        return r.second.hasProblem();
-                    });
-                    if (!hasProblem) {
-                        for (const auto &[instruction, analysis] : undefinedResult) {
-                            auto it = deadRegisters.find(instruction);
-                            it->second |= analysis.getDeadRegisters();
-                        }
-                    } else {
-                        std::cout <<"WARNING: undefined register analysis problem in: "<<function->getName()<<std::endl;
-                    }
-                }
-            }
         }
 
         const FunctionInfo info = functionAnalysis.analyseFunction(function);
@@ -365,28 +287,39 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
 {
     FileIR_t *ir = getFileIR();
     const LibraryFunction functionExit = selectFunctionVersion(insertBefore, tsanFunctionExit);
-    const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, Register::xmmRegisterSet() | functionExit.preserveRegisters);
     InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(InstrumentationType::ENTRY_EXIT), dryRun);
 
     const auto decoded = DecodedInstruction_t::factory(insertBefore);
     const bool isSimpleReturn = decoded->isReturn();
 
     // must be inserted directly before the return instruction
-    if (!isSimpleReturn) {
-        // if the "return" instruction is something like a jmp (from a tailcall), then there might be function arguments on the stack
-        inserter.insertAssembly("sub rsp, 0xff");
-    }
-    for (std::string reg : registersToSave) {
-        inserter.insertAssembly("push " + reg);
-    }
-    if (addTsanCalls) {
-        inserter.insertAssembly("call 0", functionExit.callTarget);
-    }
-    for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
-        inserter.insertAssembly("pop " + *it);
-    }
-    if (!isSimpleReturn) {
-        inserter.insertAssembly("add rsp, 0xff");
+    if (isSimpleReturn) {
+        const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, Register::xmmRegisterSet() | functionExit.preserveRegisters);
+        for (std::string reg : registersToSave) {
+            inserter.insertAssembly("push " + reg);
+        }
+        if (addTsanCalls) {
+            inserter.insertAssembly("call 0", functionExit.callTarget);
+        }
+        for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
+            inserter.insertAssembly("pop " + *it);
+        }
+    } else {
+        // modified by the first insertion
+        Instruction_t *callTarget = insertBefore->getTarget();
+        // 16 byte stack alignment for function calls
+        inserter.insertAssembly("sub rsp, 0x8");
+        inserter.insertAssembly("call 0", callTarget);
+        inserter.insertAssembly("add rsp, 0x8");
+        inserter.insertAssembly("push rax");
+        inserter.insertAssembly("push rcx");
+        if (addTsanCalls) {
+            inserter.insertAssembly("call 0", functionExit.callTarget);
+        }
+        inserter.insertAssembly("pop rcx");
+        inserter.insertAssembly("pop rax");
+        inserter.insertAssembly("ret");
+        // the original jmp instruction is now unreachable, just leave it
     }
 }
 
@@ -458,12 +391,10 @@ LibraryFunction TSanTransform::selectFunctionVersion(IRDB_SDK::Instruction_t *be
     if (options.size() == 1) {
         return options[0];
     }
-    const auto dead = deadRegisters.find(before);
-    if (dead != deadRegisters.end()) {
-        for (const auto &f : options) {
-            if (Register::hasCallerSaveRegister(dead->second, f.argumentRegister)) {
-                return f;
-            }
+    const CallerSaveRegisterSet dead = functionAnalysis.getDeadRegisters(before);
+    for (const auto &f : options) {
+        if (Register::hasCallerSaveRegister(dead, f.argumentRegister)) {
+            return f;
         }
     }
     return options[0];
@@ -471,14 +402,8 @@ LibraryFunction TSanTransform::selectFunctionVersion(IRDB_SDK::Instruction_t *be
 
 std::vector<std::string> TSanTransform::getSaveRegisters(Instruction_t *instruction, CallerSaveRegisterSet ignoreRegisters)
 {
-    CallerSaveRegisterSet registersToSave;
-    registersToSave.set();
-    const auto dead = deadRegisters.find(instruction);
-    if (dead != deadRegisters.end()) {
-        registersToSave = ~(dead->second | ignoreRegisters);
-    } else {
-        registersToSave = ~ignoreRegisters;
-    }
+    const CallerSaveRegisterSet dead = functionAnalysis.getDeadRegisters(instruction);
+    const CallerSaveRegisterSet registersToSave = ~(dead | ignoreRegisters);
     std::vector<std::string> result;
     for (std::size_t i = 0;i<registersToSave.size();i++) {
         if (registersToSave[i]) {
@@ -796,12 +721,9 @@ TSanTransform::SaveStateInfo TSanTransform::saveStateToStack(InstructionInserter
     }
 
     bool eflagsAlive = true;
-    const auto deadRegisterSet = deadRegisters.find(before);
-    if (deadRegisterSet != deadRegisters.end()) {
-        eflagsAlive = !Register::hasCallerSaveRegister(deadRegisterSet->second, X86_REG_EFLAGS);
-    }
+    const CallerSaveRegisterSet deadRegisterSet = functionAnalysis.getDeadRegisters(before);
+    eflagsAlive = !Register::hasCallerSaveRegister(deadRegisterSet, X86_REG_EFLAGS);
     state.flagsAreSaved = eflagsAlive && !Register::hasCallerSaveRegister(ignoreRegisters, X86_REG_EFLAGS);
-
 
     // TODO: add this only once per function and not at every access
     // honor redzone

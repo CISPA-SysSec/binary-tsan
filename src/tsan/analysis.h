@@ -40,16 +40,22 @@ enum class InstrumentationType
     WRAPPER
 };
 
+enum class DeadRegisterAnalysisType {
+    STARS,
+    CUSTOM,
+    NONE
+};
+
 class Analysis
 {
 public:
     Analysis(IRDB_SDK::FileIR_t *ir);
+    void init(DeadRegisterAnalysisType registerAnalysisType, bool useUndefinedRegisterAnalysis);
 
     FunctionInfo analyseFunction(IRDB_SDK::Function_t *function);
     void printStatistics() const;
     std::function<void()> getInstructionCounter(InstrumentationType type);
-    bool isNoReturnCall(IRDB_SDK::Instruction_t *instruction) const;
-    const std::map<IRDB_SDK::Function_t*, CallerSaveRegisterSet> &getWrittenRegisters() const { return functionWrittenRegisters; }
+    CallerSaveRegisterSet getDeadRegisters(IRDB_SDK::Instruction_t *instruction) const;
 
 private:
     std::set<IRDB_SDK::Instruction_t*> detectStaticVariableGuards(IRDB_SDK::Function_t *function) const;
@@ -61,12 +67,18 @@ private:
     std::set<IRDB_SDK::Function_t*> findNoReturnFunctions() const;
     void computeFunctionRegisterWrites();
     void findWrittenRegistersRecursive(IRDB_SDK::Function_t *function, std::set<IRDB_SDK::Function_t*> &visited, CapstoneHandle &capstone);
+    void updateDeadRegisters(IRDB_SDK::Function_t *function);
+    bool isNoReturnCall(IRDB_SDK::Instruction_t *instruction) const;
 
 private:
     IRDB_SDK::FileIR_t *ir;
+    DeadRegisterAnalysisType deadRegisterAnalysisType;
+    bool useUndefinedRegisterAnalysis;
 
     std::set<IRDB_SDK::Function_t*> noReturnFunctions;
     std::map<IRDB_SDK::Function_t*, CallerSaveRegisterSet> functionWrittenRegisters;
+
+    std::map<IRDB_SDK::Instruction_t*, CallerSaveRegisterSet> deadRegisters;
 
     // statistics
 

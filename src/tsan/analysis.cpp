@@ -4,6 +4,7 @@
 #include <irdb-cfg>
 
 #include "pointeranalysis.h"
+#include "deadregisteranalysis.h"
 #include "fixedpointanalysis.h"
 #include "helper.h"
 
@@ -14,6 +15,29 @@ Analysis::Analysis(FileIR_t *ir) :
 {
     noReturnFunctions = findNoReturnFunctions();
     computeFunctionRegisterWrites();
+}
+
+void Analysis::init(DeadRegisterAnalysisType registerAnalysisType, bool useUndefinedRegisterAnalysis)
+{
+    deadRegisterAnalysisType = registerAnalysisType;
+    this->useUndefinedRegisterAnalysis = useUndefinedRegisterAnalysis;
+
+    if (deadRegisterAnalysisType == DeadRegisterAnalysisType::STARS) {
+        const auto registerAnalysis = DeepAnalysis_t::factory(ir);
+        auto starsDead = registerAnalysis->getDeadRegisters();
+        for (const auto &[instruction, registers] : *starsDead) {
+            CallerSaveRegisterSet capstoneRegs;
+            for (const auto reg : registers) {
+                // also insert the original register (for eflags etc.)
+                // TODO: upgrading the register bit width might be a problem if the larger part is not dead
+                Register::setCallerSaveRegister(capstoneRegs, Register::registerIDToCapstoneRegister(reg));
+                const auto largeReg = convertRegisterTo64bit(reg);
+                // TODO: is this even still necessary
+                Register::setCallerSaveRegister(capstoneRegs, Register::registerIDToCapstoneRegister(largeReg));
+            }
+            deadRegisters[instruction] = capstoneRegs;
+        }
+    }
 }
 
 static bool isLeafFunction(const Function_t *function)
@@ -28,11 +52,10 @@ static bool isLeafFunction(const Function_t *function)
 
 FunctionInfo Analysis::analyseFunction(Function_t *function)
 {
+    updateDeadRegisters(function);
+
     totalAnalysedFunctions++;
     totalAnalysedInstructions += function->getInstructions().size();
-    if (FixedPointAnalysis::canHandle(function).first) {
-        canDoRegisterAnalysisFunctions++;
-    }
 
     FunctionInfo result;
     result.isLeafFunction = isLeafFunction(function);
@@ -77,9 +100,23 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
             continue;
         }
         if (!decoded->isReturn()) {
-            result.exitPoints.clear();
-            hasProblem = true;
-            break;
+            // TODO: make sure that the jump is to an actual function
+            // TODO: make sure that the stack is at the same level as the start of the function
+            // TODO: also check dead registers at the start of the called function
+            const auto dead = getDeadRegisters(instruction);
+            const bool mightHaveStackArguments = !Register::hasCallerSaveRegister(dead, X86_REG_R9) || !Register::hasCallerSaveRegister(dead, X86_REG_XMM7);
+            if (decoded->getMnemonic() == "jmp" && decoded->getOperand(0)->isConstant() && !mightHaveStackArguments && instruction->getTarget() != nullptr) {
+                std::cout <<"Try entry exit: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<std::endl;
+            } else {
+                if (mightHaveStackArguments) {
+                    std::cout <<"No exit, possible stack argument: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<" "<<function->getInstructions().size()<<std::endl;
+                } else {
+                    std::cout <<"No exit: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<std::endl;
+                }
+                result.exitPoints.clear();
+                hasProblem = true;
+                break;
+            }
         }
         result.exitPoints.push_back(instruction);
     }
@@ -141,6 +178,84 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
         }
     }
     return result;
+}
+
+void Analysis::updateDeadRegisters(IRDB_SDK::Function_t *function)
+{
+    if (deadRegisterAnalysisType != DeadRegisterAnalysisType::CUSTOM) {
+        return;
+    }
+    deadRegisters.clear();
+
+    const auto [canHandleBackward, canHandleForward] = FixedPointAnalysis::canHandle(function);
+    if (!canHandleBackward) {
+        return;
+    }
+    canDoRegisterAnalysisFunctions++;
+
+    const auto cfg = ControlFlowGraph_t::factory(function);
+    RegisterAnalysisCommon deadRegisterCommon(functionWrittenRegisters);
+    const auto analysisResult = FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(&*cfg, {}, deadRegisterCommon);
+    for (const auto &[instruction, analysis] : analysisResult) {
+        deadRegisters.insert({instruction, analysis.getDeadRegisters()});
+    }
+    if (useUndefinedRegisterAnalysis && canHandleForward) {
+        std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> removeEdges;
+        for (const auto block : cfg->getBlocks()) {
+            const auto lastInstruction = block->getInstructions().back();
+            const auto lastDecoded = DecodedInstruction_t::factory(lastInstruction);
+            if (!lastDecoded->isCall()) {
+                continue;
+            }
+            if (isNoReturnCall(lastInstruction)) {
+                for (const auto succ : block->getSuccessors()) {
+                    removeEdges.insert({block, succ});
+                }
+                continue;
+            }
+            for (const auto succ : block->getSuccessors()) {
+                const auto &edgeType = cfg->getEdgeType(block, succ);
+                if (edgeType.find(cetFallthroughEdge) == edgeType.end()) {
+                    continue;
+                }
+                const auto instruction = succ->getInstructions()[0];
+                const auto decoded = DecodedInstruction_t::factory(instruction);
+                if (succ->getInstructions().size() == 1 && decoded->getMnemonic() == "nop") {
+                    if (succ->getSuccessors().size() > 0 && (*succ->getSuccessors().begin())->getPredecessors().size() == 1) {
+                        continue;
+                    }
+                } else if (succ->getPredecessors().size() == 1) {
+                    continue;
+                }
+                removeEdges.insert({block, succ});
+//                  std::cout <<"Remove edge: "<<function->getName()<<" "<<std::hex<<lastInstruction->getAddress()->getVirtualOffset()<<" "<<disassembly(lastInstruction)<<std::endl;
+            }
+        }
+        const auto undefinedResult = FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(&*cfg, removeEdges, deadRegisterCommon);
+        const bool hasProblem = std::any_of(undefinedResult.begin(), undefinedResult.end(), [](const auto &r) {
+            if (r.second.hasProblem()) {
+                std::cout <<std::hex<<r.first->getAddress()->getVirtualOffset()<<" "<<r.first->getDisassembly()<<std::endl;
+            }
+            return r.second.hasProblem();
+        });
+        if (!hasProblem) {
+            for (const auto &[instruction, analysis] : undefinedResult) {
+                auto it = deadRegisters.find(instruction);
+                it->second |= analysis.getDeadRegisters();
+            }
+        } else {
+            std::cout <<"WARNING: undefined register analysis problem in: "<<function->getName()<<std::endl;
+        }
+    }
+}
+
+CallerSaveRegisterSet Analysis::getDeadRegisters(IRDB_SDK::Instruction_t *instruction) const
+{
+    const auto dead = deadRegisters.find(instruction);
+    if (dead != deadRegisters.end()) {
+        return dead->second;
+    }
+    return CallerSaveRegisterSet();
 }
 
 std::function<void()> Analysis::getInstructionCounter(InstrumentationType type)
