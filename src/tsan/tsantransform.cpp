@@ -1071,6 +1071,8 @@ void TSanTransform::registerDependencies()
         elfDeps->prependLibraryDepedencies("libm.so.6");
         if (useCustomLibTsan) {
             elfDeps->prependLibraryDepedencies("libc.so.6");
+            elfDeps->prependLibraryDepedencies("libdl.so.2");
+            elfDeps->prependLibraryDepedencies("libpthread.so.0");
             elfDeps->prependLibraryDepedencies(LIBTSANLOCATION);
         } else {
             elfDeps->prependLibraryDepedencies("libtsan.so.0");
