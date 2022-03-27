@@ -78,6 +78,7 @@ private:
     void instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, const std::vector<HappensBeforeAnnotation> &annotations, const FunctionInfo &info);
     LibraryFunctionOptions createWrapper(IRDB_SDK::Instruction_t *target);
     LibraryFunction selectFunctionVersion(IRDB_SDK::Instruction_t *before, const LibraryFunctionOptions &options) const;
+    void findAndMergeFunctions();
 
     struct SaveStateInfo {
         std::vector<std::string> xmmRegistersToSave;

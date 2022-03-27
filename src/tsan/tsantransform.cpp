@@ -141,6 +141,8 @@ bool TSanTransform::executeStep()
     const std::vector<std::string> noInstrumentFunctions = {"_init", "_start", "__libc_csu_init", "__tsan_default_options", "_fini", "__libc_csu_fini",
                                                             "ThisIsNotAFunction", "__gmon_start__", "__do_global_ctors_aux", "__do_global_dtors_aux"};
 
+    findAndMergeFunctions();
+
     for (Function_t *function : ir->getFunctions()) {
         if (function->getEntryPoint() == nullptr) {
             continue;
@@ -289,6 +291,34 @@ bool TSanTransform::executeStep()
     return true;
 }
 
+static void mergeFunctions(Function_t *f1, Function_t *f2)
+{
+    std::cout <<"Merge functions: "<<f1->getName()<<" "<<f2->getName()<<std::endl;
+    std::set<Instruction_t*> instructions = f1->getInstructions();
+    for (auto i : f2->getInstructions()) {
+        i->setFunction(f1);
+        instructions.insert(i);
+    }
+    f1->setInstructions(instructions);
+    f2->setInstructions({});
+    f2->setEntryPoint(nullptr);
+}
+
+void TSanTransform::findAndMergeFunctions()
+{
+    for (Function_t *function : getFileIR()->getFunctions()) {
+        for (Instruction_t *i : function->getInstructions()) {
+            const auto decoded = DecodedInstruction_t::factory(i);
+            if (decoded->isConditionalBranch() && i->getTarget()) {
+                if (i->getTarget()->getFunction() != function && i->getTarget()->getFunction() != nullptr) {
+                    mergeFunctions(function, i->getTarget()->getFunction());
+                }
+            }
+        }
+    }
+    getFileIR()->assembleRegistry();
+}
+
 void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *insertBefore)
 {
     // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)
@@ -395,6 +425,7 @@ void TSanTransform::instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, c
     if (afterAnnotations.size() % 2 == 1) {
         inserter.insertAssembly("sub rsp, 8");
     }
+    // TODO: this function must not throw an exception
     inserter.insertAssembly("call 0", afterAnnotations[0].function->getEntryPoint());
     if (afterAnnotations.size() % 2 == 1) {
         inserter.insertAssembly("add rsp, 8");
