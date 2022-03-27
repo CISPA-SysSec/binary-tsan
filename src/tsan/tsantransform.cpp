@@ -280,7 +280,7 @@ bool TSanTransform::executeStep()
 
             getFileIR()->assembleRegistry();
 
-            InstructionInserter inserter(ir, function->getEntryPoint(), functionAnalysis.getInstructionCounter(), dryRun);
+            InstructionInserter inserter(ir, function->getEntryPoint(), functionAnalysis.getInstructionCounter(InstrumentationType::EXCEPTION_HANDLING), dryRun);
             exceptionHandling.handleFunction(function, inserter);
         }
         getFileIR()->assembleRegistry();
@@ -327,7 +327,7 @@ void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *ins
     CallerSaveRegisterSet ignoreRegisters = Register::xmmRegisterSet() | functionEntry.preserveRegisters;
     ignoreRegisters &= ~Register::registerSet({functionEntry.argumentRegister});
     const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, ignoreRegisters);
-    InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(), dryRun);
+    InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(InstrumentationType::ENTRY_EXIT), dryRun);
 
     // for this to work without any additional rsp wrangling, it must be inserted at the very start of the function
     for (std::string reg : registersToSave) {
@@ -366,7 +366,7 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
     FileIR_t *ir = getFileIR();
     const LibraryFunction functionExit = selectFunctionVersion(insertBefore, tsanFunctionExit);
     const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, Register::xmmRegisterSet() | functionExit.preserveRegisters);
-    InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(), dryRun);
+    InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(InstrumentationType::ENTRY_EXIT), dryRun);
 
     const auto decoded = DecodedInstruction_t::factory(insertBefore);
     const bool isSimpleReturn = decoded->isReturn();
@@ -392,7 +392,7 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
 
 void TSanTransform::instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, const std::vector<HappensBeforeAnnotation> &annotations, const FunctionInfo &info)
 {
-    InstructionInserter inserter(getFileIR(), instruction, functionAnalysis.getInstructionCounter(), dryRun);
+    InstructionInserter inserter(getFileIR(), instruction, functionAnalysis.getInstructionCounter(InstrumentationType::MEMORY_ACCESS), dryRun);
     std::vector<HappensBeforeAnnotation> afterAnnotations;
     for (const auto &annotation : annotations) {
         if (annotation.isBefore) {
@@ -927,7 +927,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     }
     OperationInstrumentation instrumentation = *instr;
 
-    InstructionInserter inserter(ir, instruction, functionAnalysis.getInstructionCounter(), dryRun);
+    InstructionInserter inserter(ir, instruction, functionAnalysis.getInstructionCounter(InstrumentationType::MEMORY_ACCESS), dryRun);
 
     std::vector<LibraryFunction> callTargets;
     callTargets.reserve(instrumentation.callTargets.size());
@@ -1066,9 +1066,10 @@ LibraryFunctionOptions TSanTransform::createWrapper(Instruction_t *target)
         auto instruction = addNewAssembly("ret");
         instruction->getAddress()->setFileID(getFileIR()->getFile()->getBaseID());
         instruction->setFunction(target->getFunction());
-        functionAnalysis.getInstructionCounter()();
+        auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::WRAPPER);
+        instructionCounter();
 
-        InstructionInserter inserter(getFileIR(), instruction, functionAnalysis.getInstructionCounter(), dryRun);
+        InstructionInserter inserter(getFileIR(), instruction, instructionCounter, dryRun);
 
         FunctionInfo info;
         info.isLeafFunction = false;

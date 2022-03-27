@@ -32,6 +32,14 @@ struct FunctionInfo {
     bool addEntryExitInstrumentation;
 };
 
+enum class InstrumentationType
+{
+    MEMORY_ACCESS,
+    ENTRY_EXIT,
+    EXCEPTION_HANDLING,
+    WRAPPER
+};
+
 class Analysis
 {
 public:
@@ -39,8 +47,7 @@ public:
 
     FunctionInfo analyseFunction(IRDB_SDK::Function_t *function);
     void printStatistics() const;
-    std::function<void()> getInstructionCounter() { return [this](){ instrumentationInstructions++; }; }
-    void countAddInstrumentationInstruction() { instrumentationInstructions++; }
+    std::function<void()> getInstructionCounter(InstrumentationType type);
     bool isNoReturnCall(IRDB_SDK::Instruction_t *instruction) const;
     const std::map<IRDB_SDK::Function_t*, CallerSaveRegisterSet> &getWrittenRegisters() const { return functionWrittenRegisters; }
 
@@ -66,12 +73,14 @@ private:
     // functions
     std::size_t totalAnalysedFunctions = 0;
     std::size_t entryExitInstrumentedFunctions = 0;
-    std::size_t unwindFunctions = 0;
     std::size_t canDoRegisterAnalysisFunctions = 0;
 
     // instructions
     std::size_t totalAnalysedInstructions = 0;
-    std::size_t instrumentationInstructions = 0;
+    std::size_t memoryInstrumentationInstructions = 0;
+    std::size_t entryExitInstrumentationInstructions = 0;
+    std::size_t exceptionInstrumentationInstructions = 0;
+    std::size_t wrapperInstrumentationInstructions = 0;
     std::size_t totalInstrumentedInstructions = 0;
     // instructions that were not instrumented
     std::size_t totalNotInstrumented = 0;

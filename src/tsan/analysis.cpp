@@ -70,9 +70,6 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
         }
         const auto decoded = DecodedInstruction_t::factory(instruction);
         if (decoded->isCall()) {
-            if (contains(targetFunctionName(instruction), "Unwind_Resume")) {
-                unwindFunctions++;
-            }
             continue;
         }
         // is the exit instruction after functions calls that do not return (for example exit)
@@ -144,6 +141,26 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
         }
     }
     return result;
+}
+
+std::function<void()> Analysis::getInstructionCounter(InstrumentationType type)
+{
+    return [this, type]() {
+        switch (type) {
+        case InstrumentationType::MEMORY_ACCESS:
+            memoryInstrumentationInstructions++;
+            break;
+        case InstrumentationType::ENTRY_EXIT:
+            entryExitInstrumentationInstructions++;
+            break;
+        case InstrumentationType::EXCEPTION_HANDLING:
+            exceptionInstrumentationInstructions++;
+            break;
+        case InstrumentationType::WRAPPER:
+            wrapperInstrumentationInstructions++;
+            break;
+        }
+    };
 }
 
 struct Loop
@@ -707,11 +724,16 @@ void Analysis::printStatistics() const
     std::cout <<std::endl<<"Statistics:"<<std::endl;
     std::cout <<"Analyzed Functions: "<<totalAnalysedFunctions<<std::endl;
     std::cout <<"\t* Entry/Exit instrumented: "<<entryExitInstrumentedFunctions<<std::endl;
-    std::cout <<"\t* Has UnwindResume: "<<unwindFunctions<<std::endl;
     std::cout <<"\t* Register analyzed: "<<canDoRegisterAnalysisFunctions<<std::endl;
     std::cout <<std::endl;
     std::cout <<"Analyzed Instructions: "<<totalAnalysedInstructions<<std::endl;
-    std::cout <<"\t* New Instrumentation Instructions: "<<instrumentationInstructions<<std::endl;
+    const std::size_t totalInstrumentationInstructions = memoryInstrumentationInstructions + entryExitInstrumentationInstructions +
+            exceptionInstrumentationInstructions + wrapperInstrumentationInstructions;
+    std::cout <<"\t* New Instrumentation Instructions: "<<totalInstrumentationInstructions<<std::endl;
+    std::cout <<"\t\t- Memory Access: "<<memoryInstrumentationInstructions<<std::endl;
+    std::cout <<"\t\t- Function Entry/Exit: "<<entryExitInstrumentationInstructions<<std::endl;
+    std::cout <<"\t\t- Exception Handling: "<<exceptionInstrumentationInstructions<<std::endl;
+    std::cout <<"\t\t- Wrapper Functions: "<<wrapperInstrumentationInstructions<<std::endl;
     std::cout <<"\t* Instrumented Instructions: "<<totalInstrumentedInstructions<<std::endl;
     std::cout <<"\t* Not instrumented: "<<totalNotInstrumented<<std::endl;
     // these might have some overlap, but it should not be too bad
