@@ -127,6 +127,11 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
     const bool isJump = isPartOfGroup(decoded, X86_GRP_JUMP);
     const bool jumpToOtherFunction = isJump && getJumpInfo(instruction).isTailCall;
 
+    // indirect jump
+    if (isJump && instruction->getTarget() == nullptr) {
+        readRegs.set();
+    }
+
     if (isPartOfGroup(decoded, X86_GRP_CALL) || jumpToOtherFunction) {
         setBits(readRegs, X86_REG_RDI);
         setBits(readRegs, X86_REG_RSI);
