@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <irdb-cfg>
+#include <cxxabi.h>
 
 #include "pointeranalysis.h"
 #include "deadregisteranalysis.h"
@@ -15,6 +16,7 @@ Analysis::Analysis(FileIR_t *ir) :
 {
     noReturnFunctions = findNoReturnFunctions();
     computeFunctionRegisterWrites();
+    computeMaxFunctionArguments();
 }
 
 void Analysis::init(DeadRegisterAnalysisType registerAnalysisType, bool useUndefinedRegisterAnalysis)
@@ -103,16 +105,30 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
             // TODO: make sure that the jump is to an actual function
             // TODO: make sure that the stack is at the same level as the start of the function
             // TODO: also check dead registers at the start of the called function
+            // TODO: check all of the registers and not only the last one?
             const auto dead = getDeadRegisters(instruction);
-            const bool mightHaveStackArguments = !Register::hasCallerSaveRegister(dead, X86_REG_R9) || !Register::hasCallerSaveRegister(dead, X86_REG_XMM7);
-            if (decoded->getMnemonic() == "jmp" && decoded->getOperand(0)->isConstant() && !mightHaveStackArguments && instruction->getTarget() != nullptr) {
-                std::cout <<"Try entry exit: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<std::endl;
-            } else {
-                if (mightHaveStackArguments) {
-                    std::cout <<"No exit, possible stack argument: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<" "<<function->getInstructions().size()<<std::endl;
-                } else {
-                    std::cout <<"No exit: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<std::endl;
+            bool mightHaveStackArguments = !Register::hasCallerSaveRegister(dead, X86_REG_R9) || !Register::hasCallerSaveRegister(dead, X86_REG_XMM7);
+            if (instruction->getTarget() != nullptr && instruction->getTarget()->getFunction() != nullptr) {
+                const auto targetIt = maxFunctionArguments.find(instruction->getTarget()->getFunction());
+                if (targetIt != maxFunctionArguments.end()) {
+                    if (targetIt->second <= 6) {
+                        mightHaveStackArguments = false;
+                    } else {
+                        if (!mightHaveStackArguments) {
+                            // it might also be fine since the maxFunctionArguments is an upper limit
+                            std::cout <<"Possible Error: disagreeing argument checks: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<std::endl;
+                            std::cout <<mightHaveStackArguments<<" "<<targetIt->second<<std::endl;
+                        }
+                    }
                 }
+
+            }
+            if (decoded->getMnemonic() == "jmp" && decoded->getOperand(0)->isConstant() && !mightHaveStackArguments && instruction->getTarget() != nullptr) {
+                // this is fine and can be transformed into a call
+//                std::cout <<"Try entry exit: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<std::endl;
+            } else {
+                auto targetName = instruction->getTarget() != nullptr ? instruction->getTarget()->getFunction()->getName() : "";
+//                std::cout <<"No exit: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<" "<<function->getInstructions().size()<<" "<<targetName<<std::endl;
                 result.exitPoints.clear();
                 hasProblem = true;
                 break;
@@ -178,6 +194,60 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
         }
     }
     return result;
+}
+
+void Analysis::computeMaxFunctionArguments()
+{
+    // some commonly used C functions
+    const std::map<std::string, int> knownFunctionArguments = {
+        {"__cxa_atexitpart1@plt", 3}, {"strcmppart1@plt", 2}, {"freepart1@plt", 1},
+        {"memcpypart1@plt", 3}, {"memsetpart1@plt", 3}, {"mallocpart1@plt", 1},
+        {"reallocpart1@plt", 2}, {"callocpart1@plt", 2}, {"putspart1@plt", 1},
+        {"fwritepart1@plt", 4}, {"memcmppart1@plt", 3}, {"memmovepart1@plt", 3},
+        {"ferrorpart1@plt", 1}, {"fclosepart1@plt", 1}
+    };
+
+    for (Function_t *function : ir->getFunctions()) {
+        std::string functionName = function->getName();
+
+        auto knownIt = knownFunctionArguments.find(functionName);
+        if (knownIt != knownFunctionArguments.end()) {
+            maxFunctionArguments[function] = knownIt->second;
+            continue;
+        }
+
+        const std::string pltString = "part1@plt";
+        if (contains(functionName, pltString)) {
+            functionName.erase(functionName.begin() + (functionName.size() - pltString.size()), functionName.end());
+        }
+        int status = 0;
+        // TODO: if compiled with clang on ubuntu, this needs the library libc++abi-dev
+        char *demangledStr = abi::__cxa_demangle(functionName.c_str(), NULL, NULL, &status);
+        if (status == 0) {
+            std::string demangled(demangledStr);
+            int maxArgumentCount = 0;
+            // the this pointer is not explicit in the output
+            if (contains(demangled, "::")) {
+                maxArgumentCount++;
+            }
+            // varargs
+            if (contains(demangled, "...")) {
+                // no upper limit, but this should be fine
+                maxArgumentCount = 100;
+            }
+            // commas can also be in templates or function types, but this is the upper limit
+            maxArgumentCount += std::count(demangled.begin(), demangled.end(), ',');
+            // the first argument does not have a comma
+            if (std::count(demangled.begin(), demangled.end(), '(') > 1 || !contains(demangled, "()")) {
+                maxArgumentCount++;
+            }
+//            std::cout <<maxArgumentCount<<" "<<demangled<<std::endl;
+            maxFunctionArguments[function] = maxArgumentCount;
+        }
+        if (demangledStr != NULL) {
+            free(demangledStr);
+        }
+    }
 }
 
 void Analysis::updateDeadRegisters(IRDB_SDK::Function_t *function)

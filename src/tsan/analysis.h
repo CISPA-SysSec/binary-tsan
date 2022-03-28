@@ -69,6 +69,7 @@ private:
     void findWrittenRegistersRecursive(IRDB_SDK::Function_t *function, std::set<IRDB_SDK::Function_t*> &visited, CapstoneHandle &capstone);
     void updateDeadRegisters(IRDB_SDK::Function_t *function);
     bool isNoReturnCall(IRDB_SDK::Instruction_t *instruction) const;
+    void computeMaxFunctionArguments();
 
 private:
     IRDB_SDK::FileIR_t *ir;
@@ -77,6 +78,7 @@ private:
 
     std::set<IRDB_SDK::Function_t*> noReturnFunctions;
     std::map<IRDB_SDK::Function_t*, CallerSaveRegisterSet> functionWrittenRegisters;
+    std::map<IRDB_SDK::Function_t*, int> maxFunctionArguments;
 
     std::map<IRDB_SDK::Instruction_t*, CallerSaveRegisterSet> deadRegisters;
 
