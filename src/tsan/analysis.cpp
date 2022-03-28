@@ -236,10 +236,12 @@ void Analysis::computeMaxFunctionArguments()
                 maxArgumentCount = 100;
             }
             // commas can also be in templates or function types, but this is the upper limit
-            maxArgumentCount += std::count(demangled.begin(), demangled.end(), ',');
+            // 2 registers for each argument since structures can be directly passed in up to 2 registers
+            // TODO: for pointers, primitive types, and references only 1 register is necessary
+            maxArgumentCount += 2 * std::count(demangled.begin(), demangled.end(), ',');
             // the first argument does not have a comma
             if (std::count(demangled.begin(), demangled.end(), '(') > 1 || !contains(demangled, "()")) {
-                maxArgumentCount++;
+                maxArgumentCount += 2;
             }
 //            std::cout <<maxArgumentCount<<" "<<demangled<<std::endl;
             maxFunctionArguments[function] = maxArgumentCount;
