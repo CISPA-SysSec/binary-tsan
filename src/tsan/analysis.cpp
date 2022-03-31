@@ -121,13 +121,12 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
                         }
                     }
                 }
-
             }
             if (decoded->getMnemonic() == "jmp" && decoded->getOperand(0)->isConstant() && !mightHaveStackArguments && instruction->getTarget() != nullptr) {
                 // this is fine and can be transformed into a call
 //                std::cout <<"Try entry exit: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<std::endl;
             } else {
-                auto targetName = instruction->getTarget() != nullptr ? instruction->getTarget()->getFunction()->getName() : "";
+//                auto targetName = instruction->getTarget() != nullptr && instruction->getTarget()->getFunction() != nullptr ? instruction->getTarget()->getFunction()->getName() : "";
 //                std::cout <<"No exit: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<" "<<function->getInstructions().size()<<" "<<targetName<<std::endl;
                 result.exitPoints.clear();
                 hasProblem = true;
