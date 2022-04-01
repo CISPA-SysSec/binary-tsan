@@ -8,6 +8,7 @@
 #include <irdb-deep>
 
 #include "register.h"
+#include "options.h"
 
 // from tsan-interface-atomic.h, do not change
 typedef enum {
@@ -40,17 +41,11 @@ enum class InstrumentationType
     WRAPPER
 };
 
-enum class DeadRegisterAnalysisType {
-    STARS,
-    CUSTOM,
-    NONE
-};
-
 class Analysis
 {
 public:
     Analysis(IRDB_SDK::FileIR_t *ir);
-    void init(DeadRegisterAnalysisType registerAnalysisType, bool useUndefinedRegisterAnalysis);
+    void init(const Options &options);
 
     FunctionInfo analyseFunction(IRDB_SDK::Function_t *function);
     void printStatistics() const;
@@ -73,8 +68,7 @@ private:
 
 private:
     IRDB_SDK::FileIR_t *ir;
-    DeadRegisterAnalysisType deadRegisterAnalysisType;
-    bool useUndefinedRegisterAnalysis;
+    Options options;
 
     std::set<IRDB_SDK::Function_t*> noReturnFunctions;
     std::map<IRDB_SDK::Function_t*, CallerSaveRegisterSet> functionWrittenRegisters;

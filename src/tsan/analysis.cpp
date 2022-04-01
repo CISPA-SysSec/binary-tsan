@@ -19,12 +19,11 @@ Analysis::Analysis(FileIR_t *ir) :
     computeMaxFunctionArguments();
 }
 
-void Analysis::init(DeadRegisterAnalysisType registerAnalysisType, bool useUndefinedRegisterAnalysis)
+void Analysis::init(const Options &options)
 {
-    deadRegisterAnalysisType = registerAnalysisType;
-    this->useUndefinedRegisterAnalysis = useUndefinedRegisterAnalysis;
+    this->options = options;
 
-    if (deadRegisterAnalysisType == DeadRegisterAnalysisType::STARS) {
+    if (options.deadRegisterAnalysisType == DeadRegisterAnalysisType::STARS) {
         const auto registerAnalysis = DeepAnalysis_t::factory(ir);
         auto starsDead = registerAnalysis->getDeadRegisters();
         for (const auto &[instruction, registers] : *starsDead) {
@@ -253,7 +252,7 @@ void Analysis::computeMaxFunctionArguments()
 
 void Analysis::updateDeadRegisters(IRDB_SDK::Function_t *function)
 {
-    if (deadRegisterAnalysisType != DeadRegisterAnalysisType::CUSTOM) {
+    if (options.deadRegisterAnalysisType != DeadRegisterAnalysisType::CUSTOM) {
         return;
     }
     deadRegisters.clear();
@@ -270,7 +269,7 @@ void Analysis::updateDeadRegisters(IRDB_SDK::Function_t *function)
     for (const auto &[instruction, analysis] : analysisResult) {
         deadRegisters.insert({instruction, analysis.getDeadRegisters()});
     }
-    if (useUndefinedRegisterAnalysis && canHandleForward) {
+    if (options.useUndefinedRegisterAnalysis && canHandleForward) {
         std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> removeEdges;
         for (const auto block : cfg->getBlocks()) {
             const auto lastInstruction = block->getInstructions().back();

@@ -28,85 +28,18 @@ TSanTransform::~TSanTransform()
 
 bool TSanTransform::parseArgs(const std::vector<std::string> &options)
 {
-    for (const std::string &option : options) {
-        // should be an absolute path to be useful
-        const std::string dumpFunctionsOption = "--dumpFunctionNamesTo=";
-        if (startsWith(option, dumpFunctionsOption)) {
-            const std::string filename(option.begin() + dumpFunctionsOption.size(), option.end());
-            std::cout <<"Dumping function names to: "<<filename<<std::endl;
-            FileIR_t *ir = getFileIR();
-            ofstream file(filename, ios_base::binary);
-            if (!file) {
-                std::cout <<"Could not open file!"<<std::endl;
-                return false;
-            }
-            for (Function_t *function : ir->getFunctions()) {
-                file <<function->getName()<<std::endl;
-            }
-            continue;
-        }
-        // should be an absolute path to be useful
-        const std::string instrumentOnlyOption = "--instrumentOnlyFunctions=";
-        if (startsWith(option, instrumentOnlyOption)) {
-            const std::string filename(option.begin() + instrumentOnlyOption.size(), option.end());
-            std::cout <<"Reading filenames from: "<<filename<<std::endl;
-            ifstream file(filename);
-            if (!file) {
-                std::cout <<"Could not open file!"<<std::endl;
-                return false;
-            }
-            std::string line;
-            while(getline(file, line)) {
-                instrumentOnlyFunctions.insert(line);
-            }
-            std::cout <<"Loaded "<<instrumentOnlyFunctions.size()<<" functions to instrument"<<std::endl;
-            continue;
-        }
-        const std::string annotationsOptions = "--annotations=";
-        if (startsWith(option, annotationsOptions)) {
-            const std::string filename(option.begin() + annotationsOptions.size(), option.end());
-            const bool res = annotations.parseFromFile(getFileIR(), filename);
-            if (!res) {
-                throw std::invalid_argument("Could not load annotations!");
-            }
-            continue;
-        }
-        if (option == "--register-analysis=stars") {
-            deadRegisterAnalysisType = DeadRegisterAnalysisType::STARS;
-        } else if (option == "--register-analysis=custom") {
-            deadRegisterAnalysisType = DeadRegisterAnalysisType::CUSTOM;
-        } else if (option == "--register-analysis=none") {
-            deadRegisterAnalysisType = DeadRegisterAnalysisType::NONE;
-        } else if (option == "--dry-run") {
-            dryRun = true;
-        } else if (option == "--atomics-only") {
-            atomicsOnly = true;
-        } else if (option == "--no-entry-exit") {
-            // also includes exception handling
-            instrumentFunctionEntryExit = false;
-        } else if (option == "--no-add-tsan-calls") {
-            addTsanCalls = false;
-        } else if (option == "--save-xmm-registers") {
-            saveXmmRegisters = true;
-        } else if (option == "--no-add-libtsan-dependency") {
-            addLibTsanDependency = false;
-        } else if (option == "--no-instrument-atomics") {
-            noInstrumentAtomics = true;
-        } else if (option == "--use-system-libtsan") {
-            useCustomLibTsan = false;
-            saveXmmRegisters = true;
-        } else {
-            std::cout <<"Unrecognized option: "<<option<<std::endl;
-            return false;
-        }
+    const auto parsedOptions = Options::parseAndProcess(getFileIR(), options);
+    if (!parsedOptions.has_value()) {
+        return false;
     }
+    this->options = parsedOptions.value();
     return true;
 }
 
 bool TSanTransform::executeStep()
 {
     FileIR_t *ir = getFileIR();
-    functionAnalysis.init(deadRegisterAnalysisType, useUndefinedRegisterAnalysis);
+    functionAnalysis.init(options);
 
     for (auto function : ir->getFunctions()) {
         if (startsWith(function->getName(), "__tsan_func_entry")) {
@@ -136,7 +69,7 @@ bool TSanTransform::executeStep()
         if (contains(functionName, "@plt")) {
             continue;
         }
-        if (instrumentOnlyFunctions.size() > 0 && instrumentOnlyFunctions.find(functionName) == instrumentOnlyFunctions.end()) {
+        if (options.instrumentOnlyFunctions.size() > 0 && options.instrumentOnlyFunctions.find(functionName) == options.instrumentOnlyFunctions.end()) {
             continue;
         }
         }
@@ -185,15 +118,15 @@ bool TSanTransform::executeStep()
                 continue;
             }
             auto targetFunction = instruction->getTarget()->getFunction();
-            auto annotationIt = annotations.happensBefore.find(targetFunction);
-            if (annotationIt == annotations.happensBefore.end()) {
+            auto annotationIt = options.annotations.happensBefore.find(targetFunction);
+            if (annotationIt == options.annotations.happensBefore.end()) {
                 continue;
             }
             std::cout <<"Add instrumentation for annotation at: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<std::endl;
             instrumentAnnotation(instruction, annotationIt->second, info);
         }
 
-        if (info.addEntryExitInstrumentation && instrumentFunctionEntryExit) {
+        if (info.addEntryExitInstrumentation && options.instrumentFunctionEntryExit) {
             // TODO: what if the first instruction is atomic and thus removed?
             insertFunctionEntry(function, info.properEntryPoint);
             for (Instruction_t *ret : info.exitPoints) {
@@ -202,7 +135,7 @@ bool TSanTransform::executeStep()
 
             getFileIR()->assembleRegistry();
 
-            InstructionInserter inserter(ir, function->getEntryPoint(), functionAnalysis.getInstructionCounter(InstrumentationType::EXCEPTION_HANDLING), dryRun);
+            InstructionInserter inserter(ir, function->getEntryPoint(), functionAnalysis.getInstructionCounter(InstrumentationType::EXCEPTION_HANDLING), options.dryRun);
             exceptionHandling.handleFunction(function, inserter);
         }
         getFileIR()->assembleRegistry();
@@ -249,7 +182,7 @@ void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *ins
     CallerSaveRegisterSet ignoreRegisters = Register::xmmRegisterSet() | functionEntry.preserveRegisters;
     ignoreRegisters &= ~Register::registerSet({functionEntry.argumentRegister});
     const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, ignoreRegisters);
-    InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(InstrumentationType::ENTRY_EXIT), dryRun);
+    InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(InstrumentationType::ENTRY_EXIT), options.dryRun);
 
     // for this to work without any additional rsp wrangling, it must be inserted at the very start of the function
     for (std::string reg : registersToSave) {
@@ -259,7 +192,7 @@ void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *ins
         const std::string argumentRegister = Register::registerToString(functionEntry.argumentRegister);
         inserter.insertAssembly("mov " + argumentRegister + ", [rsp + " + toHex(registersToSave.size() * ir->getArchitectureBitWidth() / 8) + "]");
     }
-    if (addTsanCalls) {
+    if (options.addTsanCalls) {
         inserter.insertAssembly("call 0", functionEntry.callTarget);
     }
     for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
@@ -270,7 +203,7 @@ void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *ins
     // TODO: recursive tail call to itself
     // TODO: fallthrough to the function entry
     // TODO: endbr instruction might be in the way
-    if (dryRun) {
+    if (options.dryRun) {
         return;
     }
     getFileIR()->assembleRegistry();
@@ -287,7 +220,7 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
 {
     FileIR_t *ir = getFileIR();
     const LibraryFunction functionExit = selectFunctionVersion(insertBefore, tsanFunctionExit);
-    InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(InstrumentationType::ENTRY_EXIT), dryRun);
+    InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(InstrumentationType::ENTRY_EXIT), options.dryRun);
 
     const auto decoded = DecodedInstruction_t::factory(insertBefore);
     const bool isSimpleReturn = decoded->isReturn();
@@ -298,7 +231,7 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
         for (std::string reg : registersToSave) {
             inserter.insertAssembly("push " + reg);
         }
-        if (addTsanCalls) {
+        if (options.addTsanCalls) {
             inserter.insertAssembly("call 0", functionExit.callTarget);
         }
         for (auto it = registersToSave.rbegin();it != registersToSave.rend();it++) {
@@ -321,7 +254,7 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
         inserter.insertAssembly("add rsp, 0x8");
         inserter.insertAssembly("push rax");
         inserter.insertAssembly("push rcx");
-        if (addTsanCalls) {
+        if (options.addTsanCalls) {
             inserter.insertAssembly("call 0", functionExit.callTarget);
         }
         inserter.insertAssembly("pop rcx");
@@ -333,7 +266,7 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
 
 void TSanTransform::instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, const std::vector<HappensBeforeAnnotation> &annotations, const FunctionInfo &info)
 {
-    InstructionInserter inserter(getFileIR(), instruction, functionAnalysis.getInstructionCounter(InstrumentationType::MEMORY_ACCESS), dryRun);
+    InstructionInserter inserter(getFileIR(), instruction, functionAnalysis.getInstructionCounter(InstrumentationType::MEMORY_ACCESS), options.dryRun);
     std::vector<HappensBeforeAnnotation> afterAnnotations;
     for (const auto &annotation : annotations) {
         if (annotation.isBefore) {
@@ -387,7 +320,7 @@ void TSanTransform::instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, c
         restoreStateFromStack(saveState, inserter);
     }
 
-    if (!dryRun) {
+    if (!options.dryRun) {
         auto inserted = inserter.getLastInserted();
         inserted->setFallthrough(inserted->getFallthrough()->getFallthrough());
     }
@@ -716,7 +649,7 @@ TSanTransform::SaveStateInfo TSanTransform::saveStateToStack(InstructionInserter
 {
     SaveStateInfo state;
 
-    if (!saveXmmRegisters) {
+    if (!options.saveXmmRegisters) {
         ignoreRegisters |= Register::xmmRegisterSet();
     }
     std::vector<std::string> registersToSave = getSaveRegisters(before, ignoreRegisters);
@@ -796,7 +729,7 @@ std::optional<OperationInstrumentation> TSanTransform::getInstrumentation(Instru
     const bool isExchange = decoded->getMnemonic() == "xchg";
     const bool atomic = isAtomic(instruction) || isInferredAtomic || isExchange;
     if (atomic) {
-        if (noInstrumentAtomics) {
+        if (options.noInstrumentAtomics) {
             return {};
         }
         const __tsan_memory_order memOrder = isInferredAtomic ? inferredIt->second : __tsan_memory_order_acq_rel;
@@ -806,7 +739,7 @@ std::optional<OperationInstrumentation> TSanTransform::getInstrumentation(Instru
         }
     }
 
-    if (atomicsOnly) {
+    if (options.atomicsOnly) {
         return {};
     }
 
@@ -841,7 +774,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     instrumentationInfo.set_function_has_entry_exit(info.addEntryExitInstrumentation);
 
     const uint bytes = instrumentationByteSize(operand);
-    if (!dryRun && (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
+    if (!options.dryRun && (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
             (operand->isRead() && tsanRead[bytes][0].callTarget == nullptr) ||
             (operand->isWritten() && tsanWrite[bytes][0].callTarget == nullptr))) {
         std::cout <<"WARNING: memory operation of size "<<bytes<<" is not instrumented: "<<instruction->getDisassembly()<<std::endl;
@@ -857,7 +790,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     }
     OperationInstrumentation instrumentation = *instr;
 
-    InstructionInserter inserter(ir, instruction, functionAnalysis.getInstructionCounter(InstrumentationType::MEMORY_ACCESS), dryRun);
+    InstructionInserter inserter(ir, instruction, functionAnalysis.getInstructionCounter(InstrumentationType::MEMORY_ACCESS), options.dryRun);
 
     std::vector<LibraryFunction> callTargets;
     callTargets.reserve(instrumentation.callTargets.size());
@@ -907,7 +840,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
                 // The lea instruction should have 7 bytes (if the memory displacement is encoded with 4 byte)
                 const auto offset = operand->getMemoryDisplacement() + decoded->length() - 7;
                 auto inserted = inserter.insertAssembly("lea " + argumentRegister + ", [rel " + toHex(offset) + "]");
-                if (!dryRun) {
+                if (!options.dryRun) {
                     ir->addNewRelocation(inserted, 0, "pcrel");
                 }
             } else {
@@ -950,20 +883,20 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
             if (isCall) {
                 callTarget = callTargets[0].callTarget;
                 callTargets.erase(callTargets.begin());
-                if (!addTsanCalls) {
+                if (!options.addTsanCalls) {
                     continue;
                 }
             }
             auto inserted = inserter.insertAssembly(strippedAssembly, callTarget);
 
-            if (isJumpWithLabel && !dryRun) {
+            if (isJumpWithLabel && !options.dryRun) {
                 jumpTargetsToResolve[labelName] = inserted;
             }
-            if (definesLabel && !dryRun) {
+            if (definesLabel && !options.dryRun) {
                 labels[labelName] = inserted;
             }
 
-            if (isCall && !dryRun) {
+            if (isCall && !options.dryRun) {
                 Instrumentation im;
                 im.instrumentation = inserted;
                 im.info = instrumentationInfo;
@@ -983,7 +916,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 
     restoreStateFromStack(saveState, inserter);
 
-    if (instrumentation.removeOriginalInstruction == REMOVE_ORIGINAL_INSTRUCTION && !dryRun) {
+    if (instrumentation.removeOriginalInstruction == REMOVE_ORIGINAL_INSTRUCTION && !options.dryRun) {
         auto inserted = inserter.getLastInserted();
         inserted->setFallthrough(inserted->getFallthrough()->getFallthrough());
     }
@@ -999,7 +932,7 @@ LibraryFunctionOptions TSanTransform::createWrapper(Instruction_t *target)
         auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::WRAPPER);
         instructionCounter();
 
-        InstructionInserter inserter(getFileIR(), instruction, instructionCounter, dryRun);
+        InstructionInserter inserter(getFileIR(), instruction, instructionCounter, options.dryRun);
 
         FunctionInfo info;
         info.isLeafFunction = false;
@@ -1027,11 +960,11 @@ void TSanTransform::registerDependencies()
     auto elfDeps = ElfDependencies_t::factory(getFileIR());
 
     // for shared libraries, it is not necessary (and sometimes harmful) to add this as the executable will also have it
-    if (addLibTsanDependency) {
+    if (options.addLibTsanDependency) {
         elfDeps->prependLibraryDepedencies("libgcc_s.so.1");
         elfDeps->prependLibraryDepedencies("libstdc++.so.6");
         elfDeps->prependLibraryDepedencies("libm.so.6");
-        if (useCustomLibTsan) {
+        if (options.useCustomLibTsan) {
             elfDeps->prependLibraryDepedencies("libc.so.6");
             elfDeps->prependLibraryDepedencies("libdl.so.2");
             elfDeps->prependLibraryDepedencies("libpthread.so.0");
@@ -1040,7 +973,7 @@ void TSanTransform::registerDependencies()
             elfDeps->prependLibraryDepedencies("libtsan.so.0");
         }
     }
-    if (useWrapperFunctions) {
+    if (options.useWrapperFunctions) {
         tsanFunctionEntry = createWrapper(elfDeps->appendPltEntry("__tsan_func_entry"));
         tsanFunctionExit = createWrapper(elfDeps->appendPltEntry("__tsan_func_exit"));
     } else {
@@ -1048,7 +981,7 @@ void TSanTransform::registerDependencies()
         tsanFunctionExit = {elfDeps->appendPltEntry("__tsan_func_exit")};
     }
     for (int s : {1, 2, 4, 8, 16}) {
-        if (useWrapperFunctions) {
+        if (options.useWrapperFunctions) {
             tsanWrite[s] = createWrapper(elfDeps->appendPltEntry("__tsan_write" + std::to_string(s) + "_pc"));
             tsanRead[s] = createWrapper(elfDeps->appendPltEntry("__tsan_read" + std::to_string(s) + "_pc"));
         } else {
