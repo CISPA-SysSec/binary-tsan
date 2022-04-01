@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <iomanip>
 
 #include "stringhelper.h"
 
@@ -18,6 +19,7 @@ private:
             hasValue(hasValue)
         { }
         virtual bool applyOption(const std::string &value) = 0;
+        virtual std::string getFullName() { return "--" + name; }
 
         std::string name;
         std::string description;
@@ -51,6 +53,9 @@ private:
             *outValue = value;
             return true;
         }
+        std::string getFullName() override {
+            return "--" + name + "=<" + valueName + ">";
+        }
     private:
         std::string *outValue;
         std::string valueName;
@@ -73,6 +78,17 @@ private:
             }
             std::cout <<"ERROR: "<<value<<" is not a valid value for option "<<name<<std::endl;
             return false;
+        }
+        std::string getFullName() override {
+            std::string result =  "--" + name + "=(";
+            for (std::size_t i = 0;i<options.size();i++) {
+                result += options[i].first;
+                if (i+1 < options.size()) {
+                    result += "|";
+                }
+            }
+            result += ")";
+            return result;
         }
     private:
         int *outValue;
@@ -141,7 +157,37 @@ bool OptionsManager::parseOptions(const std::vector<std::string> &optionString) 
 
 void OptionsManager::printHelp() const
 {
+    std::cout <<"Available options:"<<std::endl<<std::endl;
 
+    std::size_t maxOptionNameLen = 0;
+    for (const auto &opt : options) {
+        maxOptionNameLen = std::max(maxOptionNameLen, opt->getFullName().size());
+    }
+    for (const auto &opt : options) {
+        std::cout <<setw(maxOptionNameLen + 3)<<std::left<<opt->getFullName();
+        std::string description = opt->description;
+        bool isFirst = true;
+        const int SHOW_LENGTH = 100;
+        while (description.size() > 0) {
+            const std::string part = description.size() > SHOW_LENGTH ? std::string(description.begin(), description.begin() + SHOW_LENGTH) : description;
+            if (isFirst) {
+                isFirst = false;
+                std::cout <<part<<std::endl;
+            } else {
+                std::cout <<setw(maxOptionNameLen + 3)<<std::right<<" "<<part<<std::endl;
+            }
+
+            if (description.size() > SHOW_LENGTH) {
+                description.erase(description.begin(), description.begin() + SHOW_LENGTH);
+            } else {
+                break;
+            }
+        }
+    }
+    std::cout <<std::endl;
+
+    std::cout <<"Examples: "<<std::endl;
+    std::cout <<"./thread-sanitizer.sh /usr/bin/ls ls-mod --register-analysis=stars --dry-run"<<std::endl;
 }
 
 struct OptionsPrivate
@@ -168,7 +214,7 @@ static OptionsManager registerTsanOptions(Options &options, OptionsPrivate &addi
         {"stars", (int)DeadRegisterAnalysisType::STARS},
         {"custom", (int)DeadRegisterAnalysisType::CUSTOM}
     };
-    result.addEnumOption("register-analysis", (int*)&options.deadRegisterAnalysisType, registerOptions, "custom", "The dead register analysis used for eliminating register stores and enabling some transformations. Stars is the zipr provided analysis.");
+    result.addEnumOption("register-analysis", (int*)&options.deadRegisterAnalysisType, registerOptions, "custom", "The dead register analysis used for eliminating register stores and enabling some transformations. Custom is the default. Stars is the zipr provided analysis.");
 
     result.addStringOption("dump-function-names-to", "filename", &additionalOptions.dumpFunctionNamesTo, "Dump all functionnames that are encountered into the file specified by <filename>. The names are mangled.");
     result.addStringOption("instrument-only-functions", "filename", &additionalOptions.instrumentOnlyFrom, "Read the file specified by <filename> and only instrument functions with names in the file. The names must be mangled and in the same format as when they are dumped by --dump-function-names-to. One name per line.");

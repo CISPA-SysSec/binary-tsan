@@ -7,11 +7,6 @@ printUsage()
 	exit 1
 }
 
-if [ "$#" -lt 2 ]
-then
-	printUsage
-fi
-
 # set up environment variables
 last=$PWD
 cd @ZIPR_LOCATION@
@@ -19,6 +14,19 @@ cd @ZIPR_LOCATION@
 export PSPATH=$PSPATH:@PLUGIN_PATH@
 export ZIPR_PLUGIN_PATH=$ZIPR_PLUGIN_PATH:@ZIPR_PLUGIN_PATH@
 cd $last
+
+
+if [[ "$#" -eq 1 && "$1" == "--help" ]];
+then
+    export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$SECURITY_TRANSFORMS_HOME/lib"
+	@PLUGIN_PATH@/tsan.exe --help
+	exit 1
+fi
+
+if [ "$#" -lt 2 ]
+then
+	printUsage
+fi
 
 # the basic run command without additional tsan options
 inputbase=$(basename $1)

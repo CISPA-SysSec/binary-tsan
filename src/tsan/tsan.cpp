@@ -3,12 +3,18 @@
 #include <irdb-core>
 
 #include "tsantransform.h"
+#include "options.h"
 
 #include <iostream>
 
 int main(int argc, char* argv[]) {
     const std::string program_name = std::string(argv[0]);
     const auto variantID = std::strtol(argv[1], nullptr, 10);
+
+    if (argc == 2 && std::string(argv[1]) == "--help") {
+        Options::printOptionsHelp();
+        return 1;
+    }
 
     std::vector<std::string> args;
     for(int i = 2; i < argc; i++) {

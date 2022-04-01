@@ -22,3 +22,9 @@ To execute the thread sanitizer, use the script 'thread-sanitizer.sh' created in
 ./build/thread-sanitizer.sh /usr/bin/ls ls-sanitized
 ```
 Note that this will create a folder with logs and other information in the current working directory.
+
+The thread sanitizer has a number of different options that affect the generated binary.
+A list and description of all options can be shown with:
+```
+./build/thread-sanitizer.sh --help
+```
