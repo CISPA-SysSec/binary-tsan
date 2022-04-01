@@ -1,5 +1,7 @@
 // RUN: %clangxx_tsan -O0 %s -o %t && %run %t 2>&1 | FileCheck %s
 // RUN: %clangxx_tsan -O1 %s -o %t && %run %t 2>&1 | FileCheck %s
+// RUN: %clangxx_tsan -Os %s -o %t && %run %t 2>&1 | FileCheck %s
+// RUN: %clangxx_tsan -O3 %s -o %t && %run %t 2>&1 | FileCheck %s
 
 #include "test.h"
 #include <setjmp.h>
@@ -177,9 +179,12 @@ int main(int argc, const char * argv[]) {
 
   longjmp_unwind_multiple_frames();
   CHECK_SHADOW_STACK(shadow_stack_size);
+  
+  fprintf(stderr, "DONE\n");
 
   return 0;
 }
 
 // CHECK: Hello, World!
 // CHECK-NOT: Shadow stack leak
+// CHECK: DONE

@@ -86,7 +86,6 @@ void ExceptionHandling::handleFunction(Function_t *function, InstructionInserter
 //        std::cout <<"call site: "<<disassembly(instruction)<<std::endl;
 
         // TODO: clean up excess eh programs
-        // TODO: cache new eh programs
         auto newEhProg = file->copyEhProgram(*instruction->getEhProgram());
         newEhProg->setRelocations({personalityRelocation});
         instruction->setEhProgram(newEhProg);

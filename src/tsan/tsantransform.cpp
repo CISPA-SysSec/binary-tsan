@@ -309,7 +309,15 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
         Instruction_t *callTarget = insertBefore->getTarget();
         // 16 byte stack alignment for function calls
         inserter.insertAssembly("sub rsp, 0x8");
-        inserter.insertAssembly("call 0", callTarget);
+        auto callInstruction = inserter.insertAssembly("call 0", callTarget);
+
+        // set exception handling info
+        // cie program: def_cfa: r7 (rsp) ofs 8, cfa_offset 1
+        const std::vector<std::string> cieProg = {{0x0c, 0x07, 0x08}, {(char)0x90, 0x01}};
+        // fde program: def_cfa: r7 (rsp) ofs 16
+        const std::vector<std::string> fdeProg = {{0x0c, 0x07, 0x10}};
+        getFileIR()->addEhProgram(callInstruction, 1, -8, 16, 8, cieProg, fdeProg);
+
         inserter.insertAssembly("add rsp, 0x8");
         inserter.insertAssembly("push rax");
         inserter.insertAssembly("push rcx");
