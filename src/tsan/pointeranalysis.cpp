@@ -1,5 +1,7 @@
 #include "pointeranalysis.h"
 
+#include "stringhelper.h"
+
 using namespace IRDB_SDK;
 
 PointerAnalysis PointerAnalysis::merge(const std::vector<PointerAnalysis> &parts)
@@ -131,5 +133,130 @@ std::vector<IRDB_SDK::RegisterID> PointerAnalysis::callerSaveRegisters()
 
 std::vector<RegisterID> PointerAnalysis::possibleRegisters()
 {
-    return {rn_RAX, rn_RBX, rn_RCX, rn_RDX, rn_RSI, rn_RDI, rn_RBP, rn_R8, rn_R9, rn_R10, rn_R11, rn_R12, rn_R13, rn_R14, rn_R15};
+    return {rn_RAX, rn_RBX, rn_RCX, rn_RDX, rn_RSI, rn_RDI, rn_RBP, rn_RSP, rn_R8, rn_R9, rn_R10, rn_R11, rn_R12, rn_R13, rn_R14, rn_R15};
+}
+
+
+StackOffsetAnalysis::StackOffsetAnalysis(IRDB_SDK::Instruction_t *instruction, const StackOffsetAnalysisCommon &common)
+{
+    if (common.functionEntry == instruction) {
+        before.rspOffset.offset = 0;
+        before.rspOffset.state = OffsetState::VALUE;
+        updateData();
+    }
+
+    const auto decoded = DecodedInstruction_t::factory(instruction);
+    const auto mnemonic = decoded->getMnemonic();
+    const auto disassembly = instruction->getDisassembly();
+    if (disassembly == "mov rbp, rsp") {
+        operation = StackOperation(StackOperationType::MOVE_RSP_TO_RBP);
+    } else if (disassembly == "mov rsp, rbp") {
+        operation = StackOperation(StackOperationType::MOVE_RBP_TO_RSP);
+    } else if (startsWith(disassembly, "sub rsp, ") && decoded->getOperand(1)->isConstant()) {
+        // TODO: what about negative numbers?
+        operation = StackOperation(StackOperationType::OFFSET_RSP, -decoded->getOperand(1)->getConstant());
+    } else if (startsWith(disassembly, "add rsp, ") && decoded->getOperand(1)->isConstant()) {
+        operation = StackOperation(StackOperationType::OFFSET_RSP, decoded->getOperand(1)->getConstant());
+    } else if (mnemonic == "push") {
+        operation = StackOperation(StackOperationType::OFFSET_RSP, -8);
+    } else if (mnemonic == "pop") {
+        operation = StackOperation(StackOperationType::OFFSET_RSP, 8);
+    } else {
+        for (auto operand : decoded->getOperands()) {
+            if (operand->isWritten() && operand->isRegister()) {
+                if (operand->getString() == "rsp") {
+                    operation = StackOperation(StackOperationType::INVALIDATE_RSP);
+                } else if (operand->getString() == "rbp") {
+                    operation = StackOperation(StackOperationType::INVALIDATE_RBP);
+                }
+            }
+            // TODO: check for rsp leaks into other registers
+            if (operand->isMemory()) {
+                // ignore stack access with index for now
+                // TODO: stack access with index
+                if (operand->hasBaseRegister() && !operand->hasIndexRegister()) {
+                    const std::string opStr = operand->getString();
+                    const int64_t offset = operand->getMemoryDisplacement();
+                    if (startsWith(opStr, "rsp")) {
+                        operation = StackOperation(StackOperationType::STACK_ACCESS_RSP, offset);
+                    } else if (startsWith(opStr, "rbp")) {
+                        operation = StackOperation(StackOperationType::STACK_ACCESS_RBP, offset);
+                    }
+                }
+            }
+        }
+        // TODO: check if rsp or rbp are read or written in any other way
+        // read for the stackoffset, written
+    }
+    // TODO: lea rsp offsets, do they exist??
+    // TODO: pushf, pushfd, pushfq?
+    // TODO: even when failing the analysis, the alignment after function calls is known
+    // TODO: the offset at return statements is known, backwards analysis is also possible
+}
+
+void StackOffsetAnalysis::updateData()
+{
+    after = before;
+    switch(operation.operationType) {
+    case StackOperationType::OFFSET_RSP:
+        after.rspOffset.offset = before.rspOffset.offset + operation.operationOffset;
+        break;
+    case StackOperationType::MOVE_RSP_TO_RBP:
+        after.rbpOffset = before.rspOffset;
+        break;
+    case StackOperationType::MOVE_RBP_TO_RSP:
+        after.rspOffset = before.rbpOffset;
+        break;
+    case StackOperationType::INVALIDATE_RSP:
+        after.rspOffset.state = OffsetState::INVALID;
+        break;
+    case StackOperationType::INVALIDATE_RBP:
+        after.rbpOffset.state = OffsetState::INVALID;
+        break;
+    case StackOperationType::STACK_ACCESS_RSP:
+        if (before.rspOffset.state == OffsetState::VALUE) {
+            after.minAccessOffset = std::min(after.minAccessOffset, before.rspOffset.offset + operation.operationOffset);
+        }
+        break;
+    case StackOperationType::STACK_ACCESS_RBP:
+        if (before.rbpOffset.state == OffsetState::VALUE) {
+            after.minAccessOffset = std::min(after.minAccessOffset, before.rbpOffset.offset + operation.operationOffset);
+        }
+        break;
+    case StackOperationType::NONE:
+        break;
+    }
+    // not perfect, but doing this right would require an additional backwards analysis
+    if (after.rspOffset.state == OffsetState::VALUE && before.rspOffset.state == OffsetState::VALUE &&
+            before.rspOffset.offset <= after.minAccessOffset && after.rspOffset.offset > after.minAccessOffset) {
+        after.minAccessOffset = after.rspOffset.offset;
+    }
+}
+
+bool StackOffsetAnalysis::mergeFrom(const StackOffsetAnalysis &predecessor)
+{
+    bool changed = before.rspOffset.mergeFrom(predecessor.after.rspOffset);
+    changed |= before.rbpOffset.mergeFrom(predecessor.after.rbpOffset);
+    if (predecessor.after.minAccessOffset < before.minAccessOffset) {
+        before.minAccessOffset = predecessor.after.minAccessOffset;
+        changed = true;
+    }
+    return changed;
+}
+
+static std::string offsetString(const StackOffset &offset)
+{
+    switch(offset.state) {
+    case OffsetState::INVALID:
+        return "invalid";
+    case OffsetState::UNKNOWN:
+        return "/";
+    case OffsetState::VALUE:
+        return std::to_string(offset.offset);
+    }
+}
+
+void StackOffsetAnalysis::print() const
+{
+    std::cout <<"rsp: "<<offsetString(before.rspOffset)<<"   rbp: "<<offsetString(before.rbpOffset)<<" access: "<<std::dec<<before.minAccessOffset<<std::endl;
 }

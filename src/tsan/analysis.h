@@ -28,6 +28,7 @@ struct FunctionInfo {
     // all instructions with memory accesses that should be instrumented
     std::set<IRDB_SDK::Instruction_t*> instructionsToInstrument;
     bool isLeafFunction;
+    std::set<IRDB_SDK::Instruction_t*> stackUnsafe;
     // instruction like guard variable reads that count as atomic by thread sanitizer standards
     std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> inferredAtomicInstructions;
     bool addEntryExitInstrumentation;

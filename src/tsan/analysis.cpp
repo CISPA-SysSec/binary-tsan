@@ -78,6 +78,15 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
         spinLocks++;
     }
 
+    // this analysis is fine with missing forward edges, it can always be run
+    StackOffsetAnalysisCommon common(function->getEntryPoint());
+    const auto stackOffsetResult = FixedPointAnalysis::runAnalysis<StackOffsetAnalysis, StackOffsetAnalysisCommon>(&*cfg, {}, common);
+    for (const auto &[instruction, analysis] : stackOffsetResult) {
+        if (!analysis.isStackSafe()) {
+            result.stackUnsafe.insert(instruction);
+        }
+    }
+
     result.properEntryPoint = function->getEntryPoint();
     if (contains(result.properEntryPoint->getDisassembly(), "endbr")) {
         result.properEntryPoint = result.properEntryPoint->getFallthrough();
@@ -116,12 +125,18 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
                         if (!mightHaveStackArguments) {
                             // it might also be fine since the maxFunctionArguments is an upper limit
                             std::cout <<"Possible Error: disagreeing argument checks: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<std::endl;
-                            std::cout <<mightHaveStackArguments<<" "<<targetIt->second<<std::endl;
                         }
                     }
                 }
             }
-            if (decoded->getMnemonic() == "jmp" && decoded->getOperand(0)->isConstant() && !mightHaveStackArguments && instruction->getTarget() != nullptr) {
+            bool stackCleared = true;
+            auto stackIt = stackOffsetResult.find(instruction);
+            if (stackIt != stackOffsetResult.end()) {
+                if (stackIt->second.getRspOffset().state == OffsetState::VALUE && stackIt->second.getRspOffset().offset != 0) {
+                    stackCleared = false;
+                }
+            }
+            if (decoded->getMnemonic() == "jmp" && decoded->getOperand(0)->isConstant() && !mightHaveStackArguments && instruction->getTarget() != nullptr && stackCleared) {
                 // this is fine and can be transformed into a call
 //                std::cout <<"Try entry exit: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<std::endl;
             } else {

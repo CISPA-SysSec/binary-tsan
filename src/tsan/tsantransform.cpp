@@ -649,6 +649,8 @@ TSanTransform::SaveStateInfo TSanTransform::saveStateToStack(InstructionInserter
 {
     SaveStateInfo state;
 
+    const bool stackUnsafe = info.stackUnsafe.find(before) != info.stackUnsafe.end() || info.isLeafFunction;
+
     if (!options.saveXmmRegisters) {
         ignoreRegisters |= Register::xmmRegisterSet();
     }
@@ -667,8 +669,8 @@ TSanTransform::SaveStateInfo TSanTransform::saveStateToStack(InstructionInserter
     state.flagsAreSaved = eflagsAlive && !Register::hasCallerSaveRegister(ignoreRegisters, X86_REG_EFLAGS);
 
     // TODO: add this only once per function and not at every access
-    // honor redzone
-    state.directStackOffset = (info.isLeafFunction ? 256 : 0) + state.xmmRegistersToSave.size() * 16;
+    // honor redzone / general stack unsafe regions
+    state.directStackOffset = (stackUnsafe ? 256 : 0) + state.xmmRegistersToSave.size() * 16;
     if (state.directStackOffset > 0) {
         // use lea instead of add/sub to preserve flags
         inserter.insertAssembly("lea rsp, [rsp - " + toHex(state.directStackOffset) + "]");

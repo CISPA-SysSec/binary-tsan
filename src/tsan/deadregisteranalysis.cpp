@@ -24,9 +24,9 @@ static bool isPartOfGroup(const cs_insn *instruction, const x86_insn_group group
 static bool isFalseRead(cs_insn *decoded)
 {
     // instructions like xor eax, eax do not read eax for practical purposes
-    const bool isXorOrSbb = std::string(decoded->mnemonic) == "xor" || std::string(decoded->mnemonic) == "sbb" ||
-            std::string(decoded->mnemonic) == "pxor" || std::string(decoded->mnemonic) == "xorps" ||
-            std::string(decoded->mnemonic) == "xorpd";
+    const std::string mnemonic = std::string(decoded->mnemonic);
+    const bool isXorOrSbb = mnemonic == "xor" || mnemonic == "sbb" ||
+            mnemonic == "pxor" || mnemonic == "xorps" || mnemonic == "xorpd";
     auto x86 = decoded->detail->x86;
     const bool sameRegisters = x86.op_count == 2 && x86.operands[0].type == X86_OP_REG && x86.operands[1].type == X86_OP_REG && x86.operands[0].reg == x86.operands[1].reg;
     if (isXorOrSbb && sameRegisters) {
@@ -34,7 +34,7 @@ static bool isFalseRead(cs_insn *decoded)
     }
 
     // TODO: less than 64 bit operand size
-    const bool isOr = std::string(decoded->mnemonic) == "or";
+    const bool isOr = mnemonic == "or";
     const bool allOnes = x86.operands[0].type == X86_OP_REG && x86.operands[1].type == X86_OP_IMM && x86.operands[1].imm == -1;
     if (isOr && allOnes) {
         return true;

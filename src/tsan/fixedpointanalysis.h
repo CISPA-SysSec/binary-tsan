@@ -13,8 +13,8 @@ namespace FixedPointAnalysis
     template<typename Analysis>
     std::map<IRDB_SDK::Instruction_t*, Analysis> runForward(IRDB_SDK::Function_t *function, Analysis atFunctionEntry);
 
-    template<typename BackwardsInstructionAnalysis, typename AnalysisCommon>
-    std::map<IRDB_SDK::Instruction_t*, BackwardsInstructionAnalysis> runAnalysis(
+    template<typename InstructionAnalysis, typename AnalysisCommon>
+    std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> runAnalysis(
             IRDB_SDK::ControlFlowGraph_t *cfg,
             const std::set<std::pair<IRDB_SDK::BasicBlock_t*, IRDB_SDK::BasicBlock_t*>> &removeEdges,
             const AnalysisCommon &commonData);

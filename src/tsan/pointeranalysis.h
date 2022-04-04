@@ -44,4 +44,112 @@ private:
     std::map<IRDB_SDK::RegisterID, MemoryLocation> registerPointers;
 };
 
+struct StackOffsetAnalysisCommon
+{
+    StackOffsetAnalysisCommon(IRDB_SDK::Instruction_t *functionEntry) :
+        functionEntry(functionEntry)
+    { }
+    IRDB_SDK::Instruction_t *functionEntry;
+};
+
+enum class OffsetState
+{
+    // the initial value indicating that the analysis has not arrived here so far
+    UNKNOWN,
+    VALUE,
+    // indicates that the value is unknowable (at least with this analysis)
+    INVALID
+};
+
+struct StackOffset
+{
+    OffsetState state = OffsetState::UNKNOWN;
+    // the offset is relative to the rsp at the start of the function
+    int offset = 0;
+
+    bool mergeFrom(const StackOffset &other) {
+        if (state == OffsetState::UNKNOWN) {
+            *this = other;
+            return other.state != OffsetState::UNKNOWN;
+        } else if (state == OffsetState::INVALID) {
+            return false;
+        } else { // state == OffsetState::VALUE
+            if (other.state == OffsetState::UNKNOWN) {
+                return false;
+            } else if (other.state == OffsetState::VALUE) {
+                // TODO: this does not work for the stack access
+                if (offset != other.offset) {
+                    state = OffsetState::INVALID;
+                    return true;
+                }
+                return false;
+            } else { // other.state == OffsetState::INVALID
+                state = OffsetState::INVALID;
+                return true;
+            }
+        }
+    }
+};
+
+enum StackOperationType
+{
+    OFFSET_RSP,
+    MOVE_RSP_TO_RBP,
+    MOVE_RBP_TO_RSP,
+    INVALIDATE_RSP,
+    // a general write to the rbp
+    INVALIDATE_RBP,
+    STACK_ACCESS_RSP,
+    // could also not be a stack access, depending on rbp value
+    STACK_ACCESS_RBP,
+    NONE
+};
+
+struct StackOperation
+{
+    StackOperation(StackOperationType operationType, int offset = 0) :
+        operationType(operationType),
+        operationOffset(offset)
+    { }
+    StackOperation() { }
+
+    StackOperationType operationType = StackOperationType::NONE;
+    // only for those operations that require it
+    int operationOffset = 0;
+};
+
+class StackOffsetAnalysis
+{
+public:
+    StackOffsetAnalysis(IRDB_SDK::Instruction_t *instruction, const StackOffsetAnalysisCommon &common);
+    // for std::map (should never be called)
+    StackOffsetAnalysis() {}
+
+    void print() const;
+    // safe for inserting a push instruction before this instruction
+    bool isStackSafe() const { return before.rspOffset.state != OffsetState::VALUE || before.minAccessOffset >= before.rspOffset.offset; }
+    StackOffset getRspOffset() const { return before.rspOffset; }
+
+    void updateData();
+
+    // returns true if the data has changed
+    bool mergeFrom(const StackOffsetAnalysis &predecessor);
+
+    static bool isForwardAnalysis() { return true; }
+
+    // TODO: check consistency: at a return statement, the offset must be 0
+
+private:
+    struct StackInfo {
+        StackOffset rspOffset;
+        StackOffset rbpOffset;
+        int minAccessOffset = 0;
+    };
+    StackInfo before;
+    StackInfo after;
+
+    // the operation that this instruction performs
+    StackOperation operation;
+};
+
 #endif // POINTERANALYSIS_H
