@@ -72,7 +72,6 @@ bool TSanTransform::executeStep()
         if (options.instrumentOnlyFunctions.size() > 0 && options.instrumentOnlyFunctions.find(functionName) == options.instrumentOnlyFunctions.end()) {
             continue;
         }
-        }
 
         const FunctionInfo info = functionAnalysis.analyseFunction(function);
 
