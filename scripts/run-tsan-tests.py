@@ -10,13 +10,11 @@ if len(sys.argv) != 3:
     quit()
 
 # TODO: do not hardcode
-clang = "/home/andi/git/llvm-project/build/bin/clang"
+clang = "clang"
+testDirectory = os.path.realpath("../tests/")
+testSubDirectories = ["bugs", "repstring", "atomics", "llvm-tsan-tests"]
 
 numThread = 3
-tsandir = os.path.realpath("../tests/bugs")
-#tsandir = os.path.realpath("../tests/repstring")
-#tsandir = os.path.realpath("../tests/atomics")
-#tsandir = os.path.realpath("../tests/llvm-tsan-tests")
 outputdir = os.path.realpath(sys.argv[2])
 runScript = os.path.realpath(sys.argv[1])
 
@@ -25,7 +23,7 @@ toolPath = os.path.abspath(os.path.join(scriptPath, "../tools"))
 os.chdir(outputdir)
 
 exclude = []
-runOnly = ["floatreturn.cpp"]
+runOnly = []
 
 invalid = []
 
@@ -48,12 +46,15 @@ def performBasicReplacements(line):
     p1 = p1.replace("%run", "")
     return p1
 
-def checkFile(filename):
+def checkFile(testFile):
     global total
     global failed
     global setupFailed
     global compilerTSanFailed
-    f = os.path.join(tsandir, filename)
+    
+    filename = os.path.basename(testFile)
+    
+    f = os.path.join(testDirectory, testFile)
     outfile = os.path.join(outputdir, filename.replace(".cpp", "").replace(".c", ""))
 
     runLines = []
@@ -73,12 +74,12 @@ def checkFile(filename):
         try: 
             res = subprocess.run(c2, timeout=60, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         except:
-            print("Test: " + filename)
+            print("Test: " + testFile)
             print("\tCompiler tsan command timed out!")
             compilerTSanFailed = compilerTSanFailed + 1
             return
         if res.returncode != 0:
-            print("Test: " + filename)
+            print("Test: " + testFile)
             print("\tFailed to run ordinary tests")
             compilerTSanFailed = compilerTSanFailed + 1
             return
@@ -107,8 +108,8 @@ def checkFile(filename):
         res = subprocess.run(compileCommand.split(" "), capture_output=True)
         if res.returncode != 0:
             setupFailed = setupFailed + 1
-            print("Test: " + filename)
-            print("\tFailed to compile " + filename)
+            print("Test: " + testFile)
+            print("\tFailed to compile " + testFile)
             return
         
         total = total + 1
@@ -120,10 +121,10 @@ def checkFile(filename):
             instrumentParts.append("--no-instrument-atomics")
         res = subprocess.run(instrumentParts, capture_output=True)
         if res.returncode != 0:
-            print("Test: " + filename)
+            print("Test: " + testFile)
             print("\tInstrumenting the binary failed:")
             print(str(res.stdout).replace("\\n", "\n"))
-            invalid.append(filename)
+            invalid.append(testFile)
             failed = failed + 1
             return
         
@@ -132,29 +133,31 @@ def checkFile(filename):
         try: 
             res = subprocess.run(runCommand, timeout=60, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         except:
-            print("Test: " + filename)
+            print("Test: " + testFile)
             print("\tCommand timed out!")
-            invalid.append(filename)
+            invalid.append(testFile)
             failed = failed + 1
             return
         if res.returncode != 0:
-            print("Test: " + filename)
+            print("Test: " + testFile)
             print("\tCommand failed")
-            invalid.append(filename)
+            invalid.append(testFile)
             failed = failed + 1
             return
 
-    print("Tests in: " + filename + " succeeded")
+    print("Tests in: " + testFile + " succeeded")
 
 workQueue = []
-for filename in os.listdir(tsandir):
-    f = os.path.join(tsandir, filename)
-    if os.path.isfile(f) and (f.endswith(".cpp") or f.endswith(".c")):
-        if len(runOnly) > 0 and not filename in runOnly:
-            continue
-        if f in exclude:
-            continue
-        workQueue.append(filename)
+for subdir in testSubDirectories:
+    fullTestDirectory = os.path.join(testDirectory, subdir)
+    for filename in os.listdir(fullTestDirectory):
+        f = os.path.join(fullTestDirectory, filename)
+        if os.path.isfile(f) and (f.endswith(".cpp") or f.endswith(".c")):
+            if len(runOnly) > 0 and not filename in runOnly:
+                continue
+            if f in exclude:
+                continue
+            workQueue.append(os.path.join(subdir, filename))
 workQueue.sort()
 
 
