@@ -161,13 +161,30 @@ static void mergeFunctions(Function_t *f1, Function_t *f2)
 
 void TSanTransform::findAndMergeFunctions()
 {
+    std::set<Instruction_t*> noPredecessor;
+    for (Function_t *function : getFileIR()->getFunctions()) {
+        const auto cfg = ControlFlowGraph_t::factory(function);
+        for (const auto block : cfg->getBlocks()) {
+            if (block->getPredecessors().size() == 0) {
+                noPredecessor.insert(block->getInstructions()[0]);
+            }
+        }
+    }
     for (Function_t *function : getFileIR()->getFunctions()) {
         for (Instruction_t *i : function->getInstructions()) {
             const auto decoded = DecodedInstruction_t::factory(i);
-            if (decoded->isConditionalBranch() && i->getTarget()) {
+            if (decoded->isConditionalBranch() && i->getTarget() != nullptr) {
                 if (i->getTarget()->getFunction() != function && i->getTarget()->getFunction() != nullptr) {
                     mergeFunctions(function, i->getTarget()->getFunction());
+                    break;
                 }
+            }
+            if (decoded->getMnemonic() == "jmp" && i->getTarget() != nullptr && i->getTarget()->getFunction() != nullptr &&
+                    i->getTarget()->getFunction() != function && i->getTarget() != i->getTarget()->getFunction()->getEntryPoint() &&
+                    noPredecessor.find(i->getTarget()) == noPredecessor.end()) {
+
+                mergeFunctions(function, i->getTarget()->getFunction());
+                break;
             }
         }
     }
