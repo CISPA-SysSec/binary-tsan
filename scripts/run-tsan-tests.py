@@ -4,6 +4,7 @@ import sys
 import re
 import threading
 import filecheck
+import signal
 
 if len(sys.argv) != 3:
     print("Usage: python3 " + sys.argv[0] + " thread-sanitizer-script output-folder")
@@ -46,6 +47,15 @@ def performBasicReplacements(line):
     p1 = p1.replace("%run", "")
     return p1
 
+def testCommand(command, timeout):
+    try:
+        p = subprocess.Popen(command, start_new_session=True, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        outs, errs = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+        return False
+    return p.returncode == 0
+
 def checkFile(testFile):
     global total
     global failed
@@ -71,14 +81,7 @@ def checkFile(testFile):
         c2 = c2.replace("%clangxx_tsan", clang + " -fsanitize=thread -lstdc++")
         c2 = c2.replace("%s", f)
         
-        try: 
-            res = subprocess.run(c2, timeout=60, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        except:
-            print("Test: " + testFile)
-            print("\tCompiler tsan command timed out!")
-            compilerTSanFailed = compilerTSanFailed + 1
-            return
-        if res.returncode != 0:
+        if not testCommand(c2, 60):
             print("Test: " + testFile)
             print("\tFailed to run ordinary tests")
             compilerTSanFailed = compilerTSanFailed + 1
@@ -130,15 +133,7 @@ def checkFile(testFile):
         
         runCommand = c1.replace(c1.split("&&")[0] + "&&", "")
         runCommand = runCommand.replace("%t", instrumentedBinary)
-        try: 
-            res = subprocess.run(runCommand, timeout=60, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        except:
-            print("Test: " + testFile)
-            print("\tCommand timed out!")
-            invalid.append(testFile)
-            failed = failed + 1
-            return
-        if res.returncode != 0:
+        if not testCommand(runCommand, 60):
             print("Test: " + testFile)
             print("\tCommand failed")
             invalid.append(testFile)
