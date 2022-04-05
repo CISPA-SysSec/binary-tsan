@@ -10,10 +10,10 @@ if len(sys.argv) != 3:
     print("Usage: python3 " + sys.argv[0] + " thread-sanitizer-script output-folder")
     quit()
 
-# TODO: do not hardcode
+# TODO: this script only works if called from a build folder inside the repository
 clang = "clang"
 testDirectory = os.path.realpath("../tests/")
-testSubDirectories = ["bugs", "repstring", "atomics", "llvm-tsan-tests"]
+testSubDirectories = ["bugs", "repstring", "atomics", "llvm-tsan-tests", "llvm-tsan-tests/libcxx", "llvm-tsan-tests/libdispatch", "llvm-tsan-tests/Linux/"]
 
 numThread = 3
 outputdir = os.path.realpath(sys.argv[2])
@@ -183,6 +183,7 @@ for i in range(numThread):
 for t in threads:
    t.join()
 
+invalid.sort()
 print("\n\n\nProblems: " + str(invalid))
 print("Failed " + str(failed) + " out of " + str(total) + " tests")
 if setupFailed > 0:
