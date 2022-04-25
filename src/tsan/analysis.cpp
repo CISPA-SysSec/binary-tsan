@@ -136,7 +136,9 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
                     stackCleared = false;
                 }
             }
-            if (decoded->getMnemonic() == "jmp" && decoded->getOperand(0)->isConstant() && !mightHaveStackArguments && instruction->getTarget() != nullptr && stackCleared) {
+            if (decoded->getMnemonic() == "jmp" && decoded->getOperand(0)->isConstant() && !mightHaveStackArguments &&
+                    instruction->getTarget() != nullptr && stackCleared && instruction->getTarget()->getFunction() != nullptr &&
+                    instruction->getTarget()->getFunction()->getEntryPoint() == instruction->getTarget()) {
                 // this is fine and can be transformed into a call
 //                std::cout <<"Try entry exit: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<std::endl;
             } else {
