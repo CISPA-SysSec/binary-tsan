@@ -208,6 +208,7 @@ static OptionsManager registerTsanOptions(Options &options, OptionsPrivate &addi
     result.addFlagOption("no-instrument-atomics", &options.noInstrumentAtomics, true, "Do not instrument atomic instructions. For testing purposes only.");
     result.addFlagOption("use-system-libtsan", &options.useCustomLibTsan, false, "Use the sustem libtsan.so instead of the custom built one. This requires saving the xmm registers, which can significantly slow down the instrumented binary.");
     result.addFlagOption("use-wrapper-functions", &options.useWrapperFunctions, true, "Use wrapper functions for calling the thread sanitizer runtime. This slows down the instrumented binary, but creates far fewer instructions, making instrumenting larger binaries possible.");
+    result.addFlagOption("no-instrument-stack", &options.instrumentStackAccess, false, "If used, do not instrument instructions that access the stack of the current function.");
 
     const std::vector<std::pair<std::string, int>> registerOptions = {
         {"none", (int)DeadRegisterAnalysisType::NONE},

@@ -25,6 +25,7 @@ struct Options
     bool noInstrumentAtomics = false;
     bool useCustomLibTsan = true;
     bool useWrapperFunctions = false;
+    bool instrumentStackAccess = true;
     Annotations annotations;
 
     static void printOptionsHelp();

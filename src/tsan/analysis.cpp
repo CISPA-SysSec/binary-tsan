@@ -186,6 +186,11 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
             threadLocalMemory++;
             continue;
         }
+        const bool isStackAccess = contains(disassembly, "rsp") || (contains(disassembly, "rbp") && function->getUseFramePointer());
+        if (!options.instrumentStackAccess && isStackAccess) {
+            stackMemory++;
+            continue;
+        }
 
         const DecodedOperandVector_t operands = decoded->getOperands();
         for (const auto &operand : operands) {
@@ -943,6 +948,7 @@ void Analysis::printStatistics() const
     std::cout <<"\t\t- Thread Local Memory: "<<threadLocalMemory<<std::endl;
     std::cout <<"\t\t- Stack Local Variables: "<<stackLocalVariables<<std::endl;
     std::cout <<"\t\t- Constant Memory Read: "<<constantMemoryRead<<std::endl;
+    std::cout <<"\t\t- Stack Memory: "<<stackMemory<<std::endl;
     std::cout <<"\t* Inferred Atomics:"<<std::endl;
     std::cout <<"\t\t- Pointer Inference: "<<pointerInferredAtomics<<std::endl;
     std::cout <<"\t\t- Static Variable Guards: "<<staticVariableGuards<<std::endl;
