@@ -197,8 +197,9 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
             if (!operand->isMemory()) {
                 continue;
             }
-            // TODO: under the right condition rbp based operands can also be ignored
-            if (!stackLeavesFunction && (contains(operand->getString(), "rsp") || contains(operand->getString(), "esp"))) {
+            const auto opStr = operand->getString();
+            const bool isStackOperand = contains(opStr, "rsp") || (contains(opStr, "rbp") && function->getUseFramePointer());
+            if (!stackLeavesFunction && isStackOperand) {
                 stackLocalVariables++;
                 totalNotInstrumented++;
                 break;
