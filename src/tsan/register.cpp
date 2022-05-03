@@ -238,6 +238,98 @@ static int getCallerSaveRegisterIndex(x86_reg reg)
     }
 }
 
+x86_reg Register::generalPurposeRegisterTo64Bit(const x86_reg reg)
+{
+    switch (reg) {
+    case X86_REG_RAX:
+    case X86_REG_EAX:
+    case X86_REG_AX:
+    case X86_REG_AH:
+    case X86_REG_AL:
+        return X86_REG_RAX;
+    case X86_REG_RBX:
+    case X86_REG_EBX:
+    case X86_REG_BX:
+    case X86_REG_BH:
+    case X86_REG_BL:
+        return X86_REG_RBX;
+    case X86_REG_RCX:
+    case X86_REG_ECX:
+    case X86_REG_CX:
+    case X86_REG_CH:
+    case X86_REG_CL:
+        return X86_REG_RCX;
+    case X86_REG_RDX:
+    case X86_REG_EDX:
+    case X86_REG_DX:
+    case X86_REG_DH:
+    case X86_REG_DL:
+        return X86_REG_RDX;
+    case X86_REG_RSI:
+    case X86_REG_ESI:
+    case X86_REG_SI:
+    case X86_REG_SIL:
+        return X86_REG_RSI;
+    case X86_REG_RDI:
+    case X86_REG_EDI:
+    case X86_REG_DI:
+    case X86_REG_DIL:
+        return X86_REG_RDI;
+    case X86_REG_RBP:
+    case X86_REG_EBP:
+    case X86_REG_BP:
+    case X86_REG_BPL:
+        return X86_REG_RBP;
+    case X86_REG_RSP:
+    case X86_REG_ESP:
+    case X86_REG_SP:
+    case X86_REG_SPL:
+        return X86_REG_RSP;
+    case X86_REG_R8:
+    case X86_REG_R8D:
+    case X86_REG_R8W:
+    case X86_REG_R8B:
+        return X86_REG_R8;
+    case X86_REG_R9:
+    case X86_REG_R9D:
+    case X86_REG_R9W:
+    case X86_REG_R9B:
+        return X86_REG_R9;
+    case X86_REG_R10:
+    case X86_REG_R10D:
+    case X86_REG_R10W:
+    case X86_REG_R10B:
+        return X86_REG_R10;
+    case X86_REG_R11:
+    case X86_REG_R11D:
+    case X86_REG_R11W:
+    case X86_REG_R11B:
+        return X86_REG_R11;
+    case X86_REG_R12:
+    case X86_REG_R12D:
+    case X86_REG_R12W:
+    case X86_REG_R12B:
+        return X86_REG_R12;
+    case X86_REG_R13:
+    case X86_REG_R13D:
+    case X86_REG_R13W:
+    case X86_REG_R13B:
+        return X86_REG_R13;
+    case X86_REG_R14:
+    case X86_REG_R14D:
+    case X86_REG_R14W:
+    case X86_REG_R14B:
+        return X86_REG_R14;
+    case X86_REG_R15:
+    case X86_REG_R15D:
+    case X86_REG_R15W:
+    case X86_REG_R15B:
+        return X86_REG_R15;
+    default:
+        return X86_REG_INVALID;
+    }
+}
+
 x86_reg Register::getCallerSaveRegisterForIndex(size_t index)
 {
     if (index >= 10 && index < 26) {

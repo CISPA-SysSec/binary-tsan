@@ -8,6 +8,8 @@
 
 using CallerSaveRegisterSet = std::bitset<26>;
 
+using FullRegisterSet = std::bitset<X86_REG_ENDING>;
+
 class CapstoneHandle
 {
 public:
@@ -40,6 +42,8 @@ namespace Register
     CallerSaveRegisterSet xmmRegisterSet();
 
     CallerSaveRegisterSet getWrittenCallerSaveRegisters(CapstoneHandle &capstone, IRDB_SDK::Instruction_t *instruction);
+
+    x86_reg generalPurposeRegisterTo64Bit(const x86_reg reg);
 };
 
 #endif // REGISTER_H

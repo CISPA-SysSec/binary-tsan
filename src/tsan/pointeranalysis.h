@@ -4,6 +4,9 @@
 #include <irdb-core>
 #include <irdb-util>
 #include <map>
+#include <optional>
+
+#include "register.h"
 
 struct MemoryLocation
 {
@@ -102,6 +105,7 @@ enum StackOperationType
     STACK_ACCESS_RSP,
     // could also not be a stack access, depending on rbp value
     STACK_ACCESS_RBP,
+    FUNCTION_CALL,
     NONE
 };
 
@@ -129,6 +133,7 @@ public:
     // safe for inserting a push instruction before this instruction
     bool isStackSafe() const { return before.rspOffset.state != OffsetState::VALUE || before.minAccessOffset >= before.rspOffset.offset; }
     StackOffset getRspOffset() const { return before.rspOffset; }
+    bool isStackLeaked() const { return before.stackLeaked; }
 
     void updateData();
 
@@ -144,12 +149,26 @@ private:
         StackOffset rspOffset;
         StackOffset rbpOffset;
         int minAccessOffset = 0;
+
+        // this set is not updated by the StackOperation
+        // TODO: use a more compact representation for the 64-bit general purpose registers only
+        FullRegisterSet containingStackpointer;
+        bool stackLeaked = false;
     };
     StackInfo before;
     StackInfo after;
 
-    // the operation that this instruction performs
+    // the operations that this instruction perform
     StackOperation operation;
+
+    struct RegisterMove {
+        RegisterMove(x86_reg from, x86_reg to) : from(from), to(to) { }
+        x86_reg from;
+        x86_reg to;
+    };
+    std::optional<RegisterMove> registerMove;
+    std::optional<x86_reg> registerKill;
+    std::optional<x86_reg> writeToMemory;
 };
 
 #endif // POINTERANALYSIS_H

@@ -79,7 +79,7 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
     }
 
     // this analysis is fine with missing forward edges, it can always be run
-    StackOffsetAnalysisCommon common(function->getEntryPoint());
+    const StackOffsetAnalysisCommon common(function->getEntryPoint());
     const auto stackOffsetResult = FixedPointAnalysis::runAnalysis<StackOffsetAnalysis, StackOffsetAnalysisCommon>(&*cfg, {}, common);
     for (const auto &[instruction, analysis] : stackOffsetResult) {
         if (!analysis.isStackSafe()) {
@@ -130,7 +130,7 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
                 }
             }
             bool stackCleared = true;
-            auto stackIt = stackOffsetResult.find(instruction);
+            const auto stackIt = stackOffsetResult.find(instruction);
             if (stackIt != stackOffsetResult.end()) {
                 if (stackIt->second.getRspOffset().state == OffsetState::VALUE && stackIt->second.getRspOffset().offset != 0) {
                     stackCleared = false;
@@ -165,8 +165,6 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
         entryExitInstrumentedFunctions++;
     }
 
-    const bool stackLeavesFunction = doesStackLeaveFunction(function);
-
     for (Instruction_t *instruction : function->getInstructions()) {
         const auto decoded = DecodedInstruction_t::factory(instruction);
         if (decoded->isBranch() || decoded->isCall()) {
@@ -192,6 +190,9 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
             continue;
         }
 
+        const auto stackIt = stackOffsetResult.find(instruction);
+        const bool isStackLeaked = stackIt != stackOffsetResult.end() && stackIt->second.isStackLeaked();
+
         const DecodedOperandVector_t operands = decoded->getOperands();
         for (const auto &operand : operands) {
             if (!operand->isMemory()) {
@@ -199,7 +200,7 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
             }
             const auto opStr = operand->getString();
             const bool isStackOperand = contains(opStr, "rsp") || (contains(opStr, "rbp") && function->getUseFramePointer());
-            if (!stackLeavesFunction && isStackOperand) {
+            if (!isStackLeaked && isStackOperand) {
                 stackLocalVariables++;
                 totalNotInstrumented++;
                 break;
@@ -810,48 +811,6 @@ std::set<Instruction_t*> Analysis::detectStackCanaryInstructions(Function_t *fun
         }
     }
     return result;
-}
-
-bool Analysis::doesStackLeaveFunction(IRDB_SDK::Function_t *function) const
-{
-    bool rbpHasRsp = false;
-    bool rbpUsed = false;
-    for (const Instruction_t *instruction : function->getInstructions()) {
-        const auto decoded = DecodedInstruction_t::factory(instruction);
-        // TODO: check for read and written operand more clearly
-        if (!decoded->hasOperand(1)) {
-            continue;
-        }
-        const std::string disassembly = instruction->getDisassembly();
-        if (disassembly == "mov rbp, rsp" || disassembly == "mov ebp, esp") {
-            rbpHasRsp = true;
-            continue;
-        }
-        const auto op1 = decoded->getOperand(1);
-        const std::string op1String = op1->getString();
-
-        if (decoded->getMnemonic() == "lea") {
-            if (contains(op1String, "rsp") || contains(op1String, "esp")) {
-                return true;
-            }
-            if (contains(op1String, "rbp") || contains(op1String, "ebp")) {
-                rbpUsed = true;
-            }
-        }
-        if (op1->isRegister()) {
-            const std::string reg1 = standard64Bit(op1String);
-            if (reg1 == "rsp") {
-                return true;
-            }
-            if (reg1 == "rbp") {
-                rbpUsed = true;
-            }
-        }
-    }
-    if (rbpUsed && rbpHasRsp) {
-        return true;
-    }
-    return false;
 }
 
 std::set<Instruction_t*> Analysis::detectStaticVariableGuards(Function_t *function) const

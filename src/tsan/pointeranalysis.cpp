@@ -1,6 +1,7 @@
 #include "pointeranalysis.h"
 
 #include "stringhelper.h"
+#include "helper.h"
 
 using namespace IRDB_SDK;
 
@@ -142,6 +143,7 @@ StackOffsetAnalysis::StackOffsetAnalysis(IRDB_SDK::Instruction_t *instruction, c
     if (common.functionEntry == instruction) {
         before.rspOffset.offset = 0;
         before.rspOffset.state = OffsetState::VALUE;
+        before.containingStackpointer[X86_REG_RSP] = true;
         updateData();
     }
 
@@ -161,6 +163,8 @@ StackOffsetAnalysis::StackOffsetAnalysis(IRDB_SDK::Instruction_t *instruction, c
         operation = StackOperation(StackOperationType::OFFSET_RSP, -8);
     } else if (mnemonic == "pop") {
         operation = StackOperation(StackOperationType::OFFSET_RSP, 8);
+    } else if (decoded->isCall()) {
+        operation = StackOperation(StackOperationType::FUNCTION_CALL);
     } else {
         for (auto operand : decoded->getOperands()) {
             if (operand->isWritten() && operand->isRegister()) {
@@ -192,6 +196,43 @@ StackOffsetAnalysis::StackOffsetAnalysis(IRDB_SDK::Instruction_t *instruction, c
     // TODO: pushf, pushfd, pushfq?
     // TODO: even when failing the analysis, the alignment after function calls is known
     // TODO: the offset at return statements is known, backwards analysis is also possible
+
+    // treat the generalized register moves
+    // TODO: arguments on the stack??
+    if (mnemonic == "mov") {
+        const auto op0 = decoded->getOperand(0);
+        const auto op1 = decoded->getOperand(1);
+        if (op0->isRegister()) {
+            const x86_reg to = Register::registerIDToCapstoneRegister(IRDB_SDK::strToRegister(op0->getString()));
+            const x86_reg to64 = Register::generalPurposeRegisterTo64Bit(to);
+            if (op1->isRegister()) {
+                // TODO: better way to convert registers
+                const x86_reg from = Register::registerIDToCapstoneRegister(IRDB_SDK::strToRegister(op1->getString()));
+                const x86_reg from64 = Register::generalPurposeRegisterTo64Bit(from);
+                registerMove = RegisterMove(from64, to64);
+            } else {
+                registerKill = to64;
+            }
+        } else if (op0->isMemory() && op1->isRegister()) {
+            const x86_reg reg = Register::registerIDToCapstoneRegister(IRDB_SDK::strToRegister(op1->getString()));
+            const x86_reg reg64 = Register::generalPurposeRegisterTo64Bit(reg);
+            writeToMemory = reg64;
+        }
+    } else if (mnemonic == "lea") {
+        const auto op0 = decoded->getOperand(0);
+        const auto op1 = decoded->getOperand(1);
+        const x86_reg to = Register::registerIDToCapstoneRegister(IRDB_SDK::strToRegister(op0->getString()));
+        const x86_reg to64 = Register::generalPurposeRegisterTo64Bit(to);
+        if (op1->hasBaseRegister()) {
+            std::string regStr = split(op1->getString(), '+')[0];
+            if (regStr.back() == ' ') {
+                regStr.pop_back();
+            }
+            const x86_reg from = Register::registerIDToCapstoneRegister(IRDB_SDK::strToRegister(regStr));
+            const x86_reg from64 = Register::generalPurposeRegisterTo64Bit(from);
+            registerMove = RegisterMove(from64, to64);
+        }
+    }
 }
 
 void StackOffsetAnalysis::updateData()
@@ -223,6 +264,22 @@ void StackOffsetAnalysis::updateData()
             after.minAccessOffset = std::min(after.minAccessOffset, before.rbpOffset.offset + operation.operationOffset);
         }
         break;
+    case StackOperationType::FUNCTION_CALL:
+    {
+        FullRegisterSet nonCallerSave;
+        nonCallerSave[X86_REG_RSP] = true;
+        nonCallerSave[X86_REG_RBP] = true;
+        nonCallerSave[X86_REG_RBX] = true;
+        nonCallerSave[X86_REG_R11] = true;
+        nonCallerSave[X86_REG_R12] = true;
+        nonCallerSave[X86_REG_R13] = true;
+        nonCallerSave[X86_REG_R14] = true;
+        nonCallerSave[X86_REG_R15] = true;
+        if ((before.containingStackpointer & ~nonCallerSave).any()) {
+            after.stackLeaked = true;
+        }
+        break;
+    }
     case StackOperationType::NONE:
         break;
     }
@@ -230,6 +287,18 @@ void StackOffsetAnalysis::updateData()
     if (after.rspOffset.state == OffsetState::VALUE && before.rspOffset.state == OffsetState::VALUE &&
             before.rspOffset.offset <= after.minAccessOffset && after.rspOffset.offset > after.minAccessOffset) {
         after.minAccessOffset = after.rspOffset.offset;
+    }
+
+    if (registerMove) {
+        after.containingStackpointer[registerMove->to] = before.containingStackpointer[registerMove->from];
+    }
+    if (registerKill) {
+        after.containingStackpointer[*registerKill] = false;
+    }
+    if (writeToMemory) {
+        if (before.containingStackpointer[*writeToMemory]) {
+            after.stackLeaked = true;
+        }
     }
 }
 
@@ -239,6 +308,16 @@ bool StackOffsetAnalysis::mergeFrom(const StackOffsetAnalysis &predecessor)
     changed |= before.rbpOffset.mergeFrom(predecessor.after.rbpOffset);
     if (predecessor.after.minAccessOffset < before.minAccessOffset) {
         before.minAccessOffset = predecessor.after.minAccessOffset;
+        changed = true;
+    }
+    if (predecessor.after.stackLeaked && !before.stackLeaked) {
+        before.stackLeaked = true;
+        changed = true;
+    }
+
+    const FullRegisterSet containingBefore = before.containingStackpointer;
+    before.containingStackpointer |= predecessor.after.containingStackpointer;
+    if (before.containingStackpointer != containingBefore) {
         changed = true;
     }
     return changed;
