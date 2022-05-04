@@ -26,6 +26,7 @@ struct Options
     bool useCustomLibTsan = true;
     bool useWrapperFunctions = false;
     bool instrumentStackAccess = true;
+    bool useMemoryProfiler = false;
     Annotations annotations;
 
     static void printOptionsHelp();

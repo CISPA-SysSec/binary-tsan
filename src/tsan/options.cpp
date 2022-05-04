@@ -209,6 +209,7 @@ static OptionsManager registerTsanOptions(Options &options, OptionsPrivate &addi
     result.addFlagOption("use-system-libtsan", &options.useCustomLibTsan, false, "Use the sustem libtsan.so instead of the custom built one. This requires saving the xmm registers, which can significantly slow down the instrumented binary.");
     result.addFlagOption("use-wrapper-functions", &options.useWrapperFunctions, true, "Use wrapper functions for calling the thread sanitizer runtime. This slows down the instrumented binary, but creates far fewer instructions, making instrumenting larger binaries possible.");
     result.addFlagOption("no-instrument-stack", &options.instrumentStackAccess, false, "If used, do not instrument instructions that access the stack of the current function.");
+    result.addFlagOption("use-memory-profiler", &options.useMemoryProfiler, true, "Use the memory profiler instead of the thread sanitizer run-time library. It prints the output at program termination.");
 
     const std::vector<std::pair<std::string, int>> registerOptions = {
         {"none", (int)DeadRegisterAnalysisType::NONE},
@@ -274,6 +275,13 @@ std::optional<Options> Options::parseAndProcess(IRDB_SDK::FileIR_t *ir, const st
             std::cout <<"ERROR: Could not load annotations!"<<std::endl;
             return {};
         }
+    }
+    if (result.useMemoryProfiler) {
+        result.deadRegisterAnalysisType = DeadRegisterAnalysisType::NONE;
+        result.instrumentFunctionEntryExit = false;
+        result.saveXmmRegisters = true;
+        result.noInstrumentAtomics = true;
+        result.useWrapperFunctions = true;
     }
 
     return result;

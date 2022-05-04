@@ -26,7 +26,8 @@ target_link_libraries(tsan
     PRIVATE common
     PRIVATE protobuf-files
 )
-# the .exe postfix is required by the zipr framework
+# the .exe suffix is required by the zipr framework
 set_target_properties(tsan PROPERTIES OUTPUT_NAME "tsan.exe")
 
 add_compile_definitions(LIBTSANLOCATION=\"${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/liblibtsan.so\")
+add_compile_definitions(MEMPROFLOCATION=\"${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libprofiler.so\")

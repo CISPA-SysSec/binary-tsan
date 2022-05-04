@@ -982,10 +982,12 @@ void TSanTransform::registerDependencies()
         elfDeps->prependLibraryDepedencies("libgcc_s.so.1");
         elfDeps->prependLibraryDepedencies("libstdc++.so.6");
         elfDeps->prependLibraryDepedencies("libm.so.6");
-        if (options.useCustomLibTsan) {
-            elfDeps->prependLibraryDepedencies("libc.so.6");
-            elfDeps->prependLibraryDepedencies("libdl.so.2");
-            elfDeps->prependLibraryDepedencies("libpthread.so.0");
+        elfDeps->prependLibraryDepedencies("libpthread.so.0");
+        elfDeps->prependLibraryDepedencies("libdl.so.2");
+        elfDeps->prependLibraryDepedencies("libc.so.6");
+        if (options.useMemoryProfiler) {
+            elfDeps->prependLibraryDepedencies(MEMPROFLOCATION);
+        } else if (options.useCustomLibTsan) {
             elfDeps->prependLibraryDepedencies(LIBTSANLOCATION);
         } else {
             elfDeps->prependLibraryDepedencies("libtsan.so.0");
@@ -1006,15 +1008,17 @@ void TSanTransform::registerDependencies()
             tsanWrite[s] = {elfDeps->appendPltEntry("__tsan_write" + std::to_string(s))};
             tsanRead[s] = {elfDeps->appendPltEntry("__tsan_read" + std::to_string(s))};
         }
-        tsanAtomicLoad[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_load")};
-        tsanAtomicStore[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_store")};
-        tsanAtomicExchange[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_exchange")};
-        tsanAtomicFetchAdd[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_add")};
-        tsanAtomicFetchSub[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_sub")};
-        tsanAtomicFetchAnd[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_and")};
-        tsanAtomicFetchOr[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_or")};
-        tsanAtomicFetchXor[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_xor")};
-        tsanAtomicCompareExchangeVal[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_compare_exchange_val")};
+        if (!options.useMemoryProfiler) {
+            tsanAtomicLoad[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_load")};
+            tsanAtomicStore[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_store")};
+            tsanAtomicExchange[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_exchange")};
+            tsanAtomicFetchAdd[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_add")};
+            tsanAtomicFetchSub[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_sub")};
+            tsanAtomicFetchAnd[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_and")};
+            tsanAtomicFetchOr[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_or")};
+            tsanAtomicFetchXor[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_xor")};
+            tsanAtomicCompareExchangeVal[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_compare_exchange_val")};
+        }
     }
     tsanReadRange = {elfDeps->appendPltEntry("__tsan_read_range")};
     tsanWriteRange = {elfDeps->appendPltEntry("__tsan_write_range")};
