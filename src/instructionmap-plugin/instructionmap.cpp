@@ -31,7 +31,6 @@ void InstructionMap::doCallbackLinkingEnd()
     }
 
     writeProtobufToFile(resultMap, "tsan-instrumentation-info.dat");
-    writeProtobufToFile(resultMap, "../tsan-instrumentation-info.dat");
 }
 
 extern "C" ZiprPluginInterface_t* GetPluginInterface(Zipr_t* zipr)
