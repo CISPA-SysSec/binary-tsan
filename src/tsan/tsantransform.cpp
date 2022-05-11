@@ -73,6 +73,12 @@ bool TSanTransform::executeStep()
             continue;
         }
 
+        // do not instrument push jump thunks
+        if (function->getInstructions().size() == 2 && startsWith(function->getEntryPoint()->getDisassembly(), "push") &&
+                startsWith(function->getEntryPoint()->getFallthrough()->getDisassembly(), "jmp")) {
+            continue;
+        }
+
         const FunctionInfo info = functionAnalysis.analyseFunction(function);
 
         // for the stack trace translation
