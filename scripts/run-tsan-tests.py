@@ -12,6 +12,8 @@ if len(sys.argv) != 3:
 
 # TODO: this script only works if called from a build folder inside the repository
 clang = "clang"
+# TODO: do not hardcode
+translateStacktrace = "../ps-plugin/translate-stacktrace"
 testDirectory = os.path.realpath("../tests/")
 testSubDirectories = ["bugs", "repstring", "atomics", "llvm-tsan-tests", "llvm-tsan-tests/libcxx", "llvm-tsan-tests/libdispatch", "llvm-tsan-tests/Linux/"]
 
@@ -132,6 +134,10 @@ def checkFile(testFile):
             return
         
         runCommand = c1.replace(c1.split("&&")[0] + "&&", "")
+        if "%t 2>&1 |" in runCommand:
+            runCommand = runCommand.replace("%t 2>&1 |", "%t 2>&1 | " + translateStacktrace + " | ")
+        else:
+            runCommand = runCommand.replace("%t |", "%t 2>&1 | " + translateStacktrace + " | ")
         runCommand = runCommand.replace("%t", instrumentedBinary)
         if not testCommand(runCommand, 60):
             print("Test: " + testFile)
