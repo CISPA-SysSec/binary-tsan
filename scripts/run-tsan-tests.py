@@ -25,13 +25,18 @@ scriptPath = os.path.dirname(os.path.abspath(__file__))
 toolPath = os.path.abspath(os.path.join(scriptPath, "../tools"))
 os.chdir(outputdir)
 
-exclude = []
 runOnly = []
 
+knownImpossible = ['llvm-tsan-tests/atomic_free3.cpp', 'llvm-tsan-tests/atomic_norace2.cpp', 'llvm-tsan-tests/atomic_race.cpp', 'llvm-tsan-tests/ignore_malloc.cpp',
+                   'llvm-tsan-tests/inlined_memcpy_race.cpp', 'llvm-tsan-tests/inlined_memcpy_race2.cpp', 'llvm-tsan-tests/java_finalizer2.cpp',
+                   'llvm-tsan-tests/java_volatile.cpp', 'llvm-tsan-tests/signal_block.cpp', 'llvm-tsan-tests/signal_sync2.cpp', 'llvm-tsan-tests/stack_sync_reuse.cpp',
+                   'llvm-tsan-tests/stress.cpp', 'llvm-tsan-tests/vptr_harmful_race.cpp', 'llvm-tsan-tests/vptr_harmful_race2.cpp',
+                   'llvm-tsan-tests/vptr_harmful_race3.cpp', 'llvm-tsan-tests/vptr_harmful_race4.cpp']
+
 invalid = []
+unexpextedWorked = []
 
 total = 0
-failed = 0
 setupFailed = 0
 compilerTSanFailed = 0
 
@@ -60,7 +65,6 @@ def testCommand(command, timeout):
 
 def checkFile(testFile):
     global total
-    global failed
     global setupFailed
     global compilerTSanFailed
     
@@ -130,7 +134,6 @@ def checkFile(testFile):
             print("\tInstrumenting the binary failed:")
             print(str(res.stdout).replace("\\n", "\n"))
             invalid.append(testFile)
-            failed = failed + 1
             return
         
         runCommand = c1.replace(c1.split("&&")[0] + "&&", "")
@@ -141,10 +144,18 @@ def checkFile(testFile):
         runCommand = runCommand.replace("%t", instrumentedBinary)
         if not testCommand(runCommand, 60):
             print("Test: " + testFile)
-            print("\tCommand failed")
-            invalid.append(testFile)
-            failed = failed + 1
-            return
+            
+            if testFile in knownImpossible:
+                print("\tCommand failed (known as impossible)")
+                return
+            else:
+                print("\tCommand failed")
+                invalid.append(testFile)
+                return
+        
+        elif testFile in knownImpossible:
+            print("Test: " + testFile + " is known as impossible and should have failed!")
+            unexpextedWorked.append(testFile)
 
     print("Tests in: " + testFile + " succeeded")
 
@@ -155,8 +166,6 @@ for subdir in testSubDirectories:
         f = os.path.join(fullTestDirectory, filename)
         if os.path.isfile(f) and (f.endswith(".cpp") or f.endswith(".c")):
             if len(runOnly) > 0 and not filename in runOnly:
-                continue
-            if f in exclude:
                 continue
             workQueue.append(os.path.join(subdir, filename))
 workQueue.sort()
@@ -191,12 +200,14 @@ for t in threads:
 
 invalid.sort()
 print("\n\n\nProblems: " + str(invalid))
-print("Failed " + str(failed) + " out of " + str(total) + " tests")
+print("Failed " + str(len(invalid)) + " out of " + str(total) + " tests")
 if setupFailed > 0:
     print("The basic setup failed in " + str(setupFailed) + " cases")
 if compilerTSanFailed > 0:
     print("The compiler thread sanitizer failed in " + str(compilerTSanFailed) + " cases")
+if len(unexpextedWorked) > 0:
+    print("These tests worked although they were expected to fail: " + str(unexpextedWorked))
 
-if failed > 0:
+if len(invalid) > 0:
     exit(1)
 exit(0)
