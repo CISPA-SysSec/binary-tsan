@@ -5,6 +5,7 @@ message InstrumentationInfo {
     required uint64 original_address = 1;
     optional string disassembly = 2;
     optional bool function_has_entry_exit = 3;
+    optional string function_name = 4;
 };
 
 message InstrumentationMap {

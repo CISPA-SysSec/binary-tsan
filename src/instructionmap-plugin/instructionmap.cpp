@@ -18,13 +18,20 @@ void InstructionMap::doCallbackLinkingEnd()
         const RangeAddress_t endAddr = addr + instruction->getDataBits().size() - 1;
         auto it = internalMap.instrumentation().find(instruction->getBaseID());
         if (it != internalMap.instrumentation().end()) {
-            resultMap.mutable_instrumentation()->insert({endAddr, it->second});
+            InstrumentationInfo info = it->second;
+            if (instruction->getFunction() != nullptr) {
+                info.set_function_name(instruction->getFunction()->getName());
+            }
+            resultMap.mutable_instrumentation()->insert({endAddr, info});
         } else {
             const auto decoded = DecodedInstruction_t::factory(instruction);
             // TODO: if original address is 0, the instruction is an instrumentation instruction
             if (decoded->isCall()) {
                 InstrumentationInfo info;
                 info.set_original_address(instruction->getAddress()->getVirtualOffset());
+                if (instruction->getFunction() != nullptr) {
+                    info.set_function_name(instruction->getFunction()->getName());
+                }
                 resultMap.mutable_instrumentation()->insert({endAddr, info});
             }
         }
