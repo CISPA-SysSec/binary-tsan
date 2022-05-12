@@ -792,9 +792,11 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
 {
     const auto decoded = DecodedInstruction_t::factory(instruction);
 
+    const std::string instructionDisassembly = disassembly(instruction);
+
     InstrumentationInfo instrumentationInfo;
     instrumentationInfo.set_original_address(instruction->getAddress()->getVirtualOffset());
-    instrumentationInfo.set_disassembly(disassembly(instruction));
+    instrumentationInfo.set_disassembly(instructionDisassembly);
     instrumentationInfo.set_function_has_entry_exit(info.addEntryExitInstrumentation);
 
     const uint bytes = instrumentationByteSize(operand);
@@ -838,6 +840,10 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         requiredSaveRegisters |= ~selectedTarget.preserveRegisters;
         callTargets.push_back(selectedTarget);
     }
+    // getting the address of the thread local variable may require more than one register
+    if (contains(instructionDisassembly, "fs:")) {
+        requiredSaveRegisters.set();
+    }
     const CallerSaveRegisterSet ignoreRegisters = instrumentation.noSaveRegisters | ~requiredSaveRegisters;
     const SaveStateInfo saveState = saveStateToStack(inserter, instruction, ignoreRegisters, info);
 
@@ -857,7 +863,14 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
         }
         if (assembly == MOVE_OPERAND_RDI) {
             const std::string argumentRegister = Register::registerToString(callTargets[0].argumentRegister);
-            if (operand->getString() == argumentRegister) {
+
+            if (contains(instructionDisassembly, "fs:")) {
+                // addresses with the thread local storage segment register can not simply be read with lea
+                // have this first to avoid overwriting registers used in the operand
+                inserter.insertAssembly("lea rdi, [" + operand->getString() + "]");
+                inserter.insertAssembly("mov rsi, qword fs:[0]");
+                inserter.insertAssembly("lea " + argumentRegister + ", [rdi + rsi]");
+            } else if (operand->getString() == argumentRegister) {
                 // nothing to do, the address is already in the target register
             } else if (operand->isPcrel()) {
                 // The memory displacement is relative the rip at the start of the NEXT instruction

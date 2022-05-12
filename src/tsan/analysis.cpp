@@ -179,11 +179,6 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
             continue;
         }
         const std::string disassembly = instruction->getDisassembly();
-        if (contains(disassembly, "fs:")) {
-            totalNotInstrumented++;
-            threadLocalMemory++;
-            continue;
-        }
         const bool isStackAccess = contains(disassembly, "rsp") || (contains(disassembly, "rbp") && function->getUseFramePointer());
         if (!options.instrumentStackAccess && isStackAccess) {
             stackMemory++;
@@ -905,7 +900,6 @@ void Analysis::printStatistics() const
     std::cout <<"\t* Not instrumented: "<<totalNotInstrumented<<std::endl;
     // these might have some overlap, but it should not be too bad
     std::cout <<"\t\t- Stack Canaries: "<<stackCanaryInstructions<<std::endl;
-    std::cout <<"\t\t- Thread Local Memory: "<<threadLocalMemory<<std::endl;
     std::cout <<"\t\t- Stack Local Variables: "<<stackLocalVariables<<std::endl;
     std::cout <<"\t\t- Constant Memory Read: "<<constantMemoryRead<<std::endl;
     std::cout <<"\t\t- Stack Memory: "<<stackMemory<<std::endl;
