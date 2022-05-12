@@ -124,6 +124,11 @@ def checkFile(testFile):
         total = total + 1
         
         inputBinary = fullOutFile.replace("%t", outfile)
+        
+        # TODO: patchelf is not installed as standard
+        # avoid having to conflicting versions of the thread sanitizer library
+        os.system("patchelf --remove-needed libtsan.so.0 " + inputBinary)
+        
         instrumentedBinary = fullOutFile.replace("%t", outfile + "-mod")
         instrumentParts = [runScript, inputBinary, instrumentedBinary]
         if "-fno-sanitize-thread-atomics" in compileCommand or "-tsan-instrument-atomics=0" in compileCommand:
