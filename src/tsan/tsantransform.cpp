@@ -781,6 +781,21 @@ std::optional<OperationInstrumentation> TSanTransform::getInstrumentation(Instru
 
     // For operations that read and write the memory, only emit the write (it is sufficient for race detection)
     const uint bytes = instrumentationByteSize(operand);
+
+    if (operand->isPcrel()) {
+        const auto realOffset = operand->getMemoryDisplacement() + decoded->length();
+        if (realOffset % bytes != 0) {
+            std::cout <<"Found unaligned: "<<instruction->getDisassembly()<<" "<<toHex(realOffset)<<" "<<toHex(instruction->getAddress()->getVirtualOffset())<<" "<<operand->getArgumentSizeInBytes()<<std::endl;
+
+            if (operand->isWritten()) {
+                return OperationInstrumentation({"call 0"}, {tsanUnalignedWrite[bytes]}, KEEP_ORIGINAL_INSTRUCTION, {});
+            } else {
+                return OperationInstrumentation({"call 0"}, {tsanUnalignedRead[bytes]}, KEEP_ORIGINAL_INSTRUCTION, {});
+            }
+        }
+    }
+
+
     if (operand->isWritten()) {
         return OperationInstrumentation({"call 0"}, {tsanWrite[bytes]}, KEEP_ORIGINAL_INSTRUCTION, {});
     } else {
