@@ -1,6 +1,7 @@
 import sys
 import os
 import subprocess
+import signal
 
 if len(sys.argv) != 3:
     print("Usage: python3 " + sys.argv[0] + " tsan-script parsec-directory")
@@ -10,8 +11,8 @@ if len(sys.argv) != 3:
 instrumentBinaries = False
 benchmarkHelgrind = True
 runTarget = "simsmall"
-# TODO: test with different thread numbers
-baseCommand = ["./bin/parsecmgmt", "-a", "run", "-i", runTarget, "-n", "1"]
+timeout = 220
+baseCommand = ["./bin/parsecmgmt", "-a", "run", "-i", runTarget, "-n", "2"]
 
 # x264, vips, raytrace, bodytrack, facesim, ferret are destroyed by zipr (even when no thread sanitizer code runs)
 # Warning: ferret requires libjpeg.so.62, package libjpeg62-dev must be installed
@@ -29,8 +30,17 @@ def getTimes(runCommand):
     result = {}
     for testcase in tests:
         result[testcase] = "not found"
-        res = subprocess.run(runCommand + ["-p", testcase], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)#
-        outStr = str(res.stdout)
+        try:
+            environmentVariables = dict(os.environ)
+            #environmentVariables["TSAN_OPTIONS"] = "report_bugs=0"
+            p = subprocess.Popen(runCommand + ["-p", testcase], start_new_session=True, env=environmentVariables, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            outs, errs = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+            result[testcase] = "timeout"
+            continue
+        outStr = str(outs)
+        #print(outStr.replace("\\n", "\n"))
         for line in outStr.split("\\n"):
             if "Segmentation fault" in line or "ThreadSanitizer: SEGV" in line:
                 result[testcase] = "segfault"
@@ -42,14 +52,15 @@ def getTimes(runCommand):
     return result
 
 print("Running base executables")
-baseTimes = getTimes(baseCommand)#TODO: + ["-x", "pre"]
+baseTimes = getTimes(baseCommand)
 
 print("Running regular thread sanitizer")
 tsanTimes = getTimes(baseCommand + ["-c", "gcc-tsan"])
 
+
 if benchmarkHelgrind:
     print("Running with helgrind")
-    valgrindTimes = getTimes(baseCommand + ["-s", "time valgrind --tool=helgrind "]) # TODO: "-x", "pre", 
+    valgrindTimes = getTimes(baseCommand + ["-s", "time valgrind --tool=helgrind "])
 
 if instrumentBinaries:
     print("Instrumenting binaries")
@@ -66,7 +77,7 @@ if instrumentBinaries:
             os.mkdir(outDir + "/bin")
         binaryOut = outDir + "/bin/" + execName
         
-        res = subprocess.run([sys.argv[1], binaryIn, binaryOut, "--no-instrument-stack"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        res = subprocess.run([sys.argv[1], binaryIn, binaryOut], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         if res.returncode != 0:
             print("Instrumenting " + name + " failed!")
             exit(1)
@@ -86,7 +97,7 @@ print("")
 
 def timeStrToNumber(timeStr):
     parts = timeStr.split("m")
-    if len(parts) != 2:
+    if len(parts) != 2 or timeStr == "timeout":
         return 0
     return int(parts[0]) * 60 + float(parts[1][:-1])
 
