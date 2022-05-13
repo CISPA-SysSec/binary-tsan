@@ -111,6 +111,8 @@ private:
     // void(void*)
     std::array<LibraryFunctionOptions, 17> tsanRead;
     std::array<LibraryFunctionOptions, 17> tsanWrite;
+    std::array<LibraryFunctionOptions, 17> tsanUnalignedRead;
+    std::array<LibraryFunctionOptions, 17> tsanUnalignedWrite;
     // void(void*, unsigned long)
     LibraryFunctionOptions tsanReadRange;
     LibraryFunctionOptions tsanWriteRange;

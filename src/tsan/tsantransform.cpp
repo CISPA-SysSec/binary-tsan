@@ -1042,6 +1042,10 @@ void TSanTransform::registerDependencies()
             tsanWrite[s] = {elfDeps->appendPltEntry("__tsan_write" + std::to_string(s))};
             tsanRead[s] = {elfDeps->appendPltEntry("__tsan_read" + std::to_string(s))};
         }
+        if (s > 1) {
+            tsanUnalignedWrite[s] = {elfDeps->appendPltEntry("__tsan_unaligned_write" + std::to_string(s))};
+            tsanUnalignedRead[s] = {elfDeps->appendPltEntry("__tsan_unaligned_read" + std::to_string(s))};
+        }
         if (!options.useMemoryProfiler) {
             tsanAtomicLoad[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_load")};
             tsanAtomicStore[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_store")};
