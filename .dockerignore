@@ -1,0 +1,10 @@
+/bin
+/build*
+/.git
+/.idea
+/.dockerignore
+/.gitignore
+/.gitlab-ci.yml
+/.gitmodules
+/Dockerfile
+/README.md

@@ -1,0 +1,517 @@
+diff --git a/config/gcc-tsan.bldconf b/config/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..4934e88b
+--- /dev/null
++++ b/config/gcc-tsan.bldconf
+@@ -0,0 +1,124 @@
++#!/bin/bash
++#
++# gcc.bldconf - file containing global information necessary to build
++#               PARSEC with gcc
++#
++# Copyright (C) 2006-2009 Princeton University
++# Written by Christian Bienia (Initial version)
++#            Christian Fensch (Sparc/Solaris port)
++
++# Compilation and linking options
++# These are the global options we'll use to build the benchmark suite. Each
++# package also has a local build configuration file defining the exact
++# arguments and environment to use.
++
++
++# Determine OS-specific paths and prefixes
++# We first determine the various directories typically used for the GNU
++# binaries, then we use that information to define the binary locations.
++# The values for Linux are at the end and also the default values.
++
++case "${OSTYPE}" in
++*solaris*)
++  # Solaris case
++
++  # Solaris-specific variables
++  # SFW_HOME is installation root of SFW (Solaris FreeWare)
++  export SFW_HOME="/usr/sfw"
++
++  # CC_HOME is installation root of the C compiler
++  export CC_HOME="/usr/local/gcc-4.2.4"
++  #export CC_HOME="/usr/sfw"
++  # BINUTIL_HOME is installation root of the GNU binutils
++  export BINUTIL_HOME="/usr/sfw"
++  # GNUTOOL_HOME is installation root of the GNU tools
++  export GNUTOOL_HOME="${SFW_HOME}"
++  # BINARY_PREFIX is the string which is used as prefix for the GNU binaries
++  export BINARY_PREFIX="g"
++;;
++*)
++  # Linux + default case
++
++  # CC_HOME is installation root of the C compiler
++  export CC_HOME="/usr"
++  # BINUTIL_HOME is installation root of the GNU binutils
++  export BINUTIL_HOME="/usr"
++  # GNUTOOL_HOME is installation root of the GNU tools
++  export GNUTOOL_HOME="/usr"
++  # BINARY_PREFIX is the string which is used as prefix for the GNU binaries
++  export BINARY_PREFIX=""
++;;
++esac
++
++# Compilers and preprocessors
++export CC="${CC_HOME}/bin/gcc"
++export CXX="${CC_HOME}/bin/g++"
++export CPP="${CC_HOME}/bin/cpp"
++export CXXCPP=""
++
++# GNU Binutils
++export LD="${BINUTIL_HOME}/bin/${BINARY_PREFIX}ld"
++export AS="${BINUTIL_HOME}/bin/${BINARY_PREFIX}as"
++export AR="${BINUTIL_HOME}/bin/${BINARY_PREFIX}ar"
++export RANLIB="${BINUTIL_HOME}/bin/${BINARY_PREFIX}ranlib"
++export STRIP="${BINUTIL_HOME}/bin/${BINARY_PREFIX}strip"
++
++# GNU Tools
++export M4="${GNUTOOL_HOME}/bin/${BINARY_PREFIX}m4"
++export MAKE="${GNUTOOL_HOME}/bin/${BINARY_PREFIX}make"
++
++# Flags for increased portability of binaries
++PORTABILITY_FLAGS="-static-libgcc -Wl,--hash-style=both,--as-needed"
++
++# Arguments to use
++export CFLAGS="-fsanitize=thread -DHUGE=123923476ULL -fPIE -O3 -g -funroll-loops -fprefetch-loop-arrays ${PORTABILITY_FLAGS}"
++export CXXFLAGS="-fsanitize=thread -DHUGE=123923476ULL -std=c++98 -fPIE -O3 -g -funroll-loops -fprefetch-loop-arrays -fpermissive -fno-exceptions ${PORTABILITY_FLAGS}"
++export CPPFLAGS="-fPIE -fsanitize=thread"
++export CXXCPPFLAGS="-fsanitize=thread"
++export LDFLAGS="-fsanitize=thread -ldl -L${CC_HOME}/lib64 -L${CC_HOME}/lib"
++export LIBS=""
++export EXTRA_LIBS=""
++export PARMACS_MACRO_FILE="pthreads"
++
++
++# OS-specific arguments
++case "${OSTYPE}" in
++*solaris*)
++  CFLAGS="${CFLAGS} -I${SFW_HOME}/include"
++  CXXFLAGS="${CXXFLAGS} -I${SFW_HOME}/include"
++  LDFLAGS="${LDFLAGS} -L${SFW_HOME}/lib"
++  ;;
++esac
++
++# Add PARSEC version to compiler flags
++if [ -f "${PARSECDIR}/version" ]; then
++  CFLAGS="${CFLAGS} -DPARSEC_VERSION=$(${CAT} ${PARSECDIR}/version)"
++  CXXFLAGS="${CXXFLAGS} -DPARSEC_VERSION=$(${CAT} ${PARSECDIR}/version)"
++fi
++
++# Java
++export JAVA_HOME="/usr"
++export JAVAC="${JAVA_HOME}/bin/javac"
++
++# Version numbers
++if [ -x ${CC} ]; then
++  CC_ver=$(${CC} --version)
++else
++  CC_ver=""
++fi
++if [ -x ${CXX} ]; then
++  CXX_ver=$(${CXX} --version)
++else
++  CXX_ver=""
++fi
++if [ -x ${LD} ]; then
++  LD_ver=$(${LD} --version)
++else
++  LD_ver=""
++fi
++if [ -x ${JAVAC} ]; then
++  JAVAC_ver=$(${JAVAC} -version 2>&1)
++else
++  JAVAC_ver=""
++fi
++
+diff --git a/config/gcc.bldconf b/config/gcc.bldconf
+index 144f6231..f6b2776a 100644
+--- a/config/gcc.bldconf
++++ b/config/gcc.bldconf
+@@ -71,9 +71,10 @@ export MAKE="${GNUTOOL_HOME}/bin/${BINARY_PREFIX}make"
+ PORTABILITY_FLAGS="-static-libgcc -Wl,--hash-style=both,--as-needed"
+ 
+ # Arguments to use
+-export CFLAGS=" -O3 -g -funroll-loops -fprefetch-loop-arrays ${PORTABILITY_FLAGS}"
+-export CXXFLAGS="-O3 -g -funroll-loops -fprefetch-loop-arrays -fpermissive -fno-exceptions ${PORTABILITY_FLAGS}"
+-export CPPFLAGS=""
++export CFLAGS=" -DHUGE=123923476ULL -fPIE -O3 -g -funroll-loops -fprefetch-loop-arrays ${PORTABILITY_FLAGS}"
++export CXXFLAGS="-DHUGE=123923476ULL -std=c++98 -fPIE -O3 -g -funroll-loops -fprefetch-loop-arrays -fpermissive -fno-exceptions ${PORTABILITY_FLAGS}"
++export CPPFLAGS="-fPIE"
++export ASFLAGS="-fPIE"
+ export CXXCPPFLAGS=""
+ export LDFLAGS="-L${CC_HOME}/lib64 -L${CC_HOME}/lib"
+ export LIBS=""
+diff --git a/pkgs/apps/blackscholes/parsec/gcc-tsan.bldconf b/pkgs/apps/blackscholes/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..a3fd0e56
+--- /dev/null
++++ b/pkgs/apps/blackscholes/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,6 @@
++#!/bin/bash
++
++# gcc.bldconf - configuration file for PARSEC
++
++# Default parallelization is pthreads
++source ${PARSECDIR}/pkgs/apps/blackscholes/parsec/gcc-pthreads.bldconf
+diff --git a/pkgs/apps/bodytrack/parsec/gcc-tsan.bldconf b/pkgs/apps/bodytrack/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..4cf42bcc
+--- /dev/null
++++ b/pkgs/apps/bodytrack/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,7 @@
++#!/bin/bash
++
++# gcc.bldconf - configuration file for PARSEC
++
++# Default parallelization is pthreads
++source ${PARSECDIR}/pkgs/apps/bodytrack/parsec/gcc-pthreads.bldconf
++
+diff --git a/pkgs/apps/facesim/parsec/gcc-tsan.bldconf b/pkgs/apps/facesim/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..db5f6036
+--- /dev/null
++++ b/pkgs/apps/facesim/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,7 @@
++#!/bin/bash
++
++# gcc.bldconf - configuration file for PARSEC
++
++# Default parallelization is pthreads
++source ${PARSECDIR}/pkgs/apps/facesim/parsec/gcc-pthreads.bldconf
++
+diff --git a/pkgs/apps/ferret/parsec/gcc-tsan.bldconf b/pkgs/apps/ferret/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..87b7ef15
+--- /dev/null
++++ b/pkgs/apps/ferret/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,7 @@
++#!/bin/bash
++
++# gcc.bldconf - configuration file for PARSEC
++
++# Default parallelization is pthreads
++source ${PARSECDIR}/pkgs/apps/ferret/parsec/gcc-pthreads.bldconf
++
+diff --git a/pkgs/apps/fluidanimate/parsec/gcc-tsan.bldconf b/pkgs/apps/fluidanimate/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..106de56c
+--- /dev/null
++++ b/pkgs/apps/fluidanimate/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,7 @@
++#!/bin/bash
++
++# gcc.bldconf - configuration file for PARSEC
++
++# Default parallelization model is pthreads
++source ${PARSECDIR}/pkgs/apps/fluidanimate/parsec/gcc-pthreads.bldconf
++
+diff --git a/pkgs/apps/freqmine/parsec/gcc-tsan.bldconf b/pkgs/apps/freqmine/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..37240d25
+--- /dev/null
++++ b/pkgs/apps/freqmine/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,7 @@
++#!/bin/bash
++
++# gcc.bldconf - configuration file for PARSEC
++
++# Default parallelization is openmp
++source ${PARSECDIR}/pkgs/apps/freqmine/parsec/gcc-openmp.bldconf
++
+diff --git a/pkgs/apps/raytrace/parsec/gcc-tsan.bldconf b/pkgs/apps/raytrace/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..9221bc8e
+--- /dev/null
++++ b/pkgs/apps/raytrace/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,7 @@
++#!/bin/bash
++
++# gcc.bldconf - configuration file for PARSEC
++
++# Default parallelization is pthreads
++source ${PARSECDIR}/pkgs/apps/raytrace/parsec/gcc-pthreads.bldconf
++
+diff --git a/pkgs/apps/raytrace/src/RTTL/test/TestRTVec/TestRTVec.cxx b/pkgs/apps/raytrace/src/RTTL/test/TestRTVec/TestRTVec.cxx
+index 638db26e..91b15383 100644
+--- a/pkgs/apps/raytrace/src/RTTL/test/TestRTVec/TestRTVec.cxx
++++ b/pkgs/apps/raytrace/src/RTTL/test/TestRTVec/TestRTVec.cxx
+@@ -117,11 +117,6 @@ int pow(int a, int n) {
+     for (int i = 1; i < n; i++) r *= a;
+     return r;
+ }
+-#if defined(__GNUC__) || defined(__INTEL_COMPILER)
+-int pow(double a, int n) {
+-    return pow(a, (double)n);
+-}
+-#endif
+ 
+ template<int N, typename DataType>
+ void testbox() {
+@@ -140,7 +135,7 @@ void testbox() {
+     DataType dv = d.volume();
+     d[1][0] = 20;
+     rtvec v = d.sides();
+-    if (v.minIndex() != 1 || dv != pow(convert<DataType>(11), N)) {
++    if (v.minIndex() != 1 || dv != pow(convert<DataType>(11), (double)N)) {
+         cout << "err302 = " << d << ";" << endl;
+         //exit(302);
+     }
+diff --git a/pkgs/apps/swaptions/parsec/gcc-tsan.bldconf b/pkgs/apps/swaptions/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..b76144db
+--- /dev/null
++++ b/pkgs/apps/swaptions/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,7 @@
++#!/bin/bash
++
++# gcc.bldconf - configuration file for PARSEC
++
++# Default parallelization is pthreads
++source ${PARSECDIR}/pkgs/apps/swaptions/parsec/gcc-tbb.bldconf
++
+diff --git a/pkgs/apps/vips/parsec/gcc-tsan.bldconf b/pkgs/apps/vips/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..3f2d56c2
+--- /dev/null
++++ b/pkgs/apps/vips/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,7 @@
++#!/bin/bash
++
++# gcc.bldconf - configuration file for PARSEC
++
++# Default parallelization is pthreads
++source ${PARSECDIR}/pkgs/apps/vips/parsec/gcc-pthreads.bldconf
++
+diff --git a/pkgs/apps/x264/parsec/gcc-tsan.bldconf b/pkgs/apps/x264/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..23fee1c8
+--- /dev/null
++++ b/pkgs/apps/x264/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,7 @@
++#!/bin/bash
++
++# gcc.bldconf - configuration file for PARSEC
++
++# Default parallelization is pthreads
++source ${PARSECDIR}/pkgs/apps/x264/parsec/gcc-pthreads.bldconf
++
+diff --git a/pkgs/libs/glib/parsec/gcc-tsan.bldconf b/pkgs/libs/glib/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..34a7a11f
+--- /dev/null
++++ b/pkgs/libs/glib/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,30 @@
++#!/bin/bash
++#
++# gcc.bldconf - file containing information necessary to build a specific
++#               program of the PARSEC benchmark suite with gcc
++#
++# Copyright (C) 2007 Princeton University
++# Written by Christian Bienia
++
++# Compilation and linking options.
++# This is the configuration we'll use to build the program. Each package of the
++# benchmark suite has such a file with information that will be added to the
++# global configuration. All variables set in the global configuration files can
++# be referenced here.
++
++
++# Package dependencies
++build_deps="zlib"
++
++# Environment to use for configure script and Makefile
++build_env="CFLAGS=\"-I${PARSECDIR}/pkgs/libs/zlib/inst/${PARSECPLAT}/include ${CFLAGS}\" LDFLAGS=\"-L${PARSECDIR}/pkgs/libs/zlib/inst/${PARSECPLAT}/lib ${LDFLAGS}\""
++
++# Whether the build system supports only in-place compilation.
++# If TRUE, then all sources will be copied to the build directory before we
++# start building the package. Required for older build systems which don't
++# support VPATH.
++build_inplace="FALSE"
++
++# Arguments to pass to the configure script, if it exists
++build_conf="--disable-shared --enable-threads --with-threads=posix"
++
+diff --git a/pkgs/libs/gsl/parsec/gcc-tsan.bldconf b/pkgs/libs/gsl/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..5f38c679
+--- /dev/null
++++ b/pkgs/libs/gsl/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,30 @@
++#!/bin/bash
++#
++# gcc.bldconf - file containing information necessary to build a specific
++#               program of the PARSEC benchmark suite with gcc
++#
++# Copyright (C) 2007 Princeton University
++# Written by Christian Bienia
++
++# Compilation and linking options.
++# This is the configuration we'll use to build the program. Each package of the
++# benchmark suite has such a file with information that will be added to the
++# global configuration. All variables set in the global configuration files can
++# be referenced here.
++
++
++# Package dependencies
++build_deps=""
++
++# Environment to use for configure script and Makefile
++# For some reason gsl doesn't add -lm to the link list
++build_env="LIBS=\"${LIBS} -lm\""
++
++# Whether the build system supports only in-place compilation.
++# If TRUE, then all sources will be copied to the build directory before we
++# start building the package. Required for older build systems which don't
++# support VPATH.
++build_inplace="FALSE"
++
++# Arguments to pass to the configure script, if it exists
++build_conf="--disable-shared"
+diff --git a/pkgs/libs/libjpeg/parsec/gcc-tsan.bldconf b/pkgs/libs/libjpeg/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..af0ce90d
+--- /dev/null
++++ b/pkgs/libs/libjpeg/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,30 @@
++#!/bin/bash
++#
++# gcc.bldconf - file containing information necessary to build a specific
++#               program of the PARSEC benchmark suite with gcc
++#
++# Copyright (C) 2007 Princeton University
++# Written by Christian Bienia
++
++# Compilation and linking options.
++# This is the configuration we'll use to build the program. Each package of the
++# benchmark suite has such a file with information that will be added to the
++# global configuration. All variables set in the global configuration files can
++# be referenced here.
++
++
++# Package dependencies
++build_deps=""
++
++# Environment to use for configure script and Makefile
++# For some reason gsl doesn't add -lm to the link list
++build_env=""
++
++# Whether the build system supports only in-place compilation.
++# If TRUE, then all sources will be copied to the build directory before we
++# start building the package. Required for older build systems which don't
++# support VPATH.
++build_inplace="FALSE"
++
++# Arguments to pass to the configure script, if it exists
++build_conf="--disable-shared"
+diff --git a/pkgs/libs/libxml2/parsec/gcc-tsan.bldconf b/pkgs/libs/libxml2/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..aea5ee62
+--- /dev/null
++++ b/pkgs/libs/libxml2/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,29 @@
++#!/bin/bash
++#
++# gcc.bldconf - file containing information necessary to build a specific
++#               program of the PARSEC benchmark suite with gcc
++#
++# Copyright (C) 2007 Princeton University
++# Written by Christian Bienia
++
++# Compilation and linking options.
++# This is the configuration we'll use to build the program. Each package of the
++# benchmark suite has such a file with information that will be added to the
++# global configuration. All variables set in the global configuration files can
++# be referenced here.
++
++
++# Package dependencies
++build_deps="zlib"
++
++# Environment to use for configure script and Makefile
++build_env="CFLAGS=\"-I${PARSECDIR}/pkgs/libs/zlib/inst/${PARSECPLAT}/include ${CFLAGS}\" LDFLAGS=\"-L${PARSECDIR}/pkgs/libs/zlib/inst/${PARSECPLAT}/lib ${LDFLAGS}\""
++
++# Whether the build system supports only in-place compilation.
++# If TRUE, then all sources will be copied to the build directory before we
++# start building the package. Required for older build systems which don't
++# support VPATH.
++build_inplace="FALSE"
++
++# Arguments to pass to the configure script, if it exists
++build_conf="--disable-shared --with-threads"
+diff --git a/pkgs/libs/tbblib/parsec/gcc-tsan.bldconf b/pkgs/libs/tbblib/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..1a41795a
+--- /dev/null
++++ b/pkgs/libs/tbblib/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,30 @@
++#!/bin/bash
++#
++# gcc.bldconf - file containing information necessary to build a specific
++#               program of the PARSEC benchmark suite with gcc
++#
++# Copyright (C) 2008 Princeton University
++# Written by Christian Bienia
++
++# Compilation and linking options.
++# This is the configuration we'll use to build the program. Each package of the
++# benchmark suite has such a file with information that will be added to the
++# global configuration. All variables set in the global configuration files can
++# be referenced here.
++
++
++# Package dependencies
++build_deps=""
++
++# Environment to use for configure script and Makefile
++build_env="compiler=gcc PATH=\"${CC_HOME}/bin:${PATH}\" CXXFLAGS=\"${CXXFLAGS} -fexceptions\""
++
++# Whether the build system supports only in-place compilation.
++# If TRUE, then all sources will be copied to the build directory before we
++# start building the package. Required for older build systems which don't
++# support VPATH.
++build_inplace="TRUE"
++
++# Arguments to pass to the configure script, if it exists
++build_conf=""
++
+diff --git a/pkgs/libs/zlib/parsec/gcc-tsan.bldconf b/pkgs/libs/zlib/parsec/gcc-tsan.bldconf
+new file mode 100644
+index 00000000..67fbe4e2
+--- /dev/null
++++ b/pkgs/libs/zlib/parsec/gcc-tsan.bldconf
+@@ -0,0 +1,30 @@
++#!/bin/bash
++#
++# gcc.bldconf - file containing information necessary to build a specific
++#               program of the PARSEC benchmark suite with gcc
++#
++# Copyright (C) 2009 Princeton University
++# Written by Christian Bienia
++
++# Compilation and linking options.
++# This is the configuration we'll use to build the program. Each package of the
++# benchmark suite has such a file with information that will be added to the
++# global configuration. All variables set in the global configuration files can
++# be referenced here.
++
++
++# Package dependencies
++build_deps=""
++
++# Environment to use for configure script and Makefile
++build_env=""
++
++# Whether the build system supports only in-place compilation.
++# If TRUE, then all sources will be copied to the build directory before we
++# start building the package. Required for older build systems which don't
++# support VPATH.
++build_inplace="TRUE"
++
++# Arguments to pass to the configure script, if it exists
++build_conf=""
++
