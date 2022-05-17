@@ -35,7 +35,9 @@ knownImpossible = ['llvm-tsan-tests/atomic_free3.cpp', 'llvm-tsan-tests/atomic_n
                    'llvm-tsan-tests/inlined_memcpy_race.cpp', 'llvm-tsan-tests/inlined_memcpy_race2.cpp', 'llvm-tsan-tests/java_finalizer2.cpp',
                    'llvm-tsan-tests/java_volatile.cpp', 'llvm-tsan-tests/signal_block.cpp', 'llvm-tsan-tests/signal_sync2.cpp', 'llvm-tsan-tests/stack_sync_reuse.cpp',
                    'llvm-tsan-tests/stress.cpp', 'llvm-tsan-tests/vptr_harmful_race.cpp', 'llvm-tsan-tests/vptr_harmful_race2.cpp',
-                   'llvm-tsan-tests/vptr_harmful_race3.cpp', 'llvm-tsan-tests/vptr_harmful_race4.cpp']
+                   'llvm-tsan-tests/vptr_harmful_race3.cpp', 'llvm-tsan-tests/vptr_harmful_race4.cpp', 'llvm-tsan-tests/race_range_pc.cpp',
+                   'llvm-tsan-tests/java_race_pc.cpp', 'llvm-tsan-tests/suppressions_global.cpp', 'llvm-tsan-tests/libcxx/std_shared_ptr.cpp',
+                   'llvm-tsan-tests/real_deadlock_detector_stress_test.cpp', 'llvm-tsan-tests/Linux/fork_multithreaded4.cpp', 'llvm-tsan-tests/signal_recursive.cpp']
 
 invalid = []
 unexpextedWorked = []
