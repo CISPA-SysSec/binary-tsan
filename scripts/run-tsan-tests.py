@@ -17,6 +17,8 @@ translateStacktrace = "../ps-plugin/translate-stacktrace"
 testDirectory = os.path.realpath("../tests/")
 testSubDirectories = ["bugs", "repstring", "atomics", "llvm-tsan-tests", "llvm-tsan-tests/libcxx", "llvm-tsan-tests/libdispatch", "llvm-tsan-tests/Linux/"]
 
+removeTempFolders = True
+
 numThread = 3
 outputdir = os.path.realpath(sys.argv[2])
 runScript = os.path.realpath(sys.argv[1])
@@ -139,6 +141,8 @@ def checkFile(testFile):
         instrumentParts = [runScript, inputBinary, instrumentedBinary]
         if "-fno-sanitize-thread-atomics" in compileCommand or "-tsan-instrument-atomics=0" in compileCommand:
             instrumentParts.append("--no-instrument-atomics")
+        if removeTempFolders:
+            instrumentParts.append("--clean")
         res = subprocess.run(instrumentParts, capture_output=True)
         if res.returncode != 0:
             print("Test: " + testFile)
