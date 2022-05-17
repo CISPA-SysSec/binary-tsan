@@ -23,6 +23,10 @@ runScript = os.path.realpath(sys.argv[1])
 
 scriptPath = os.path.dirname(os.path.abspath(__file__))
 toolPath = os.path.abspath(os.path.join(scriptPath, "../tools"))
+
+if not os.path.isdir(outputdir):
+    os.mkdir(outputdir)
+
 os.chdir(outputdir)
 
 runOnly = []

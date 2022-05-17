@@ -67,3 +67,5 @@ find_package(Protobuf 3.3.0 REQUIRED)
 
 add_subdirectory(src)
 add_subdirectory(libtsan)
+
+include(AddTests)

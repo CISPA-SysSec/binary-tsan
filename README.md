@@ -17,6 +17,15 @@ cmake -DZIPR_LOCATION=/path/to/your/zipr/folder ..
 make
 ```
 
+To run the tests that are included in this project, use
+```
+make check
+```
+in the build folder.
+Running this will take about 10 minutes.
+The process can not be correctly terminated using Ctrl+C in the command line.
+
+
 To execute the thread sanitizer, use the script 'thread-sanitizer.sh' created in the build folder:
 ```
 ./build/thread-sanitizer.sh /usr/bin/ls ls-sanitized
