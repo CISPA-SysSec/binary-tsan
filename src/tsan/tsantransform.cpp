@@ -521,12 +521,18 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
             },
             {stripPreservedRegisters(tsanAtomicCompareExchangeVal[bytes])}, REMOVE_ORIGINAL_INSTRUCTION, Register::registerSet({X86_REG_RAX, X86_REG_EFLAGS}));
     }
-    if (mnemonic == "mov") {
+    if (mnemonic == "mov" || mnemonic == "movzx") {
         if (op0->isRegister() && op1->isMemory()) {
+            const std::string op0SizedRax = toBytes(RegisterID::rn_RAX, op0->getArgumentSizeInBytes());
+            std::string additionalInstruction;
+            if (mnemonic == "movzx") {
+                additionalInstruction = "mov " + op0->getString() + ", 0";
+            }
             return OperationInstrumentation({
+                    additionalInstruction,
                     "mov rsi, " + toHex(__tsan_memory_order_acquire),
                     "call 0",
-                    "mov " + op0->getString() + ", " + raxReg
+                    "mov " + op0->getString() + ", " + op0SizedRax
                 },
                 {stripPreservedRegisters(tsanAtomicLoad[bytes])}, REMOVE_ORIGINAL_INSTRUCTION,
                 Register::registerSet({stringToReg(standard64Bit(op0->getString()))}));
