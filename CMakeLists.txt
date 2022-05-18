@@ -28,7 +28,8 @@ if(NOT ZIPR_LOCATION)
 endif()
 
 # configure scripts
-configure_file(${CMAKE_SOURCE_DIR}/scripts/thread-sanitizer.sh.in ${CMAKE_BINARY_DIR}/thread-sanitizer.sh @ONLY)
+set(TSAN_SCRIPT ${CMAKE_BINARY_DIR}/thread-sanitizer.sh)
+configure_file(${CMAKE_SOURCE_DIR}/scripts/thread-sanitizer.sh.in ${TSAN_SCRIPT} @ONLY)
 
 # create libraries for the irdb sdk
 set(IRDBLIB_LOCATION "${ZIPR_LOCATION}/irdb-libs/lib/")
@@ -68,4 +69,5 @@ find_package(Protobuf 3.3.0 REQUIRED)
 add_subdirectory(src)
 add_subdirectory(libtsan)
 
+include(GetCTestsuite)
 include(AddTests)

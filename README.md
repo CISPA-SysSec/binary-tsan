@@ -22,8 +22,10 @@ To run the tests that are included in this project, use
 make check
 ```
 in the build folder.
-Running this will take about 10 minutes.
+Running this will take up to 20 minutes.
 The process can not be correctly terminated using Ctrl+C in the command line.
+
+To run the c-testsuite, the utility TMSU has to be installed on the computer.
 
 
 To execute the thread sanitizer, use the script 'thread-sanitizer.sh' created in the build folder:

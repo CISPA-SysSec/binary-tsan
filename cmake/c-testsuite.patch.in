@@ -1,0 +1,93 @@
+diff --git a/runners/single-exec/clang-tsan-rewrite b/runners/single-exec/clang-tsan-rewrite
+new file mode 100755
+index 0000000..e9fbe99
+--- /dev/null
++++ b/runners/single-exec/clang-tsan-rewrite
+@@ -0,0 +1,51 @@
++#! /bin/sh
++
++set -e
++set -u
++
++if ! test "x86_64" = "$(uname -m)"
++then
++    echo "incorrect host for test" 1>&2
++    exit 1
++fi
++
++CC=clang
++CFLAGS="--std=c11 -O2"
++
++if ! $CC $CFLAGS "$1" -o "temp.bin"
++then
++    exit 0
++fi
++if ! "./temp.bin" > "$1.output" 2>&1
++then
++    echo Cannot run original
++    exit 0
++fi
++
++if ! diff -u "$1.expected" "$1.output"
++then
++    echo Wrong output original
++    exit 0
++fi
++
++if ! @TSAN_SCRIPT@ "temp.bin" "temp-mod.bin" "--clean"
++then
++    echo Bad rewrite
++    exit 1
++fi
++
++for i in {1..20}
++do
++
++    if ! "./temp-mod.bin" > "$1.output" 2>&1
++    then
++        echo Cannot run modified
++        exit 1
++    fi
++
++    if ! diff -u "$1.expected" "$1.output"
++    then
++        echo Wrong output from modified
++        exit 1
++    fi
++done
+diff --git a/runners/single-exec/clang-tsan-rewrite.skip b/runners/single-exec/clang-tsan-rewrite.skip
+new file mode 100755
+index 0000000..0cc784c
+--- /dev/null
++++ b/runners/single-exec/clang-tsan-rewrite.skip
+@@ -0,0 +1,9 @@
++#! /bin/sh
++
++if ! test -f README.md
++then
++    echo "run from the base directory." >&2
++    exit 1
++fi
++
++./scripts/search-tests "not (arch-x86_64 or portable)"
+\ No newline at end of file
+diff --git a/scripts/make-search-index b/scripts/make-search-index
+index a5658b1..56dae77 100755
+--- a/scripts/make-search-index
++++ b/scripts/make-search-index
+@@ -43,15 +43,6 @@ done
+ 
+ # Validation
+ 
+-q="(not c89) and (not c99) and (not c11)"
+-n=$(tmsu files "$q" | wc -l)
+-if test "$n" != "0"
+-then
+-    echo "Tests without a specified standard, aborting:"
+-    tmsu files "$q"
+-    exit 1
+-fi
+-
+ q="not portable and not arch-x86_64"
+ n=$(tmsu files "$q" | wc -l)
+ if test "$n" != "0"
