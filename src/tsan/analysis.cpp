@@ -69,13 +69,16 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
 
     result.inferredAtomicInstructions = inferAtomicInstructions(function, spinLockInstructions);
     pointerInferredAtomics += result.inferredAtomicInstructions.size();
-    for (auto guardInstruction : detectStaticVariableGuards(function)) {
+    for (const auto guardInstruction : detectStaticVariableGuards(function)) {
         result.inferredAtomicInstructions[guardInstruction] = __tsan_memory_order_acquire;
         staticVariableGuards++;
     }
-    for (auto spinLock : spinLockInstructions) {
+    for (const auto spinLock : spinLockInstructions) {
         result.inferredAtomicInstructions[spinLock] = __tsan_memory_order_acquire;
         spinLocks++;
+    }
+    for (const auto &[instruction, memOrder] : options.annotations.atomicInstructions) {
+        result.inferredAtomicInstructions[instruction] = memOrder;
     }
 
     // this analysis is fine with missing forward edges, it can always be run
@@ -182,6 +185,11 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
         const bool isStackAccess = contains(disassembly, "rsp") || (contains(disassembly, "rbp") && function->getUseFramePointer());
         if (!options.instrumentStackAccess && isStackAccess) {
             stackMemory++;
+            continue;
+        }
+
+        if (options.annotations.ignoreInstructions.find(instruction) != options.annotations.ignoreInstructions.end()) {
+            totalNotInstrumented++;
             continue;
         }
 

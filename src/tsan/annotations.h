@@ -4,6 +4,16 @@
 #include <string>
 #include <irdb-core>
 
+// from tsan-interface-atomic.h, do not change
+typedef enum {
+    __tsan_memory_order_relaxed = 0,
+    __tsan_memory_order_consume = 1,
+    __tsan_memory_order_acquire = 2,
+    __tsan_memory_order_release = 3,
+    __tsan_memory_order_acq_rel = 4,
+    __tsan_memory_order_seq_cst = 5
+} __tsan_memory_order;
+
 enum class HappensBeforeOperation
 {
     Acquire,
@@ -33,6 +43,9 @@ public:
 
 public:
     std::map<IRDB_SDK::Function_t*, std::vector<HappensBeforeAnnotation>> happensBefore;
+
+    std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> atomicInstructions;
+    std::set<IRDB_SDK::Instruction_t*> ignoreInstructions;
 };
 
 #endif // ANNOTATIONS_H
