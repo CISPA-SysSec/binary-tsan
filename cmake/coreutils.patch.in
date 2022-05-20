@@ -1,0 +1,26 @@
+diff --git a/init.cfg b/init.cfg
+index eb57de2..9578223 100644
+--- a/init.cfg
++++ b/init.cfg
+@@ -252,8 +252,7 @@ require_strace_()
+ # or hasn't appropriate error suppressions installed etc.
+ require_valgrind_()
+ {
+-  valgrind --error-exitcode=1 true 2>/dev/null ||
+-    skip_ "requires a working valgrind"
++  skip_ "requires a working valgrind"
+ }
+ 
+ # Skip the current test if setfacl doesn't work on the current file system,
+diff --git a/tests/init.sh b/tests/init.sh
+index 933fdd4..23cffeb 100755
+--- a/tests/init.sh
++++ b/tests/init.sh
+@@ -549,6 +549,7 @@ path_prepend_ ()
+       || fail_ "something failed (above): $abs_path_dir_"
+     shift
+   done
++  PATH=@COREUTILS_INSTRUMENT_FOLDER@:$PATH
+   export PATH
+ }
+ 

@@ -70,4 +70,5 @@ add_subdirectory(src)
 add_subdirectory(libtsan)
 
 include(GetCTestsuite)
+include(GetCoreutils)
 include(AddTests)
