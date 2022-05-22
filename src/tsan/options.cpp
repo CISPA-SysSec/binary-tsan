@@ -195,6 +195,7 @@ struct OptionsPrivate
     std::string dumpFunctionNamesTo;
     std::string instrumentOnlyFrom;
     std::string annotationsFile;
+    std::string dumpInstrumentedInstructions;
 };
 
 static OptionsManager registerTsanOptions(Options &options, OptionsPrivate &additionalOptions)
@@ -219,6 +220,7 @@ static OptionsManager registerTsanOptions(Options &options, OptionsPrivate &addi
     result.addEnumOption("register-analysis", (int*)&options.deadRegisterAnalysisType, registerOptions, "custom", "The dead register analysis used for eliminating register stores and enabling some transformations. Custom is the default. Stars is the zipr provided analysis.");
 
     result.addStringOption("dump-function-names-to", "filename", &additionalOptions.dumpFunctionNamesTo, "Dump all functionnames that are encountered into the file specified by <filename>. The names are mangled.");
+    result.addStringOption("dump-instrumented-instructions", "filename", &additionalOptions.dumpInstrumentedInstructions, "Write the virtual offsets of all instrumented instructions into the file specified by <filename>.");
     result.addStringOption("instrument-only-functions", "filename", &additionalOptions.instrumentOnlyFrom, "Read the file specified by <filename> and only instrument functions with names in the file. The names must be mangled and in the same format as when they are dumped by --dump-function-names-to. One name per line.");
     result.addStringOption("annotations", "filename", &additionalOptions.annotationsFile, "Load the content from <filename> as annotations for additional information during the instrumentation.");
 
@@ -273,6 +275,14 @@ std::optional<Options> Options::parseAndProcess(IRDB_SDK::FileIR_t *ir, const st
         const bool res = result.annotations.parseFromFile(ir, tempPrivate.annotationsFile);
         if (!res) {
             std::cout <<"ERROR: Could not load annotations!"<<std::endl;
+            return {};
+        }
+    }
+    if (tempPrivate.dumpInstrumentedInstructions.size() > 0) {
+        std::cout <<"try open: "<<tempPrivate.dumpInstrumentedInstructions<<std::endl;
+        result.dumpInstrumentedInstructions = std::make_shared<std::ofstream>(tempPrivate.dumpInstrumentedInstructions, std::ios_base::binary);
+        if (!result.dumpInstrumentedInstructions->is_open()) {
+            std::cout <<"ERROR: Could not open file!"<<std::endl;
             return {};
         }
     }

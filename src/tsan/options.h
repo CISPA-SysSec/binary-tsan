@@ -3,6 +3,9 @@
 
 #include "annotations.h"
 
+#include <fstream>
+#include <memory>
+
 enum class DeadRegisterAnalysisType {
     STARS,
     CUSTOM,
@@ -27,6 +30,7 @@ struct Options
     bool useWrapperFunctions = false;
     bool instrumentStackAccess = true;
     bool useMemoryProfiler = false;
+    std::shared_ptr<std::ofstream> dumpInstrumentedInstructions;
     Annotations annotations;
 
     static void printOptionsHelp();

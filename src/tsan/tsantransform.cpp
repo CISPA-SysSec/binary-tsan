@@ -104,7 +104,10 @@ bool TSanTransform::executeStep()
             const DecodedOperandVector_t operands = decoded->getOperands();
             for (const auto &operand : operands) {
                 if (operand->isMemory()) {
-//                    std::cout <<"Instrument access: "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+                    if (options.dumpInstrumentedInstructions) {
+                        *options.dumpInstrumentedInstructions <<toHex(instruction->getAddress()->getVirtualOffset())<<std::endl;
+                    }
+//                    std::cout <<"Instrument access: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                     instrumentMemoryAccess(instruction, operand, info);
                     // For instructions like rep movs with two memory operands, only call the handler once.
                     // It is correctly handed in the rep instruction handler.
