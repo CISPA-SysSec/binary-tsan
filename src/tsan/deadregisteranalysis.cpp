@@ -125,13 +125,13 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
     }
     // tail call optimization leads to jumps to other functions, these have be treated like calls since the arguments are in the registers
     const bool isJump = isPartOfGroup(decoded, X86_GRP_JUMP);
-    const bool jumpToOtherFunction = isJump && getJumpInfo(instruction).isTailCall;
 
     // indirect jump
     if (isJump && instruction->getTarget() == nullptr) {
         readRegs.set();
     }
 
+    const bool jumpToOtherFunction = decoded->mnemonic == std::string("jmp") && getJumpInfo(instruction).isTailCall;
     if (isPartOfGroup(decoded, X86_GRP_CALL) || jumpToOtherFunction) {
         setBits(readRegs, X86_REG_RDI);
         setBits(readRegs, X86_REG_RSI);
