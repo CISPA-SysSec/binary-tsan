@@ -179,7 +179,7 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
     }
 }
 
-void DeadRegisterInstructionAnalysis::setBits(std::bitset<56> &bitset, x86_reg reg)
+void DeadRegisterInstructionAnalysis::setBits(std::bitset<47> &bitset, x86_reg reg)
 {
     const auto bits = registerBitIndices(reg);
     for (int bit : bits) {
@@ -188,20 +188,20 @@ void DeadRegisterInstructionAnalysis::setBits(std::bitset<56> &bitset, x86_reg r
 }
 
 static const std::map<x86_reg, std::vector<int>> indexMap = {
-    {X86_REG_RAX, {0, 1, 2, 3, 4}}, {X86_REG_EAX, {1, 2, 3, 4}}, {X86_REG_AX, {2, 3, 4}}, {X86_REG_AH, {3}}, {X86_REG_AL, {4}},
-    {X86_REG_RCX, {5, 6, 7, 8, 9}}, {X86_REG_ECX, {6, 7, 8, 9}}, {X86_REG_CX, {7, 8, 9}}, {X86_REG_CH, {8}}, {X86_REG_CL, {9}},
-    {X86_REG_RDX, {10, 11, 12, 13, 14}}, {X86_REG_EDX, {11, 12, 13, 14}}, {X86_REG_DX, {12, 13, 14}}, {X86_REG_DH, {13}}, {X86_REG_DL, {14}},
-    {X86_REG_RSI, {15, 16, 17, 18}}, {X86_REG_ESI, {16, 17, 18}}, {X86_REG_SI, {17, 18}}, {X86_REG_SIL, {18}},
-    {X86_REG_RDI, {19, 20, 21, 22}}, {X86_REG_EDI, {20, 21, 22}}, {X86_REG_DI, {21, 22}}, {X86_REG_DIL, {22}},
-    {X86_REG_R8, {23, 24, 25, 26}}, {X86_REG_R8D, {24, 25, 26}}, {X86_REG_R8W, {25, 26}}, {X86_REG_R8B, {26}},
-    {X86_REG_R9, {27, 28, 29, 30}}, {X86_REG_R9D, {28, 29, 30}}, {X86_REG_R9W, {29, 30}}, {X86_REG_R9B, {30}},
-    {X86_REG_R10, {31, 32, 33, 34}}, {X86_REG_R10D, {32, 33, 34}}, {X86_REG_R10W, {33, 34}}, {X86_REG_R10B, {34}},
-    {X86_REG_R11, {35, 36, 37, 38}}, {X86_REG_R11D, {36, 37, 38}}, {X86_REG_R11W, {37, 38}}, {X86_REG_R11B, {38}},
-    {X86_REG_EFLAGS, {39}},
-    {X86_REG_XMM0, {40}}, {X86_REG_XMM1, {41}}, {X86_REG_XMM2, {42}}, {X86_REG_XMM3, {43}}, {X86_REG_XMM4, {44}},
-    {X86_REG_XMM5, {45}}, {X86_REG_XMM6, {46}}, {X86_REG_XMM7, {47}}, {X86_REG_XMM8, {48}}, {X86_REG_XMM9, {49}},
-    {X86_REG_XMM10, {50}}, {X86_REG_XMM11, {51}}, {X86_REG_XMM12, {52}}, {X86_REG_XMM13, {53}}, {X86_REG_XMM14, {54}},
-    {X86_REG_XMM15, {55}},
+    {X86_REG_RAX, {0, 1, 2, 3}}, {X86_REG_EAX, {0, 1, 2, 3}}, {X86_REG_AX, {1, 2, 3}}, {X86_REG_AH, {2}}, {X86_REG_AL, {3}},
+    {X86_REG_RCX, {4, 5, 6, 7}}, {X86_REG_ECX, {4, 5, 6, 7}}, {X86_REG_CX, {5, 6, 7}}, {X86_REG_CH, {6}}, {X86_REG_CL, {7}},
+    {X86_REG_RDX, {8, 9, 10, 11}}, {X86_REG_EDX, {8, 9, 10, 11}}, {X86_REG_DX, {9, 10, 11}}, {X86_REG_DH, {10}}, {X86_REG_DL, {11}},
+    {X86_REG_RSI, {12, 13, 14}}, {X86_REG_ESI, {12, 13, 14}}, {X86_REG_SI, {13, 14}}, {X86_REG_SIL, {14}},
+    {X86_REG_RDI, {15, 16, 17}}, {X86_REG_EDI, {15, 16, 17}}, {X86_REG_DI, {16, 17}}, {X86_REG_DIL, {17}},
+    {X86_REG_R8, {18, 19, 20}}, {X86_REG_R8D, {18, 19, 20}}, {X86_REG_R8W, {19, 20}}, {X86_REG_R8B, {20}},
+    {X86_REG_R9, {21, 22, 23}}, {X86_REG_R9D, {21, 22, 23}}, {X86_REG_R9W, {22, 23}}, {X86_REG_R9B, {23}},
+    {X86_REG_R10, {24, 25, 26}}, {X86_REG_R10D, {24, 25, 26}}, {X86_REG_R10W, {25, 26}}, {X86_REG_R10B, {26}},
+    {X86_REG_R11, {27, 28, 29}}, {X86_REG_R11D, {27, 28, 29}}, {X86_REG_R11W, {28, 29}}, {X86_REG_R11B, {29}},
+    {X86_REG_EFLAGS, {30}},
+    {X86_REG_XMM0, {31}}, {X86_REG_XMM1, {32}}, {X86_REG_XMM2, {33}}, {X86_REG_XMM3, {34}}, {X86_REG_XMM4, {35}},
+    {X86_REG_XMM5, {36}}, {X86_REG_XMM6, {37}}, {X86_REG_XMM7, {38}}, {X86_REG_XMM8, {39}}, {X86_REG_XMM9, {40}},
+    {X86_REG_XMM10, {41}}, {X86_REG_XMM11, {42}}, {X86_REG_XMM12, {43}}, {X86_REG_XMM13, {44}}, {X86_REG_XMM14, {45}},
+    {X86_REG_XMM15, {46}},
 };
 
 std::vector<int> DeadRegisterInstructionAnalysis::registerBitIndices(x86_reg reg)

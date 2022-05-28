@@ -41,14 +41,14 @@ public:
 
 private:
     static std::vector<int> registerBitIndices(x86_reg reg);
-    static void setBits(std::bitset<56> &bitset, x86_reg reg);
+    static void setBits(std::bitset<47> &bitset, x86_reg reg);
 
 private:
-    std::bitset<56> before;
-    std::bitset<56> after;
+    std::bitset<47> before;
+    std::bitset<47> after;
 
-    std::bitset<56> writtenRegs;
-    std::bitset<56> readRegs;
+    std::bitset<47> writtenRegs;
+    std::bitset<47> readRegs;
 
     CallerSaveRegisterSet writtenInFunction;
 };
