@@ -12,6 +12,30 @@ index eb57de2..9578223 100644
  }
  
  # Skip the current test if setfacl doesn't work on the current file system,
+diff --git a/lib/alignalloc.h b/lib/alignalloc.h
+index f47aa86..742e9cc 100644
+--- a/lib/alignalloc.h
++++ b/lib/alignalloc.h
+@@ -35,17 +35,13 @@ _GL_INLINE_HEADER_BEGIN
+ /* Whether aligned_alloc supports any power-of-two alignment,
+    returns a nonnull pointer for size-zero allocations,
+    and sets errno on failure.  */
+-#if 2 < __GLIBC__ + (15 <= __GLIBC_MINOR__)
+-# define ALIGNALLOC_VIA_ALIGNED_ALLOC 1
+-#else
+-# define ALIGNALLOC_VIA_ALIGNED_ALLOC 0
+-#endif
++#define ALIGNALLOC_VIA_ALIGNED_ALLOC 0
+ 
+ /* Work around AddressSanitizer bug.
+    https://gcc.gnu.org/bugzilla/show_bug.cgi?id=104262
+    https://lists.llvm.org/pipermail/llvm-commits/Week-of-Mon-20220124/1001910.html
+    */
+-#ifdef __SANITIZE_ADDRESS__
++#ifdef __SANITIZE_ADDRESS__ || __SANITIZE_THREAD__
+ # undef ALIGNALLOC_VIA_ALIGNED_ALLOC
+ # define ALIGNALLOC_VIA_ALIGNED_ALLOC 0
+ #endif
 diff --git a/tests/init.sh b/tests/init.sh
 index 933fdd4..23cffeb 100755
 --- a/tests/init.sh
