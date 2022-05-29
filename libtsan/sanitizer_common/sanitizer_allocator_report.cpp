@@ -83,24 +83,6 @@ void NORETURN ReportInvalidAllocationAlignment(uptr alignment,
   Die();
 }
 
-void NORETURN ReportInvalidAlignedAllocAlignment(uptr size, uptr alignment,
-                                                 const StackTrace *stack) {
-  {
-    ScopedAllocatorErrorReport report("invalid-aligned-alloc-alignment", stack);
-#if SANITIZER_POSIX
-    Report("ERROR: %s: invalid alignment requested in "
-           "aligned_alloc: %zd, alignment must be a power of two and the "
-           "requested size 0x%zx must be a multiple of alignment\n",
-           SanitizerToolName, alignment, size);
-#else
-    Report("ERROR: %s: invalid alignment requested in aligned_alloc: %zd, "
-           "the requested size 0x%zx must be a multiple of alignment\n",
-           SanitizerToolName, alignment, size);
-#endif
-  }
-  Die();
-}
-
 void NORETURN ReportInvalidPosixMemalignAlignment(uptr alignment,
                                                   const StackTrace *stack) {
   {

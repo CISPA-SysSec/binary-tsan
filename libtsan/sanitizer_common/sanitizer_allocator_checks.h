@@ -33,23 +33,6 @@ inline void *SetErrnoOnNull(void *ptr) {
   return ptr;
 }
 
-// In case of the check failure, the caller of the following Check... functions
-// should "return POLICY::OnBadRequest();" where POLICY is the current allocator
-// failure handling policy.
-
-// Checks aligned_alloc() parameters, verifies that the alignment is a power of
-// two and that the size is a multiple of alignment for POSIX implementation,
-// and a bit relaxed requirement for non-POSIX ones, that the size is a multiple
-// of alignment.
-inline bool CheckAlignedAllocAlignmentAndSize(uptr alignment, uptr size) {
-#if SANITIZER_POSIX
-  return alignment != 0 && IsPowerOfTwo(alignment) &&
-         (size & (alignment - 1)) == 0;
-#else
-  return alignment != 0 && size % alignment == 0;
-#endif
-}
-
 // Checks posix_memalign() parameters, verifies that alignment is a power of two
 // and a multiple of sizeof(void *).
 inline bool CheckPosixMemalignAlignment(uptr alignment) {

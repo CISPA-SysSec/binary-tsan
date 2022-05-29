@@ -284,13 +284,6 @@ int user_posix_memalign(ThreadState *thr, uptr pc, void **memptr, uptr align,
 }
 
 void *user_aligned_alloc(ThreadState *thr, uptr pc, uptr align, uptr sz) {
-  if (UNLIKELY(!CheckAlignedAllocAlignmentAndSize(align, sz))) {
-    errno = errno_EINVAL;
-    if (AllocatorMayReturnNull())
-      return nullptr;
-    GET_STACK_TRACE_FATAL(thr, pc);
-    ReportInvalidAlignedAllocAlignment(sz, align, &stack);
-  }
   return SetErrnoOnNull(user_alloc_internal(thr, pc, sz, align));
 }
 
