@@ -2,9 +2,9 @@ add_test(NAME run-tsan-tests
 	COMMAND python3 "${CMAKE_SOURCE_DIR}/scripts/run-tsan-tests.py" "./thread-sanitizer.sh" "tsan-test-output/"
 	WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
 
-# add_test(NAME coreutils-instrument-and-run
-# 	COMMAND bash -c "${CMAKE_SOURCE_DIR}/scripts/instrument-all.sh ${CMAKE_BINARY_DIR}/thread-sanitizer.sh ${COREUTILS_DIRECTORY}/src && cd ${COREUTILS_DIRECTORY} && make SUBDIRS=. check"
-# 	WORKING_DIRECTORY "${COREUTILS_INSTRUMENT_FOLDER}")
+add_test(NAME coreutils-instrument-and-run
+	COMMAND bash -c "${CMAKE_SOURCE_DIR}/scripts/instrument-all.sh ${CMAKE_BINARY_DIR}/thread-sanitizer.sh ${COREUTILS_DIRECTORY}/src && cd ${COREUTILS_DIRECTORY} && make XFAIL_TESTS=\"tests/misc/env-signal-handler.sh tests/misc/timeout.sh\" SUBDIRS=. check"
+	WORKING_DIRECTORY "${COREUTILS_INSTRUMENT_FOLDER}")
 
 if(HAVE_C_TESTSUITE)
     add_test(NAME c-testsuite
