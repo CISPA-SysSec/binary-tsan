@@ -739,8 +739,16 @@ void TSanTransform::restoreStateFromStack(const SaveStateInfo &state, Instructio
     }
 }
 
-static uint instrumentationByteSize(const std::shared_ptr<DecodedOperand_t> &operand)
+static uint instrumentationByteSize(const std::unique_ptr<DecodedInstruction_t> &decoded, const std::shared_ptr<DecodedOperand_t> &operand)
 {
+    // due to a (known) bug in capstone, comiss and comisd memory operand sizes are wrong
+    const auto mnemonic = decoded->getMnemonic();
+    if (mnemonic == "comiss") {
+        return 4;
+    } else if (mnemonic == "comisd") {
+        return 8;
+    }
+
     const uint bytes = operand->getArgumentSizeInBytes();
     // Instructions with 10 byte operands are most likely extended precision floating point operations.
     // For alignment, compilers usually allocate either 12 or 16 byte for them.
@@ -789,7 +797,7 @@ std::optional<OperationInstrumentation> TSanTransform::getInstrumentation(Instru
     }
 
     // For operations that read and write the memory, only emit the write (it is sufficient for race detection)
-    const uint bytes = instrumentationByteSize(operand);
+    const uint bytes = instrumentationByteSize(decoded, operand);
 
     if (operand->isPcrel()) {
         const auto realOffset = operand->getMemoryDisplacement() + decoded->length();
@@ -823,7 +831,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     instrumentationInfo.set_disassembly(instructionDisassembly);
     instrumentationInfo.set_function_has_entry_exit(info.addEntryExitInstrumentation);
 
-    const uint bytes = instrumentationByteSize(operand);
+    const uint bytes = instrumentationByteSize(decoded, operand);
     if (!options.dryRun && (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
             (operand->isRead() && tsanRead[bytes][0].callTarget == nullptr) ||
             (operand->isWritten() && tsanWrite[bytes][0].callTarget == nullptr))) {
