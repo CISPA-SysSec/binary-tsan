@@ -33,10 +33,10 @@ static bool isFalseRead(cs_insn *decoded)
         return true;
     }
 
-    // TODO: less than 64 bit operand size
     const bool isOr = mnemonic == "or";
-    const bool allOnes = x86.operands[0].type == X86_OP_REG && x86.operands[1].type == X86_OP_IMM && x86.operands[1].imm == -1;
-    if (isOr && allOnes) {
+    const bool isRegImm = x86.operands[0].type == X86_OP_REG && x86.operands[1].type == X86_OP_IMM;
+    const bool isOnes = x86.operands[1].imm == -1 || (x86.operands[1].size == 4 && x86.operands[1].imm == 0xffffffff);
+    if (isOr && isRegImm && isOnes) {
         return true;
     }
     return false;
