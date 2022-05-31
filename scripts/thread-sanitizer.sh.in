@@ -11,10 +11,7 @@ printUsage()
 last=$PWD
 cd @ZIPR_LOCATION@
 . set_env_vars
-export PSPATH=$PSPATH:@PLUGIN_PATH@
-export ZIPR_PLUGIN_PATH=$ZIPR_PLUGIN_PATH:@ZIPR_PLUGIN_PATH@
 cd $last
-
 
 if [[ "$#" -eq 1 && "$1" == "--help" ]];
 then
@@ -25,6 +22,7 @@ then
 	echo ""
 	echo "Additional wrapper script options:"
 	echo "--clean                                   Remove the build and log folder after completion"
+	echo "--copy-tsan-binaries                      Copy the thread sanitizer binaries at the start of the instrumentation"
 	
 	exit 1
 fi
@@ -42,16 +40,33 @@ runCommand="$PSZ $1 $2 --tempdir ${tempdir} -c rida -c move_globals -o --elftabl
 # add tsan options to the run command
 i=$(($#-3))
 removeTempFolder=false
+copyTsanBinaries=false
 while [ $i -ge 0 ];
 do
     if [[ "${BASH_ARGV[$i]}" == "--clean" ]];
     then
         removeTempFolder=true
+    elif [[ "${BASH_ARGV[$i]}" == "--copy-tsan-binaries" ]];
+    then
+        copyTsanBinaries=true
     else
         runCommand="${runCommand} -o ${BASH_ARGV[$i]}"
     fi
     i=$((i-1))
 done
+
+if [[ "$copyTsanBinaries" == false ]]; then
+    export PSPATH=$PSPATH:@PLUGIN_PATH@
+    export ZIPR_PLUGIN_PATH=$ZIPR_PLUGIN_PATH:@ZIPR_PLUGIN_PATH@
+else
+    tsanPSPATHCopyDir=$(pwd)/tsan_pspath_copy_temp.${inputbase}.$$
+    tsanPluginCopyDir=$(pwd)/tsan_plugin_copy_temp.${inputbase}.$$
+    export PSPATH=$PSPATH:$tsanPSPATHCopyDir
+    export ZIPR_PLUGIN_PATH=$ZIPR_PLUGIN_PATH:$tsanPluginCopyDir
+    
+    cp -r @PLUGIN_PATH@ $tsanPSPATHCopyDir
+    cp -r @ZIPR_PLUGIN_PATH@ $tsanPluginCopyDir
+fi
 
 # run the binary tsan
 eval $runCommand
@@ -65,4 +80,9 @@ fi
 
 if [[ "$removeTempFolder" == true ]]; then
     rm -r ${tempdir}
+fi
+
+if [[ "$copyTsanBinaries" == true ]]; then
+    rm -r $tsanPSPATHCopyDir
+    rm -r $tsanPluginCopyDir
 fi
