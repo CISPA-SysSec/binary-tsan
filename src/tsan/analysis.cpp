@@ -301,6 +301,12 @@ void Analysis::updateDeadRegisters(IRDB_SDK::Function_t *function)
         for (const auto block : cfg->getBlocks()) {
             const auto lastInstruction = block->getInstructions().back();
             const auto lastDecoded = DecodedInstruction_t::factory(lastInstruction);
+            if (lastDecoded->getMnemonic() == "ud2") {
+                for (const auto succ : block->getSuccessors()) {
+                    removeEdges.insert({block, succ});
+                }
+                continue;
+            }
             if (!lastDecoded->isCall()) {
                 continue;
             }
