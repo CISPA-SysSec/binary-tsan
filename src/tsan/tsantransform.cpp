@@ -295,7 +295,7 @@ void TSanTransform::instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, c
     std::vector<HappensBeforeAnnotation> afterAnnotations;
     for (const auto &annotation : annotations) {
         if (annotation.isBefore) {
-            const SaveStateInfo saveState = saveStateToStack(inserter, instruction, {}, info);
+            const SaveStateInfo saveState = saveStateToStack(inserter, instruction, {}, info, options.saveXmmRegisters);
             if (annotation.registerForPointer != "rdi") {
                 inserter.insertAssembly("mov rdi, " + annotation.registerForPointer);
             }
@@ -335,7 +335,7 @@ void TSanTransform::instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, c
     }
 
     for (const auto &annotation : afterAnnotations) {
-        const SaveStateInfo saveState = saveStateToStack(inserter, nullptr, {}, info);
+        const SaveStateInfo saveState = saveStateToStack(inserter, nullptr, {}, info, options.saveXmmRegisters);
         if (annotation.registerForPointer != "rdi") {
             inserter.insertAssembly("mov rdi, " + annotation.registerForPointer);
         }
@@ -409,7 +409,7 @@ static x86_reg stringToReg(const std::string &reg)
 
 static LibraryFunctionOptions stripPreservedRegisters(const LibraryFunctionOptions &function)
 {
-    return {LibraryFunction(function[0].callTarget)};
+    return {LibraryFunction(function[0].callTarget, function[0].xmmSafety)};
 }
 
 std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> &operand,
@@ -676,13 +676,14 @@ std::optional<OperationInstrumentation> TSanTransform::getConditionalInstrumenta
 }
 
 TSanTransform::SaveStateInfo TSanTransform::saveStateToStack(InstructionInserter &inserter, Instruction_t *before,
-                                                             CallerSaveRegisterSet ignoreRegisters, const FunctionInfo &info)
+                                                             CallerSaveRegisterSet ignoreRegisters, const FunctionInfo &info,
+                                                             bool saveXmmRegisters)
 {
     SaveStateInfo state;
 
     const bool stackUnsafe = info.stackUnsafe.find(before) != info.stackUnsafe.end() || info.isLeafFunction;
 
-    if (!options.saveXmmRegisters) {
+    if (!saveXmmRegisters) {
         ignoreRegisters |= Register::xmmRegisterSet();
     }
     std::vector<std::string> registersToSave = getSaveRegisters(before, ignoreRegisters);
@@ -876,8 +877,13 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     if (contains(instructionDisassembly, "fs:")) {
         requiredSaveRegisters.set();
     }
+
+    const bool hasXmmUnsafeFunction = std::any_of(callTargets.begin(), callTargets.end(), [](const auto &f) {
+        return f.xmmSafety == XMM_UNSAFE;
+    });
+    const bool saveXmmRegisters = options.saveXmmRegisters || hasXmmUnsafeFunction;
     const CallerSaveRegisterSet ignoreRegisters = instrumentation.noSaveRegisters | ~requiredSaveRegisters;
-    const SaveStateInfo saveState = saveStateToStack(inserter, instruction, ignoreRegisters, info);
+    const SaveStateInfo saveState = saveStateToStack(inserter, instruction, ignoreRegisters, info, saveXmmRegisters);
 
     // the instruction pointer no longer points to the original instruction, make sure that it is not used
     instruction = nullptr;
@@ -991,7 +997,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     }
 }
 
-LibraryFunctionOptions TSanTransform::createWrapper(Instruction_t *target)
+LibraryFunctionOptions TSanTransform::createWrapper(Instruction_t *target, XMMSafety xmmSafety)
 {
     LibraryFunctionOptions result;
     for (x86_reg reg : {X86_REG_RDI, X86_REG_RAX, X86_REG_RCX, X86_REG_RDX, X86_REG_RSI, X86_REG_R8, X86_REG_R9, X86_REG_R10, X86_REG_R11}) {
@@ -1005,7 +1011,8 @@ LibraryFunctionOptions TSanTransform::createWrapper(Instruction_t *target)
 
         FunctionInfo info;
         info.isLeafFunction = false;
-        const SaveStateInfo saveState = saveStateToStack(inserter, nullptr, {}, info);
+        const bool saveXmmRegisters = xmmSafety == XMM_UNSAFE || options.saveXmmRegisters;
+        const SaveStateInfo saveState = saveStateToStack(inserter, nullptr, {}, info, saveXmmRegisters);
 
         if (reg != X86_REG_RDI) {
             inserter.insertAssembly("mov rdi, " + Register::registerToString(reg));
@@ -1016,7 +1023,7 @@ LibraryFunctionOptions TSanTransform::createWrapper(Instruction_t *target)
         restoreStateFromStack(saveState, inserter);
 
         // this wrapper preserves all registers, even the argument register
-        LibraryFunction f(instruction, reg);
+        LibraryFunction f(instruction, XMM_SAFE, reg);
         f.preserveRegisters.set();
         result.push_back(f);
     }
@@ -1045,40 +1052,41 @@ void TSanTransform::registerDependencies()
         }
     }
     if (options.useWrapperFunctions) {
-        tsanFunctionEntry = createWrapper(elfDeps->appendPltEntry("__tsan_func_entry"));
-        tsanFunctionExit = createWrapper(elfDeps->appendPltEntry("__tsan_func_exit"));
+        tsanFunctionEntry = createWrapper(elfDeps->appendPltEntry("__tsan_func_entry"), XMM_SAFE);
+        tsanFunctionExit = createWrapper(elfDeps->appendPltEntry("__tsan_func_exit"), XMM_SAFE);
     } else {
-        tsanFunctionEntry = {elfDeps->appendPltEntry("__tsan_func_entry")};
-        tsanFunctionExit = {elfDeps->appendPltEntry("__tsan_func_exit")};
+        tsanFunctionEntry = {{elfDeps->appendPltEntry("__tsan_func_entry"), XMM_SAFE}};
+        tsanFunctionExit = {{elfDeps->appendPltEntry("__tsan_func_exit"), XMM_SAFE}};
     }
     for (int s : {1, 2, 4, 8, 16}) {
         if (options.useWrapperFunctions) {
-            tsanWrite[s] = createWrapper(elfDeps->appendPltEntry("__tsan_write" + std::to_string(s) + "_pc"));
-            tsanRead[s] = createWrapper(elfDeps->appendPltEntry("__tsan_read" + std::to_string(s) + "_pc"));
+            tsanWrite[s] = createWrapper(elfDeps->appendPltEntry("__tsan_write" + std::to_string(s) + "_pc"), XMM_SAFE);
+            tsanRead[s] = createWrapper(elfDeps->appendPltEntry("__tsan_read" + std::to_string(s) + "_pc"), XMM_SAFE);
         } else {
-            tsanWrite[s] = {elfDeps->appendPltEntry("__tsan_write" + std::to_string(s))};
-            tsanRead[s] = {elfDeps->appendPltEntry("__tsan_read" + std::to_string(s))};
+            tsanWrite[s] = {{elfDeps->appendPltEntry("__tsan_write" + std::to_string(s)), XMM_SAFE}};
+            tsanRead[s] = {{elfDeps->appendPltEntry("__tsan_read" + std::to_string(s)), XMM_SAFE}};
         }
         if (s > 1) {
-            tsanUnalignedWrite[s] = {elfDeps->appendPltEntry("__tsan_unaligned_write" + std::to_string(s))};
-            tsanUnalignedRead[s] = {elfDeps->appendPltEntry("__tsan_unaligned_read" + std::to_string(s))};
+            tsanUnalignedWrite[s] = {{elfDeps->appendPltEntry("__tsan_unaligned_write" + std::to_string(s)), XMM_SAFE}};
+            tsanUnalignedRead[s] = {{elfDeps->appendPltEntry("__tsan_unaligned_read" + std::to_string(s)), XMM_SAFE}};
         }
-        if (!options.useMemoryProfiler) {
-            tsanAtomicLoad[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_load")};
-            tsanAtomicStore[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_store")};
-            tsanAtomicExchange[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_exchange")};
-            tsanAtomicFetchAdd[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_add")};
-            tsanAtomicFetchSub[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_sub")};
-            tsanAtomicFetchAnd[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_and")};
-            tsanAtomicFetchOr[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_or")};
-            tsanAtomicFetchXor[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_xor")};
-            tsanAtomicCompareExchangeVal[s] = {elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_compare_exchange_val")};
+        if (!options.useMemoryProfiler && s < 16) {
+            tsanAtomicLoad[s] = {{elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_load"), XMM_UNSAFE}};
+            tsanAtomicStore[s] = {{elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_store"), XMM_UNSAFE}};
+            tsanAtomicExchange[s] = {{elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_exchange"), XMM_UNSAFE}};
+            tsanAtomicFetchAdd[s] = {{elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_add"), XMM_UNSAFE}};
+            tsanAtomicFetchSub[s] = {{elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_sub"), XMM_UNSAFE}};
+            tsanAtomicFetchAnd[s] = {{elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_and"), XMM_UNSAFE}};
+            tsanAtomicFetchOr[s] = {{elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_or"), XMM_UNSAFE}};
+            tsanAtomicFetchXor[s] = {{elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_fetch_xor"), XMM_UNSAFE}};
+            tsanAtomicCompareExchangeVal[s] = {{elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_compare_exchange_val"), XMM_UNSAFE}};
         }
     }
-    tsanReadRange = {elfDeps->appendPltEntry("__tsan_read_range")};
-    tsanWriteRange = {elfDeps->appendPltEntry("__tsan_write_range")};
-    tsanAcquire = {elfDeps->appendPltEntry("__tsan_acquire")};
-    tsanRelease = {elfDeps->appendPltEntry("__tsan_release")};
+    // TODO: these are not xmm safe
+    tsanReadRange = {{elfDeps->appendPltEntry("__tsan_read_range"), XMM_UNSAFE}};
+    tsanWriteRange = {{elfDeps->appendPltEntry("__tsan_write_range"), XMM_UNSAFE}};
+    tsanAcquire = {{elfDeps->appendPltEntry("__tsan_acquire"), XMM_UNSAFE}};
+    tsanRelease = {{elfDeps->appendPltEntry("__tsan_release"), XMM_UNSAFE}};
 
     getFileIR()->assembleRegistry();
 }

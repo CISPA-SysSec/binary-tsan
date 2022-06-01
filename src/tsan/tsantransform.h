@@ -18,16 +18,23 @@ enum RemoveOption {
     KEEP_ORIGINAL_INSTRUCTION
 };
 
+enum XMMSafety {
+    XMM_SAFE,
+    XMM_UNSAFE
+};
+
 struct LibraryFunction
 {
-    LibraryFunction(IRDB_SDK::Instruction_t *target, x86_reg reg = X86_REG_RDI) :
+    LibraryFunction(IRDB_SDK::Instruction_t *target, XMMSafety xmmSafety, x86_reg reg = X86_REG_RDI) :
         callTarget(target),
-        argumentRegister(reg)
+        argumentRegister(reg),
+        xmmSafety(xmmSafety)
         // no registers are preserved,
     { }
     IRDB_SDK::Instruction_t *callTarget;
     x86_reg argumentRegister;
     CallerSaveRegisterSet preserveRegisters;
+    XMMSafety xmmSafety;
 };
 
 using LibraryFunctionOptions = std::vector<LibraryFunction>;
@@ -75,7 +82,7 @@ private:
     std::optional<OperationInstrumentation> getConditionalInstrumentation(const std::unique_ptr<IRDB_SDK::DecodedInstruction_t> &decoded,
                                                                           const std::shared_ptr<IRDB_SDK::DecodedOperand_t> &operand) const;
     void instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, const std::vector<HappensBeforeAnnotation> &annotations, const FunctionInfo &info);
-    LibraryFunctionOptions createWrapper(IRDB_SDK::Instruction_t *target);
+    LibraryFunctionOptions createWrapper(IRDB_SDK::Instruction_t *target, XMMSafety xmmSafety);
     LibraryFunction selectFunctionVersion(IRDB_SDK::Instruction_t *before, const LibraryFunctionOptions &options) const;
     void findAndMergeFunctions();
 
@@ -88,7 +95,7 @@ private:
         bool flagsAreSaved;
     };
     SaveStateInfo saveStateToStack(InstructionInserter &inserter, IRDB_SDK::Instruction_t *before,
-                                   CallerSaveRegisterSet ignoreRegisters, const FunctionInfo &info);
+                                   CallerSaveRegisterSet ignoreRegisters, const FunctionInfo &info, bool saveXmmRegisters);
     void restoreStateFromStack(const SaveStateInfo &state, InstructionInserter &inserter);
 
 private:
