@@ -58,8 +58,7 @@ int main()
                     }
 
                     for (int i = 0;i<int(parts.size())-1;i++) {
-                        // TODO: maybe only when not present?:  && parts[i] == "<null>"
-                        if (i > 0 && parts[i-1][0] == '#' && !functionName.empty()) {
+                        if (i > 0 && parts[i-1][0] == '#' && !functionName.empty()  && parts[i] == "<null>") {
                             std::cout <<functionName<<" ";
                         } else {
                             std::cout <<parts[i]<<" ";
