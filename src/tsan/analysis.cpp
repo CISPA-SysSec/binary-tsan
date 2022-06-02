@@ -109,7 +109,8 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
             continue;
         }
         // is the exit instruction after functions calls that do not return (for example exit)
-        if (contains(instruction->getDisassembly(), "nop")) {
+        const std::string assembly = instruction->getDisassembly();
+        if (contains(assembly, "nop") || contains(assembly, "ud2")) {
             continue;
         }
         if (!decoded->isReturn()) {
