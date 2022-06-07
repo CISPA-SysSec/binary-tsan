@@ -12,16 +12,22 @@ instrumentBinaries = False
 benchmarkHelgrind = True
 runTarget = "simsmall"
 timeout = 220
+iterations = 5
 baseCommand = ["./bin/parsecmgmt", "-a", "run", "-i", runTarget, "-n", "2"]
 
 # x264, vips, raytrace, bodytrack, facesim, ferret are destroyed by zipr (even when no thread sanitizer code runs)
 # Warning: ferret requires libjpeg.so.62, package libjpeg62-dev must be installed
-tests = ["blackscholes", "bodytrack", "facesim", "ferret", "fluidanimate", "freqmine", "raytrace", "swaptions", "vips", "x264"]#["blackscholes", "ferret", "fluidanimate", "freqmine", "swaptions"]["ferret"]#
+tests = ["blackscholes", "ferret", "fluidanimate", "freqmine", "swaptions"]#["blackscholes", "ferret", "fluidanimate", "freqmine", "swaptions"]["ferret"]#
 # the test name is used if not present here
 executableNames = {
     "raytrace": "rtview"
 }
 
+def timeStrToNumber(timeStr):
+    parts = timeStr.split("m")
+    if len(parts) != 2 or timeStr == "timeout":
+        return 0
+    return int(parts[0]) * 60 + float(parts[1][:-1])
 
 def getTimes(runCommand):
     startDir = os.getcwd()
@@ -30,24 +36,31 @@ def getTimes(runCommand):
     result = {}
     for testcase in tests:
         result[testcase] = "not found"
-        try:
-            environmentVariables = dict(os.environ)
-            #environmentVariables["TSAN_OPTIONS"] = "report_bugs=0"
-            p = subprocess.Popen(runCommand + ["-p", testcase], start_new_session=True, env=environmentVariables, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            outs, errs = p.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            os.killpg(os.getpgid(p.pid), signal.SIGTERM)
-            result[testcase] = "timeout"
-            continue
-        outStr = str(outs)
-        #print(outStr.replace("\\n", "\n"))
-        for line in outStr.split("\\n"):
-            if "Segmentation fault" in line or "ThreadSanitizer: SEGV" in line:
-                result[testcase] = "segfault"
+        totalTime = 0
+        for i in range(iterations):
+            try:
+                environmentVariables = dict(os.environ)
+                #environmentVariables["TSAN_OPTIONS"] = "report_bugs=0"
+                p = subprocess.Popen(runCommand + ["-p", testcase], start_new_session=True, env=environmentVariables, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                outs, errs = p.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+                result[testcase] = "timeout"
+                totalTime = 0
                 break
-            if line.startswith("real\\t"):
-                time = line.replace("real\\t", "")
-                result[testcase] = time
+            outStr = str(outs)
+            for line in outStr.split("\\n"):
+                if "Segmentation fault" in line or "ThreadSanitizer: SEGV" in line:
+                    result[testcase] = "segfault"
+                    totalTime = 0
+                    break
+                if line.startswith("real\\t"):
+                    time = line.replace("real\\t", "")
+                    totalTime = totalTime + timeStrToNumber(time)
+            if totalTime == 0:
+                break
+        if totalTime > 0:
+            result[testcase] = str(totalTime / iterations)
     os.chdir(startDir)
     return result
 
@@ -94,12 +107,6 @@ for name in tests:
         print("    * helgrind: ".ljust(20) + valgrindTimes[name])
 
 print("")
-
-def timeStrToNumber(timeStr):
-    parts = timeStr.split("m")
-    if len(parts) != 2 or timeStr == "timeout":
-        return 0
-    return int(parts[0]) * 60 + float(parts[1][:-1])
 
 dataString = "["
 for name in tests:
