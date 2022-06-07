@@ -63,7 +63,7 @@ COPY scripts/parsec_diff /home/zuser
 
 RUN cd /home/zuser/parsec-3.0 && git init . && git apply /home/zuser/parsec_diff && ./env.sh && ./bin/parsecmgmt -a build -p blackscholes bodytrack facesim ferret fluidanimate freqmine raytrace swaptions vips;
 
-RUN cd /home/zuser/parsec-3.0 && ./env.sh && ./bin/parsecmgmt -a build -c gcc-tsan -p blackscholes bodytrack facesim ferret fluidanimate freqmine swaptions vips;
+RUN cd /home/zuser/parsec-3.0 && ./env.sh && ./bin/parsecmgmt -a build -c gcc-tsan -p blackscholes bodytrack facesim ferret fluidanimate freqmine raytrace swaptions vips;
 
 COPY --from=btsan /opt/btsan /opt/btsan
 
