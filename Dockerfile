@@ -50,8 +50,9 @@ RUN set -xe; \
 	DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -y \
 		cmake g++ unzip ca-certificates curl apt-transport-https gnupg git wget make m4 \
 		libglib2.0-dev openssl libx11-dev libxext-dev libxt-dev libxmu-dev libxi-dev \
-		libtbb-dev gettext libprotobuf-dev valgrind time; \
-	sudo apt-get update;
+		libtbb-dev gettext libprotobuf-dev valgrind time pip; \
+	sudo apt-get update; \
+	sudo pip install psutil;
 
 
 RUN cd /home/zuser && wget http://parsec.cs.princeton.edu/download/3.0/parsec-3.0-core.tar.gz --no-check-certificate  && \
