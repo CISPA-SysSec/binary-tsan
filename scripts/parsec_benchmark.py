@@ -2,6 +2,7 @@ import sys
 import os
 import subprocess
 import signal
+import re
 
 if len(sys.argv) != 3:
     print("Usage: python3 " + sys.argv[0] + " tsan-script parsec-directory")
@@ -37,6 +38,8 @@ def getTimes(runCommand):
     for testcase in tests:
         result[testcase] = "not found"
         totalTime = 0
+        minWarnings = 1000000
+        maxWarnings = 0
         for i in range(iterations):
             try:
                 environmentVariables = dict(os.environ)
@@ -49,6 +52,7 @@ def getTimes(runCommand):
                 totalTime = 0
                 break
             outStr = str(outs)
+            errorCount = 0
             for line in outStr.split("\\n"):
                 if "Segmentation fault" in line or "ThreadSanitizer: SEGV" in line:
                     result[testcase] = "segfault"
@@ -57,10 +61,22 @@ def getTimes(runCommand):
                 if line.startswith("real\\t"):
                     time = line.replace("real\\t", "")
                     totalTime = totalTime + timeStrToNumber(time)
+                
+                count = re.findall('ThreadSanitizer: reported ([0-9]+) warnings', line)
+                if len(count) > 0:
+                    errorCount = int(count[0])
+                count = re.findall('== ERROR SUMMARY: ([0-9]+) errors', line)
+                if len(count) > 0:
+                    errorCount = int(count[0])
+            
+            minWarnings = min(minWarnings, errorCount)
+            maxWarnings = max(maxWarnings, errorCount)
+                    
+                    
             if totalTime == 0:
                 break
         if totalTime > 0:
-            result[testcase] = str(totalTime / iterations)
+            result[testcase] = (totalTime / iterations, minWarnings, maxWarnings)
     os.chdir(startDir)
     return result
 
@@ -100,23 +116,23 @@ btsanTimes = getTimes(baseCommand + ["-x", "btsan"])
 
 for name in tests:
     print(name + ": ")
-    print("    * base: ".ljust(20) + baseTimes[name])
-    print("    * tsan: ".ljust(20) + tsanTimes[name])
-    print("    * btsan: ".ljust(20) + btsanTimes[name])
+    print("    * base: ".ljust(20) + str(baseTimes[name][0]))
+    print("    * tsan: ".ljust(20) + str(tsanTimes[name][0]))
+    print("    * btsan: ".ljust(20) + str(btsanTimes[name][0]))
     if benchmarkHelgrind:
-        print("    * helgrind: ".ljust(20) + valgrindTimes[name])
+        print("    * helgrind: ".ljust(20) + str(valgrindTimes[name][0]))
 
 print("")
 
 dataString = "["
 for name in tests:
-    if timeStrToNumber(baseTimes[name]) == 0:
+    if baseTimes[name][0] == 0:
         continue
-    dataString = dataString + "(\"" + name + "\", [" + str(timeStrToNumber(baseTimes[name]))
-    dataString = dataString + ", " + str(timeStrToNumber(tsanTimes[name]))
-    dataString = dataString + ", " + str(timeStrToNumber(btsanTimes[name]))
+    dataString = dataString + "(\"" + name + "\", [" + str(baseTimes[name])
+    dataString = dataString + ", " + str(tsanTimes[name])
+    dataString = dataString + ", " + str(btsanTimes[name])
     if benchmarkHelgrind:
-        dataString = dataString + ", " + str(timeStrToNumber(valgrindTimes[name]))
+        dataString = dataString + ", " + str(valgrindTimes[name])
     dataString = dataString + "]), "
 dataString = dataString + "]"
 print(dataString)
