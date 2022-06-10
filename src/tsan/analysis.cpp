@@ -53,7 +53,8 @@ static bool isLeafFunction(const Function &function)
 
 FunctionInfo Analysis::analyseFunction(const Function &function)
 {
-    updateDeadRegisters(function);
+    const auto cfg = ControlFlowGraph_t::factory(function.getIRDBFunction());
+    updateDeadRegisters(function, &*cfg);
 
     totalAnalysedFunctions++;
     totalAnalysedInstructions += function.getInstructions().size();
@@ -64,12 +65,11 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
     std::set<Instruction_t*> notInstrumented = detectStackCanaryInstructions(function);
     stackCanaryInstructions += notInstrumented.size();
 
-    const auto cfg = ControlFlowGraph_t::factory(function.getIRDBFunction());
     const std::set<Instruction_t*> spinLockInstructions = {};//findSpinLocks(cfg.get());
 
     result.inferredAtomicInstructions = inferAtomicInstructions(function, spinLockInstructions);
     pointerInferredAtomics += result.inferredAtomicInstructions.size();
-    for (const auto guardInstruction : detectStaticVariableGuards(function)) {
+    for (const auto guardInstruction : detectStaticVariableGuards(function, &*cfg)) {
         result.inferredAtomicInstructions[guardInstruction] = __tsan_memory_order_acquire;
         staticVariableGuards++;
     }
@@ -278,7 +278,7 @@ void Analysis::computeMaxFunctionArguments()
     }
 }
 
-void Analysis::updateDeadRegisters(const Function &function)
+void Analysis::updateDeadRegisters(const Function &function, ControlFlowGraph_t *cfg)
 {
     if (options.deadRegisterAnalysisType != DeadRegisterAnalysisType::CUSTOM) {
         return;
@@ -291,7 +291,6 @@ void Analysis::updateDeadRegisters(const Function &function)
     }
     canDoRegisterAnalysisFunctions++;
 
-    const auto cfg = ControlFlowGraph_t::factory(function.getIRDBFunction());
     RegisterAnalysisCommon deadRegisterCommon(functionWrittenRegisters);
     const auto analysisResult = FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(&*cfg, {}, deadRegisterCommon);
     for (const auto &[instruction, analysis] : analysisResult) {
@@ -823,11 +822,8 @@ std::set<Instruction_t*> Analysis::detectStackCanaryInstructions(const Function 
     return result;
 }
 
-std::set<Instruction_t*> Analysis::detectStaticVariableGuards(const Function &function) const
+std::set<Instruction_t*> Analysis::detectStaticVariableGuards(const Function &function, ControlFlowGraph_t *cfg) const
 {
-    // TODO: do not construct this multiple times
-    const auto cfg = ControlFlowGraph_t::factory(function.getIRDBFunction());
-
     // find locations of all static variable guards
     std::set<std::string> guardLocations;
     for (const auto &block : cfg->getBlocks()) {
