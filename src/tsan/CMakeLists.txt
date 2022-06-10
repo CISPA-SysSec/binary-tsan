@@ -20,6 +20,12 @@ add_executable(tsan
     annotations.h
     options.h
     options.cpp
+    function.cpp
+    function.h
+    instruction.cpp
+    instruction.h
+    program.cpp
+    program.h
 )
 target_link_libraries(tsan
     PRIVATE irdb-sdk

@@ -9,6 +9,7 @@
 
 #include "register.h"
 #include "options.h"
+#include "function.h"
 
 struct FunctionInfo {
     // the first instruction not doing stack frame stuff etc.
@@ -38,21 +39,21 @@ public:
     Analysis(IRDB_SDK::FileIR_t *ir);
     void init(const Options &options);
 
-    FunctionInfo analyseFunction(IRDB_SDK::Function_t *function);
+    FunctionInfo analyseFunction(const Function &function);
     void printStatistics() const;
     std::function<void()> getInstructionCounter(InstrumentationType type);
     CallerSaveRegisterSet getDeadRegisters(IRDB_SDK::Instruction_t *instruction) const;
 
 private:
-    std::set<IRDB_SDK::Instruction_t*> detectStaticVariableGuards(IRDB_SDK::Function_t *function) const;
-    std::set<IRDB_SDK::Instruction_t*> detectStackCanaryInstructions(IRDB_SDK::Function_t *function) const;
-    std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> inferAtomicInstructions(IRDB_SDK::Function_t *function, const std::set<IRDB_SDK::Instruction_t*> &spinLockInstructions) const;
+    std::set<IRDB_SDK::Instruction_t*> detectStaticVariableGuards(const Function &function) const;
+    std::set<IRDB_SDK::Instruction_t*> detectStackCanaryInstructions(const Function &function) const;
+    std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> inferAtomicInstructions(const Function &function, const std::set<IRDB_SDK::Instruction_t*> &spinLockInstructions) const;
     bool isDataConstant(IRDB_SDK::FileIR_t *ir, IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand);
     std::set<IRDB_SDK::Instruction_t *> findSpinLocks(IRDB_SDK::ControlFlowGraph_t *cfg) const;
     std::set<IRDB_SDK::Function_t*> findNoReturnFunctions() const;
     void computeFunctionRegisterWrites();
     void findWrittenRegistersRecursive(IRDB_SDK::Function_t *function, std::set<IRDB_SDK::Function_t*> &visited, CapstoneHandle &capstone);
-    void updateDeadRegisters(IRDB_SDK::Function_t *function);
+    void updateDeadRegisters(const Function &function);
     bool isNoReturnCall(IRDB_SDK::Instruction_t *instruction) const;
     void computeMaxFunctionArguments();
 

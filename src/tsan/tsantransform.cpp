@@ -7,6 +7,7 @@
 #include "simplefile.h"
 #include "helper.h"
 #include "exceptionhandling.h"
+#include "program.h"
 
 using namespace IRDB_SDK;
 
@@ -41,14 +42,17 @@ bool TSanTransform::executeStep()
     FileIR_t *ir = getFileIR();
     functionAnalysis.init(options);
 
-    for (auto function : ir->getFunctions()) {
-        if (startsWith(function->getName(), "__tsan_func_entry")) {
+    std::cout <<"Total instructions: "<<getFileIR()->getInstructions().size()<<std::endl;
+    registerDependencies();
+
+    Program program(getFileIR());
+
+    for (const Function &function : program.getFunctions()) {
+        if (startsWith(function.getName(), "__tsan_func_entry")) {
             std::cout <<"ERROR: this binary is already thread sanitized!"<<std::endl;
             return false;
         }
     }
-
-    registerDependencies();
 
     ExceptionHandling exceptionHandling(ir, tsanFunctionExit[0].callTarget);
 
@@ -57,11 +61,11 @@ bool TSanTransform::executeStep()
 
     findAndMergeFunctions();
 
-    for (Function_t *function : ir->getFunctions()) {
-        if (function->getEntryPoint() == nullptr) {
+    for (const Function &function : program.getFunctions()) {
+        if (function.getEntryPoint() == nullptr) {
             continue;
         }
-        const std::string functionName = function->getName();
+        const std::string functionName = function.getName();
         const bool ignoreFunction = std::find(noInstrumentFunctions.begin(), noInstrumentFunctions.end(), functionName) != noInstrumentFunctions.end();
         if (ignoreFunction) {
             continue;
@@ -74,15 +78,15 @@ bool TSanTransform::executeStep()
         }
 
         // do not instrument push jump thunks
-        if (function->getInstructions().size() == 2 && startsWith(function->getEntryPoint()->getDisassembly(), "push") &&
-                startsWith(function->getEntryPoint()->getFallthrough()->getDisassembly(), "jmp")) {
+        if (function.getInstructions().size() == 2 && startsWith(function.getEntryPoint()->getDisassembly(), "push") &&
+                startsWith(function.getEntryPoint()->getFallthrough()->getDisassembly(), "jmp")) {
             continue;
         }
 
         const FunctionInfo info = functionAnalysis.analyseFunction(function);
 
         // for the stack trace translation
-        for (Instruction_t *instruction : function->getInstructions()) {
+        for (Instruction_t *instruction : function.getInstructions()) {
             const auto decoded = DecodedInstruction_t::factory(instruction);
             if (decoded->isCall()) {
                 InstrumentationInfo instrumentationInfo;
@@ -96,7 +100,7 @@ bool TSanTransform::executeStep()
         }
 
         // make a copy of the instruction set before changing it
-        const std::set<Instruction_t*> instructions = function->getInstructions();
+        const std::set<Instruction_t*> instructions = function.getInstructions();
 
         // instrument all memory operations
         for (Instruction_t *instruction : info.instructionsToInstrument) {
@@ -143,7 +147,7 @@ bool TSanTransform::executeStep()
 
             getFileIR()->assembleRegistry();
 
-            InstructionInserter inserter(ir, function->getEntryPoint(), functionAnalysis.getInstructionCounter(InstrumentationType::EXCEPTION_HANDLING), options.dryRun);
+            InstructionInserter inserter(ir, function.getEntryPoint(), functionAnalysis.getInstructionCounter(InstrumentationType::EXCEPTION_HANDLING), options.dryRun);
             exceptionHandling.handleFunction(function, inserter);
         }
         getFileIR()->assembleRegistry();
@@ -199,7 +203,7 @@ void TSanTransform::findAndMergeFunctions()
     getFileIR()->assembleRegistry();
 }
 
-void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *insertBefore)
+void TSanTransform::insertFunctionEntry(const Function &function, Instruction_t *insertBefore)
 {
     // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)
     FileIR_t *ir = getFileIR();
@@ -233,7 +237,7 @@ void TSanTransform::insertFunctionEntry(Function_t *function, Instruction_t *ins
     }
     getFileIR()->assembleRegistry();
     Instruction_t *originalInstruction = inserter.getLastInserted()->getFallthrough();
-    for (auto instruction : function->getInstructions()) {
+    for (auto instruction : function.getInstructions()) {
         const auto decoded = DecodedInstruction_t::factory(instruction);
         if (instruction->getTarget() == insertBefore && !decoded->isCall()) {
             instruction->setTarget(originalInstruction);

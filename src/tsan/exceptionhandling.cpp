@@ -21,22 +21,22 @@ ExceptionHandling::ExceptionHandling(FileIR_t *ir, Instruction_t *tsanFunctionEx
     }
 }
 
-void ExceptionHandling::handleFunction(Function_t *function, InstructionInserter &inserter)
+void ExceptionHandling::handleFunction(const Function &function, InstructionInserter &inserter)
 {
 //    std::cout <<function->getName()<<std::endl;
 
     if (!hasEmptyCallSite(function)) {
-        std::cout <<"Function "<<function->getName()<<" already has an exception callsite!"<<std::endl;
+        std::cout <<"Function "<<function.getName()<<" already has an exception callsite!"<<std::endl;
         return;
     }
     if (unwindResume == nullptr || personalityRelocation == nullptr) {
         return;
     }
 
-    const auto instructions = function->getInstructions();
+    const auto instructions = function.getInstructions();
 
     // create eh landing pad code
-    Instruction_t *insertPoint = function->getEntryPoint();
+    Instruction_t *insertPoint = function.getEntryPoint();
 
     if (insertPoint->getFallthrough() == nullptr) {
         return;
@@ -95,9 +95,9 @@ void ExceptionHandling::handleFunction(Function_t *function, InstructionInserter
     }
 }
 
-bool ExceptionHandling::hasEmptyCallSite(Function_t *function) const
+bool ExceptionHandling::hasEmptyCallSite(const Function &function) const
 {
-    const auto instructions = function->getInstructions();
+    const auto instructions = function.getInstructions();
     return std::any_of(instructions.begin(), instructions.end(), [](const auto i) {
         return i->getEhCallSite() == nullptr || i->getEhCallSite()->getLandingPad() == nullptr;
     });

@@ -7,10 +7,10 @@
 
 using namespace IRDB_SDK;
 
-std::pair<bool, bool> FixedPointAnalysis::canHandle(IRDB_SDK::Function_t *function)
+std::pair<bool, bool> FixedPointAnalysis::canHandle(const Function &function)
 {
     bool hasRegisterJump = false;
-    for (Instruction_t *instruction : function->getInstructions()) {
+    for (Instruction_t *instruction : function.getInstructions()) {
         const auto decoded = DecodedInstruction_t::factory(instruction);
         if (decoded->isBranch() && !decoded->isCall() && decoded->hasOperand(0)) {
             if (decoded->getOperand(0)->isRegister()) {
@@ -130,10 +130,10 @@ struct SimpleInstructionInfo {
 // TODO: get rid of this inefficient analysis and replace it with the one above
 // TODO: this does not work with exceptions
 template<typename Analysis>
-std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(Function_t *function, Analysis atFunctionEntry)
+std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(const Function &function, Analysis atFunctionEntry)
 {
     std::map<Instruction_t*, SimpleInstructionInfo<Analysis>> instructionData;
-    const auto cfg = ControlFlowGraph_t::factory(function);
+    const auto cfg = ControlFlowGraph_t::factory(function.getIRDBFunction());
     for (const auto block : cfg->getBlocks()) {
         const auto &instructions = block->getInstructions();
         for (std::size_t i = 0;i<instructions.size();i++) {
@@ -156,10 +156,10 @@ std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(Function_t *f
         }
     }
 
-    auto entry = function->getEntryPoint();
+    auto entry = function.getEntryPoint();
 
     std::set<Instruction_t*> work;
-    work.insert(function->getInstructions().begin(), function->getInstructions().end());
+    work.insert(function.getInstructions().begin(), function.getInstructions().end());
     while (work.size() > 0) {
         Instruction_t *instruction = *work.begin();
         work.erase(work.begin());
@@ -194,7 +194,7 @@ std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(Function_t *f
 
 // explicit instantiation since the template function is in a cpp file
 #include "pointeranalysis.h"
-template std::map<Instruction_t *, PointerAnalysis> FixedPointAnalysis::runForward<PointerAnalysis>(Function_t *function, PointerAnalysis atFunctionEntry);
+template std::map<Instruction_t *, PointerAnalysis> FixedPointAnalysis::runForward<PointerAnalysis>(const Function &function, PointerAnalysis atFunctionEntry);
 #include "deadregisteranalysis.h"
 template std::map<Instruction_t*, DeadRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(ControlFlowGraph_t *function, const std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> &noReturnFunctions, const RegisterAnalysisCommon&);
 template std::map<Instruction_t*, UndefinedRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(ControlFlowGraph_t *function, const std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> &noReturnFunctions, const RegisterAnalysisCommon&);

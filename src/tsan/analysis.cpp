@@ -41,9 +41,9 @@ void Analysis::init(const Options &options)
     }
 }
 
-static bool isLeafFunction(const Function_t *function)
+static bool isLeafFunction(const Function &function)
 {
-    const auto instructions = function->getInstructions();
+    const auto instructions = function.getInstructions();
     return std::none_of(instructions.begin(), instructions.end(), [](const Instruction_t *i) {
         const auto decoded = DecodedInstruction_t::factory(i);
         // TODO: do tail calls count here?
@@ -51,12 +51,12 @@ static bool isLeafFunction(const Function_t *function)
     });
 }
 
-FunctionInfo Analysis::analyseFunction(Function_t *function)
+FunctionInfo Analysis::analyseFunction(const Function &function)
 {
     updateDeadRegisters(function);
 
     totalAnalysedFunctions++;
-    totalAnalysedInstructions += function->getInstructions().size();
+    totalAnalysedInstructions += function.getInstructions().size();
 
     FunctionInfo result;
     result.isLeafFunction = isLeafFunction(function);
@@ -64,8 +64,8 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
     std::set<Instruction_t*> notInstrumented = detectStackCanaryInstructions(function);
     stackCanaryInstructions += notInstrumented.size();
 
-    const auto cfg = ControlFlowGraph_t::factory(function);
-    const auto spinLockInstructions = findSpinLocks(cfg.get());
+    const auto cfg = ControlFlowGraph_t::factory(function.getIRDBFunction());
+    const std::set<Instruction_t*> spinLockInstructions = {};//findSpinLocks(cfg.get());
 
     result.inferredAtomicInstructions = inferAtomicInstructions(function, spinLockInstructions);
     pointerInferredAtomics += result.inferredAtomicInstructions.size();
@@ -82,7 +82,7 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
     }
 
     // this analysis is fine with missing forward edges, it can always be run
-    const StackOffsetAnalysisCommon common(function->getEntryPoint());
+    const StackOffsetAnalysisCommon common(function.getEntryPoint());
     const auto stackOffsetResult = FixedPointAnalysis::runAnalysis<StackOffsetAnalysis, StackOffsetAnalysisCommon>(&*cfg, {}, common);
     for (const auto &[instruction, analysis] : stackOffsetResult) {
         if (!analysis.isStackSafe()) {
@@ -90,7 +90,7 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
         }
     }
 
-    result.properEntryPoint = function->getEntryPoint();
+    result.properEntryPoint = function.getEntryPoint();
     if (contains(result.properEntryPoint->getDisassembly(), "endbr")) {
         result.properEntryPoint = result.properEntryPoint->getFallthrough();
     }
@@ -169,7 +169,7 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
         entryExitInstrumentedFunctions++;
     }
 
-    for (Instruction_t *instruction : function->getInstructions()) {
+    for (Instruction_t *instruction : function.getInstructions()) {
         const auto decoded = DecodedInstruction_t::factory(instruction);
         if (decoded->isBranch() || decoded->isCall()) {
             continue;
@@ -183,7 +183,7 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
             continue;
         }
         const std::string disassembly = instruction->getDisassembly();
-        const bool isStackAccess = contains(disassembly, "rsp") || (contains(disassembly, "rbp") && function->getUseFramePointer());
+        const bool isStackAccess = contains(disassembly, "rsp") || (contains(disassembly, "rbp") && function.getIRDBFunction()->getUseFramePointer());
         if (!options.instrumentStackAccess && isStackAccess) {
             stackMemory++;
             continue;
@@ -203,7 +203,7 @@ FunctionInfo Analysis::analyseFunction(Function_t *function)
                 continue;
             }
             const auto opStr = operand->getString();
-            const bool isStackOperand = contains(opStr, "rsp") || (contains(opStr, "rbp") && function->getUseFramePointer());
+            const bool isStackOperand = contains(opStr, "rsp") || (contains(opStr, "rbp") && function.getIRDBFunction()->getUseFramePointer());
             if (!isStackLeaked && isStackOperand) {
                 stackLocalVariables++;
                 totalNotInstrumented++;
@@ -278,7 +278,7 @@ void Analysis::computeMaxFunctionArguments()
     }
 }
 
-void Analysis::updateDeadRegisters(IRDB_SDK::Function_t *function)
+void Analysis::updateDeadRegisters(const Function &function)
 {
     if (options.deadRegisterAnalysisType != DeadRegisterAnalysisType::CUSTOM) {
         return;
@@ -291,7 +291,7 @@ void Analysis::updateDeadRegisters(IRDB_SDK::Function_t *function)
     }
     canDoRegisterAnalysisFunctions++;
 
-    const auto cfg = ControlFlowGraph_t::factory(function);
+    const auto cfg = ControlFlowGraph_t::factory(function.getIRDBFunction());
     RegisterAnalysisCommon deadRegisterCommon(functionWrittenRegisters);
     const auto analysisResult = FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(&*cfg, {}, deadRegisterCommon);
     for (const auto &[instruction, analysis] : analysisResult) {
@@ -348,7 +348,7 @@ void Analysis::updateDeadRegisters(IRDB_SDK::Function_t *function)
                 it->second |= analysis.getDeadRegisters();
             }
         } else {
-            std::cout <<"WARNING: undefined register analysis problem in: "<<function->getName()<<std::endl;
+            std::cout <<"WARNING: undefined register analysis problem in: "<<function.getName()<<std::endl;
         }
     }
 }
@@ -674,9 +674,9 @@ static bool isAtomicOrXchg(Instruction_t *instruction)
     return isAtomic(instruction) || decoded->getMnemonic() == "xchg";
 }
 
-std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions(IRDB_SDK::Function_t *function, const std::set<Instruction_t*> &spinLockInstructions) const
+std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions(const Function &function, const std::set<Instruction_t*> &spinLockInstructions) const
 {
-    const auto instructions = function->getInstructions();
+    const auto instructions = function.getInstructions();
     const bool hasAtomic = std::any_of(instructions.begin(), instructions.end(), isAtomicOrXchg);
     if (!hasAtomic && spinLockInstructions.size() == 0) {
         return {};
@@ -686,7 +686,7 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
     auto analysis = FixedPointAnalysis::runForward<PointerAnalysis>(function, functionEntry);
 
     std::map<MemoryLocation, std::vector<Instruction_t*>> sameLocation;
-    for (Instruction_t *instruction : function->getInstructions()) {
+    for (Instruction_t *instruction : function.getInstructions()) {
         const auto decoded = DecodedInstruction_t::factory(instruction);
         if (decoded->getMnemonic() == "nop" || decoded->getMnemonic() == "lea") {
             continue;
@@ -763,7 +763,7 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
     return result;
 }
 
-std::set<Instruction_t*> Analysis::detectStackCanaryInstructions(Function_t *function) const
+std::set<Instruction_t*> Analysis::detectStackCanaryInstructions(const Function &function) const
 {
     const std::string CANARY_CHECK = "fs:[0x28]";
 
@@ -772,7 +772,7 @@ std::set<Instruction_t*> Analysis::detectStackCanaryInstructions(Function_t *fun
     Instruction_t *canaryStackWrite = nullptr;
 
     // find the initial read of the canary value and its corresponding write to stack
-    Instruction_t *instruction = function->getEntryPoint();
+    Instruction_t *instruction = function.getEntryPoint();
     for (int i = 0;i<20;i++) {
         const std::string assembly = instruction->getDisassembly();
         const auto decoded = DecodedInstruction_t::factory(instruction);
@@ -808,7 +808,7 @@ std::set<Instruction_t*> Analysis::detectStackCanaryInstructions(Function_t *fun
         result.insert(canaryStackWrite);
         const auto decodedWrite = DecodedInstruction_t::factory(canaryStackWrite);
 
-        for (Instruction_t *instruction : function->getInstructions()) {
+        for (Instruction_t *instruction : function.getInstructions()) {
             const std::string assembly = instruction->getDisassembly();
             const auto decoded = DecodedInstruction_t::factory(instruction);
             const bool isCanaryStackRead = decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() &&
@@ -823,9 +823,10 @@ std::set<Instruction_t*> Analysis::detectStackCanaryInstructions(Function_t *fun
     return result;
 }
 
-std::set<Instruction_t*> Analysis::detectStaticVariableGuards(Function_t *function) const
+std::set<Instruction_t*> Analysis::detectStaticVariableGuards(const Function &function) const
 {
-    const auto cfg = ControlFlowGraph_t::factory(function);
+    // TODO: do not construct this multiple times
+    const auto cfg = ControlFlowGraph_t::factory(function.getIRDBFunction());
 
     // find locations of all static variable guards
     std::set<std::string> guardLocations;
@@ -863,13 +864,13 @@ std::set<Instruction_t*> Analysis::detectStaticVariableGuards(Function_t *functi
             guardLocations.insert(guardLocation);
         }
         if (guardLocations.size() == 0) {
-            std::cout <<"WARNING: could not find static variable guard location!"<<std::endl;
+            std::cout <<"WARNING: could not find static variable guard location! "<<std::hex<<last->getAddress()->getVirtualOffset()<<" "<<function.getName()<<std::endl;
         }
     }
 
     // find all read accesses to the guard variables
     std::set<Instruction_t*> result;
-    for (Instruction_t *instruction : function->getInstructions()) {
+    for (Instruction_t *instruction : function.getInstructions()) {
         const auto decoded = DecodedInstruction_t::factory(instruction);
         if (decoded->getOperands().size() < 2 || !decoded->getOperand(1)->isMemory()) {
             continue;

@@ -12,6 +12,7 @@
 #include "register.h"
 #include "helper.h"
 #include "options.h"
+#include "function.h"
 
 enum RemoveOption {
     REMOVE_ORIGINAL_INSTRUCTION,
@@ -70,7 +71,7 @@ public:
 private:
     void registerDependencies();
     void instrumentMemoryAccess(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand, const FunctionInfo &info);
-    void insertFunctionEntry(IRDB_SDK::Function_t *function, IRDB_SDK::Instruction_t *insertBefore);
+    void insertFunctionEntry(const Function &function, IRDB_SDK::Instruction_t *insertBefore);
     void insertFunctionExit(IRDB_SDK::Instruction_t *insertBefore);
     std::vector<std::string> getSaveRegisters(IRDB_SDK::Instruction_t *instruction, CallerSaveRegisterSet ignoreRegisters);
     std::optional<OperationInstrumentation> getInstrumentation(IRDB_SDK::Instruction_t *instruction,
