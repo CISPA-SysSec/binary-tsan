@@ -3,7 +3,7 @@
 Instruction::Instruction(IRDB_SDK::Instruction_t *instruction) :
     instruction(instruction),
     decoded(IRDB_SDK::DecodedInstruction_t::factory(instruction)),
-    disassembly(instruction->getDisassembly())
+    disassembly(decoded->getDisassembly())
 { }
 
 Function *Instruction::getTargetFunction() const

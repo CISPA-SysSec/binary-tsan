@@ -13,6 +13,7 @@
 #include "helper.h"
 #include "options.h"
 #include "function.h"
+#include "instructioninserter.h"
 
 enum RemoveOption {
     REMOVE_ORIGINAL_INSTRUCTION,
@@ -73,7 +74,7 @@ private:
     void instrumentMemoryAccess(Instruction *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand, const FunctionInfo &info);
     void insertFunctionEntry(const Function &function, Instruction *insertBefore);
     void insertFunctionExit(Instruction *insertBefore);
-    std::vector<std::string> getSaveRegisters(IRDB_SDK::Instruction_t *instruction, CallerSaveRegisterSet ignoreRegisters);
+    std::vector<std::string> getSaveRegisters(Instruction *instruction, CallerSaveRegisterSet ignoreRegisters);
     std::optional<OperationInstrumentation> getInstrumentation(Instruction *instruction,
                                                                 const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand,
                                                                 const FunctionInfo &info) const;
@@ -94,7 +95,7 @@ private:
         int totalStackOffset;
         bool flagsAreSaved;
     };
-    SaveStateInfo saveStateToStack(InstructionInserter &inserter, IRDB_SDK::Instruction_t *before,
+    SaveStateInfo saveStateToStack(InstructionInserter &inserter, Instruction *before,
                                    CallerSaveRegisterSet ignoreRegisters, const FunctionInfo &info, bool saveXmmRegisters);
     void restoreStateFromStack(const SaveStateInfo &state, InstructionInserter &inserter);
 

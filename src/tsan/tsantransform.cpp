@@ -149,7 +149,7 @@ bool TSanTransform::executeStep()
             getFileIR()->assembleRegistry();
 
             const auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::EXCEPTION_HANDLING);
-            InstructionInserter inserter(ir, function.getEntryPoint()->getIRDBInstruction(), instructionCounter, options.dryRun);
+            InstructionInserter inserter(ir, function.getEntryPoint(), instructionCounter, options.dryRun);
             exceptionHandling.handleFunction(function, inserter);
         }
         getFileIR()->assembleRegistry();
@@ -212,9 +212,9 @@ void TSanTransform::insertFunctionEntry(const Function &function, Instruction *i
     const LibraryFunction functionEntry = selectFunctionVersion(insertBefore, tsanFunctionEntry);
     CallerSaveRegisterSet ignoreRegisters = Register::xmmRegisterSet() | functionEntry.preserveRegisters;
     ignoreRegisters &= ~Register::registerSet({functionEntry.argumentRegister});
-    const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore->getIRDBInstruction(), ignoreRegisters);
+    const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, ignoreRegisters);
     const auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::ENTRY_EXIT);
-    InstructionInserter inserter(ir, insertBefore->getIRDBInstruction(), instructionCounter, options.dryRun);
+    InstructionInserter inserter(ir, insertBefore, instructionCounter, options.dryRun);
 
     // for this to work without any additional rsp wrangling, it must be inserted at the very start of the function
     for (std::string reg : registersToSave) {
@@ -253,13 +253,13 @@ void TSanTransform::insertFunctionExit(Instruction *insertBefore)
     FileIR_t *ir = getFileIR();
     const LibraryFunction functionExit = selectFunctionVersion(insertBefore, tsanFunctionExit);
     const auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::ENTRY_EXIT);
-    InstructionInserter inserter(ir, insertBefore->getIRDBInstruction(), instructionCounter, options.dryRun);
+    InstructionInserter inserter(ir, insertBefore, instructionCounter, options.dryRun);
 
     const bool isSimpleReturn = insertBefore->isReturn();
 
     // must be inserted directly before the return instruction
     if (isSimpleReturn) {
-        const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore->getIRDBInstruction(), Register::xmmRegisterSet() | functionExit.preserveRegisters);
+        const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, Register::xmmRegisterSet() | functionExit.preserveRegisters);
         for (std::string reg : registersToSave) {
             inserter.insertAssembly("push " + reg);
         }
@@ -299,11 +299,11 @@ void TSanTransform::insertFunctionExit(Instruction *insertBefore)
 void TSanTransform::instrumentAnnotation(Instruction *instruction, const std::vector<HappensBeforeAnnotation> &annotations, const FunctionInfo &info)
 {
     const auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::MEMORY_ACCESS);
-    InstructionInserter inserter(getFileIR(), instruction->getIRDBInstruction(), instructionCounter, options.dryRun);
+    InstructionInserter inserter(getFileIR(), instruction, instructionCounter, options.dryRun);
     std::vector<HappensBeforeAnnotation> afterAnnotations;
     for (const auto &annotation : annotations) {
         if (annotation.isBefore) {
-            const SaveStateInfo saveState = saveStateToStack(inserter, instruction->getIRDBInstruction(), {}, info, options.saveXmmRegisters);
+            const SaveStateInfo saveState = saveStateToStack(inserter, instruction, {}, info, options.saveXmmRegisters);
             if (annotation.registerForPointer != "rdi") {
                 inserter.insertAssembly("mov rdi, " + annotation.registerForPointer);
             }
@@ -373,9 +373,9 @@ LibraryFunction TSanTransform::selectFunctionVersion(Instruction *before, const 
     return options[0];
 }
 
-std::vector<std::string> TSanTransform::getSaveRegisters(Instruction_t *instruction, CallerSaveRegisterSet ignoreRegisters)
+std::vector<std::string> TSanTransform::getSaveRegisters(Instruction *instruction, CallerSaveRegisterSet ignoreRegisters)
 {
-    const CallerSaveRegisterSet dead = functionAnalysis.getDeadRegisters(instruction);
+    const CallerSaveRegisterSet dead = functionAnalysis.getDeadRegisters(instruction->getIRDBInstruction());
     const CallerSaveRegisterSet registersToSave = ~(dead | ignoreRegisters);
     std::vector<std::string> result;
     for (std::size_t i = 0;i<registersToSave.size();i++) {
@@ -682,13 +682,13 @@ std::optional<OperationInstrumentation> TSanTransform::getConditionalInstrumenta
     return {};
 }
 
-TSanTransform::SaveStateInfo TSanTransform::saveStateToStack(InstructionInserter &inserter, Instruction_t *before,
+TSanTransform::SaveStateInfo TSanTransform::saveStateToStack(InstructionInserter &inserter, Instruction *before,
                                                              CallerSaveRegisterSet ignoreRegisters, const FunctionInfo &info,
                                                              bool saveXmmRegisters)
 {
     SaveStateInfo state;
 
-    const bool stackUnsafe = info.stackUnsafe.find(before) != info.stackUnsafe.end() || info.isLeafFunction;
+    const bool stackUnsafe = info.stackUnsafe.find(before->getIRDBInstruction()) != info.stackUnsafe.end() || info.isLeafFunction;
 
     if (!saveXmmRegisters) {
         ignoreRegisters |= Register::xmmRegisterSet();
@@ -703,7 +703,7 @@ TSanTransform::SaveStateInfo TSanTransform::saveStateToStack(InstructionInserter
     }
 
     bool eflagsAlive = true;
-    const CallerSaveRegisterSet deadRegisterSet = functionAnalysis.getDeadRegisters(before);
+    const CallerSaveRegisterSet deadRegisterSet = functionAnalysis.getDeadRegisters(before->getIRDBInstruction());
     eflagsAlive = !Register::hasCallerSaveRegister(deadRegisterSet, X86_REG_EFLAGS);
     state.flagsAreSaved = eflagsAlive && !Register::hasCallerSaveRegister(ignoreRegisters, X86_REG_EFLAGS);
 
@@ -858,7 +858,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction *instruction, const std::
     OperationInstrumentation instrumentation = *instr;
 
     const auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::MEMORY_ACCESS);
-    InstructionInserter inserter(ir, instruction->getIRDBInstruction(), instructionCounter, options.dryRun);
+    InstructionInserter inserter(ir, instruction, instructionCounter, options.dryRun);
 
     std::vector<LibraryFunction> callTargets;
     callTargets.reserve(instrumentation.callTargets.size());
@@ -892,7 +892,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction *instruction, const std::
     });
     const bool saveXmmRegisters = options.saveXmmRegisters || hasXmmUnsafeFunction;
     const CallerSaveRegisterSet ignoreRegisters = instrumentation.noSaveRegisters | ~requiredSaveRegisters;
-    const SaveStateInfo saveState = saveStateToStack(inserter, instruction->getIRDBInstruction(), ignoreRegisters, info, saveXmmRegisters);
+    const SaveStateInfo saveState = saveStateToStack(inserter, instruction, ignoreRegisters, info, saveXmmRegisters);
 
     // the instruction pointer no longer points to the original instruction, make sure that it is not used
     instruction = nullptr;
@@ -1016,7 +1016,8 @@ LibraryFunctionOptions TSanTransform::createWrapper(Instruction_t *target, XMMSa
         auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::WRAPPER);
         instructionCounter();
 
-        InstructionInserter inserter(getFileIR(), instruction, instructionCounter, options.dryRun);
+        Instruction instructionWrapper(instruction);
+        InstructionInserter inserter(getFileIR(), &instructionWrapper, instructionCounter, options.dryRun);
 
         FunctionInfo info;
         info.isLeafFunction = false;

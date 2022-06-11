@@ -26,6 +26,7 @@ add_executable(tsan
     instruction.h
     program.cpp
     program.h
+    instructioninserter.h
 )
 target_link_libraries(tsan
     PRIVATE irdb-sdk

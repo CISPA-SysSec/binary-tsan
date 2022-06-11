@@ -5,6 +5,7 @@
 
 #include "helper.h"
 #include "function.h"
+#include "instructioninserter.h"
 
 class ExceptionHandling
 {

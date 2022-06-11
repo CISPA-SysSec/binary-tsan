@@ -10,8 +10,8 @@ using namespace IRDB_SDK;
 std::pair<bool, bool> FixedPointAnalysis::canHandle(const Function &function)
 {
     bool hasRegisterJump = false;
-    for (Instruction_t *instruction : function.getIRDBInstructions()) {
-        const auto decoded = DecodedInstruction_t::factory(instruction);
+    for (Instruction *instruction : function.getInstructions()) {
+        const auto &decoded = instruction->getDecoded();
         if (decoded->isBranch() && !decoded->isCall() && decoded->hasOperand(0)) {
             if (decoded->getOperand(0)->isRegister()) {
                 hasRegisterJump = true;
@@ -19,7 +19,7 @@ std::pair<bool, bool> FixedPointAnalysis::canHandle(const Function &function)
             if (decoded->getOperand(0)->isMemory() && !decoded->getOperand(0)->isPcrel()) {
                 return {false, false};
             }
-            if (instruction->getRelocations().size() > 0) {
+            if (instruction->getIRDBInstruction()->getRelocations().size() > 0) {
                 // this usually only happens for push jump thunks
                 // the analysis does not work here, but there is also no need
                 return {false, false};
