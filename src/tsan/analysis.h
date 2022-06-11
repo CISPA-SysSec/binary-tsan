@@ -16,7 +16,7 @@ struct FunctionInfo {
     // the first instruction not doing stack frame stuff etc.
     Instruction *properEntryPoint;
     // the first instructions of the stack cleanups
-    std::vector<IRDB_SDK::Instruction_t*> exitPoints;
+    std::vector<Instruction*> exitPoints;
     // all instructions with memory accesses that should be instrumented
     std::set<Instruction*> instructionsToInstrument;
     bool isLeafFunction;
@@ -46,7 +46,7 @@ public:
     CallerSaveRegisterSet getDeadRegisters(IRDB_SDK::Instruction_t *instruction) const;
 
 private:
-    std::set<IRDB_SDK::Instruction_t*> detectStaticVariableGuards(const Function &function, IRDB_SDK::ControlFlowGraph_t *cfg) const;
+    std::set<IRDB_SDK::Instruction_t*> detectStaticVariableGuards(const Function &function) const;
     std::set<IRDB_SDK::Instruction_t*> detectStackCanaryInstructions(const Function &function) const;
     std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> inferAtomicInstructions(const Function &function, const std::set<IRDB_SDK::Instruction_t*> &spinLockInstructions) const;
     bool isDataConstant(IRDB_SDK::FileIR_t *ir, Instruction *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand);

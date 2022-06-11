@@ -9,8 +9,9 @@
 class BasicBlock
 {
 public:
-    BasicBlock(const std::vector<Instruction*> &instructions) :
-        instructions(instructions)
+    BasicBlock(const std::vector<Instruction*> &instructions, bool isExit) :
+        instructions(instructions),
+        isExit(isExit)
     { }
 
     void setPredecessors(const std::vector<BasicBlock*> &pred) { predecessors = pred; }
@@ -20,11 +21,14 @@ public:
     const std::vector<BasicBlock*> getSuccessors() const { return successors; }
 
     const std::vector<Instruction*>& getInstructions() const { return instructions; }
+    bool isExitBlock() const { return isExit; }
 
 private:
     std::vector<Instruction*> instructions;
     std::vector<BasicBlock*> predecessors;
     std::vector<BasicBlock*> successors;
+
+    bool isExit;
 };
 
 class ControlFlowGraph

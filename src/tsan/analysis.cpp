@@ -68,7 +68,7 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
 
     result.inferredAtomicInstructions = inferAtomicInstructions(function, spinLockInstructions);
     pointerInferredAtomics += result.inferredAtomicInstructions.size();
-    for (const auto guardInstruction : detectStaticVariableGuards(function, &*cfg)) {
+    for (const auto guardInstruction : detectStaticVariableGuards(function)) {
         result.inferredAtomicInstructions[guardInstruction] = __tsan_memory_order_acquire;
         staticVariableGuards++;
     }
@@ -95,16 +95,15 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
     }
 
     bool hasProblem = false;
-    for (const auto block : cfg->getBlocks()) {
-        if (!block->getIsExitBlock()) {
+    for (const auto &block : function.getCFG().getBlocks()) {
+        if (!block.isExitBlock()) {
             continue;
         }
-        Instruction_t *instruction = block->getInstructions().back();
-        if (!instruction->isFunctionExit()) {
+        Instruction *instruction = block.getInstructions().back();
+        if (!instruction->getIRDBInstruction()->isFunctionExit()) {
             continue;
         }
-        const auto decoded = DecodedInstruction_t::factory(instruction);
-        if (decoded->isCall()) {
+        if (instruction->isCall()) {
             continue;
         }
         // is the exit instruction after functions calls that do not return (for example exit)
@@ -112,34 +111,34 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
         if (contains(assembly, "nop") || contains(assembly, "ud2")) {
             continue;
         }
-        if (!decoded->isReturn()) {
+        if (!instruction->isReturn()) {
             // TODO: make sure that the jump is to an actual function
             // TODO: make sure that the stack is at the same level as the start of the function
             // TODO: also check dead registers at the start of the called function
             // TODO: check all of the registers and not only the last one?
-            const auto dead = getDeadRegisters(instruction);
+            const auto dead = getDeadRegisters(instruction->getIRDBInstruction());
             bool mightHaveStackArguments = !Register::hasCallerSaveRegister(dead, X86_REG_R9) || !Register::hasCallerSaveRegister(dead, X86_REG_XMM7);
             if (instruction->getTarget() != nullptr && instruction->getTarget()->getFunction() != nullptr) {
-                const auto targetIt = maxFunctionArguments.find(instruction->getTarget()->getFunction());
+                const auto targetIt = maxFunctionArguments.find(instruction->getIRDBInstruction()->getTarget()->getFunction());
                 if (targetIt != maxFunctionArguments.end()) {
                     if (targetIt->second <= 6) {
                         mightHaveStackArguments = false;
                     } else {
                         if (!mightHaveStackArguments) {
                             // it might also be fine since the maxFunctionArguments is an upper limit
-                            std::cout <<"Possible Error: disagreeing argument checks: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<std::endl;
+                            std::cout <<"Possible Error: disagreeing argument checks: "<<std::hex<<instruction->getVirtualOffset()<<" "<<disassembly(instruction->getIRDBInstruction())<<std::endl;
                         }
                     }
                 }
             }
             bool stackCleared = true;
-            const auto stackIt = stackOffsetResult.find(instruction);
+            const auto stackIt = stackOffsetResult.find(instruction->getIRDBInstruction());
             if (stackIt != stackOffsetResult.end()) {
                 if (stackIt->second.getRspOffset().state == OffsetState::VALUE && stackIt->second.getRspOffset().offset != 0) {
                     stackCleared = false;
                 }
             }
-            if (decoded->getMnemonic() == "jmp" && decoded->getOperand(0)->isConstant() && !mightHaveStackArguments &&
+            if (instruction->getMnemonic() == "jmp" && instruction->getDecoded()->getOperand(0)->isConstant() && !mightHaveStackArguments &&
                     instruction->getTarget() != nullptr && stackCleared && instruction->getTarget()->getFunction() != nullptr &&
                     instruction->getTarget()->getFunction()->getEntryPoint() == instruction->getTarget()) {
                 // this is fine and can be transformed into a call
@@ -158,7 +157,7 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
     result.addEntryExitInstrumentation = false;
     if (result.exitPoints.size() > 0) {
         // TODO: there might be functions with an important variable location memory read in the jump instruction
-        const bool isStub = std::find(result.exitPoints.begin(), result.exitPoints.end(), result.properEntryPoint->getIRDBInstruction()) != result.exitPoints.end();
+        const bool isStub = std::find(result.exitPoints.begin(), result.exitPoints.end(), result.properEntryPoint) != result.exitPoints.end();
         if (!isStub) {
             result.addEntryExitInstrumentation = true;
             entryExitInstrumentedFunctions++;
@@ -818,26 +817,26 @@ std::set<Instruction_t*> Analysis::detectStackCanaryInstructions(const Function 
     return result;
 }
 
-std::set<Instruction_t*> Analysis::detectStaticVariableGuards(const Function &function, ControlFlowGraph_t *cfg) const
+std::set<Instruction_t*> Analysis::detectStaticVariableGuards(const Function &function) const
 {
     // find locations of all static variable guards
     std::set<std::string> guardLocations;
-    for (const auto &block : cfg->getBlocks()) {
-        const auto instructions = block->getInstructions();
+    for (const auto &block : function.getCFG().getBlocks()) {
+        const auto &instructions = block.getInstructions();
         if (instructions.size() < 2) {
             continue;
         }
         // check if there is a static guard aquire
-        const Instruction_t *last = instructions.back();
-        const std::string targetName = targetFunctionName(last);
+        const Instruction *last = instructions.back();
+        const std::string targetName = targetFunctionName(last->getIRDBInstruction());
         // TODO: is the name the same for all compilers/compiler versions?
         if (!contains(targetName, "cxa_guard_acquire")) {
             continue;
         }
         // find location of the guard lock variable
         for (int i = int(instructions.size())-2;i>=0;i--) {
-            const Instruction_t *instruction = instructions[i];
-            const auto decoded = DecodedInstruction_t::factory(instruction);
+            const Instruction *instruction = instructions[i];
+            const auto &decoded = instruction->getDecoded();
             if (!decoded->hasOperand(0) || !decoded->getOperand(0)->isRegister()) {
                 continue;
             }
@@ -856,7 +855,7 @@ std::set<Instruction_t*> Analysis::detectStaticVariableGuards(const Function &fu
             guardLocations.insert(guardLocation);
         }
         if (guardLocations.size() == 0) {
-            std::cout <<"WARNING: could not find static variable guard location! "<<std::hex<<last->getAddress()->getVirtualOffset()<<" "<<function.getName()<<std::endl;
+            std::cout <<"WARNING: could not find static variable guard location! "<<std::hex<<last->getVirtualOffset()<<" "<<function.getName()<<std::endl;
         }
     }
 

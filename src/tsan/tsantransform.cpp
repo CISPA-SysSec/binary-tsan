@@ -142,8 +142,8 @@ bool TSanTransform::executeStep()
         if (info.addEntryExitInstrumentation && options.instrumentFunctionEntryExit) {
             // TODO: what if the first instruction is atomic and thus removed?
             insertFunctionEntry(function, info.properEntryPoint);
-            for (Instruction_t *ret : info.exitPoints) {
-                insertFunctionExit(program.mapInstruction(ret));
+            for (Instruction *ret : info.exitPoints) {
+                insertFunctionExit(ret);
             }
 
             getFileIR()->assembleRegistry();
@@ -419,13 +419,13 @@ static LibraryFunctionOptions stripPreservedRegisters(const LibraryFunctionOptio
     return {LibraryFunction(function[0].callTarget, function[0].xmmSafety)};
 }
 
-std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> &operand,
+std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(Instruction *instruction, const std::shared_ptr<DecodedOperand_t> &operand,
                                                                                 const __tsan_memory_order memoryOrder) const
 {
     // possible atomic instructions: ADC, ADD, AND, BTC, BTR, BTS, CMPXCHG, CMPXCHG8B, CMPXCHG16B, DEC, INC, NEG, NOT, OR, SBB, SUB, XADD, XCHG and XOR.
     const uint bytes = operand->getArgumentSizeInBytes();
 
-    const auto decoded = DecodedInstruction_t::factory(instruction);
+    const auto &decoded = instruction->getDecoded();
 //    std::cout <<"Found atomic instruction with mnemonic: "<<decoded->getMnemonic()<<std::endl;
     // TODO: 128 bit operations?
     const std::string mnemonic = decoded->getMnemonic();
@@ -781,7 +781,7 @@ std::optional<OperationInstrumentation> TSanTransform::getInstrumentation(Instru
             return {};
         }
         const __tsan_memory_order memOrder = isInferredAtomic ? inferredIt->second : __tsan_memory_order_acq_rel;
-        auto instrumentation = getAtomicInstrumentation(instruction->getIRDBInstruction(), operand, memOrder);
+        auto instrumentation = getAtomicInstrumentation(instruction, operand, memOrder);
         if (instrumentation.has_value()) {
             return instrumentation;
         }

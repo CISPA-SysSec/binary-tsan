@@ -19,7 +19,7 @@ ControlFlowGraph::ControlFlowGraph(Function_t *function, const std::unordered_ma
             instructions.push_back(instructionMap.find(instruction)->second);
         }
         blockIndices[block] = blocks.size();
-        blocks.emplace_back(instructions);
+        blocks.emplace_back(instructions, block->getIsExitBlock());
     }
 
     for (const auto block : cfg->getBlocks()) {
