@@ -40,7 +40,6 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
 bool TSanTransform::executeStep()
 {
     FileIR_t *ir = getFileIR();
-    functionAnalysis.init(options);
 
     std::cout <<"Total instructions: "<<getFileIR()->getInstructions().size()<<std::endl;
     registerDependencies();
@@ -49,6 +48,7 @@ bool TSanTransform::executeStep()
 //    findAndMergeFunctions();
 
     Program program(getFileIR());
+    functionAnalysis.init(program, options);
 
     for (const Function &function : program.getFunctions()) {
         if (startsWith(function.getName(), "__tsan_func_entry")) {
@@ -148,7 +148,8 @@ bool TSanTransform::executeStep()
 
             getFileIR()->assembleRegistry();
 
-            InstructionInserter inserter(ir, function.getEntryPoint(), functionAnalysis.getInstructionCounter(InstrumentationType::EXCEPTION_HANDLING), options.dryRun);
+            const auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::EXCEPTION_HANDLING);
+            InstructionInserter inserter(ir, function.getEntryPoint()->getIRDBInstruction(), instructionCounter, options.dryRun);
             exceptionHandling.handleFunction(function, inserter);
         }
         getFileIR()->assembleRegistry();

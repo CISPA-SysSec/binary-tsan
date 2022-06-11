@@ -156,7 +156,7 @@ std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(const Functio
         }
     }
 
-    auto entry = function.getEntryPoint();
+    auto entry = function.getEntryPoint()->getIRDBInstruction();
 
     std::set<Instruction_t*> work;
     work.insert(function.getIRDBInstructions().begin(), function.getIRDBInstructions().end());

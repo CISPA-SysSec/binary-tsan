@@ -36,7 +36,7 @@ void ExceptionHandling::handleFunction(const Function &function, InstructionInse
     const auto instructions = function.getIRDBInstructions();
 
     // create eh landing pad code
-    Instruction_t *insertPoint = function.getEntryPoint();
+    Instruction_t *insertPoint = function.getEntryPoint()->getIRDBInstruction();
 
     if (insertPoint->getFallthrough() == nullptr) {
         return;

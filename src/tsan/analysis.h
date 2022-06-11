@@ -10,6 +10,7 @@
 #include "register.h"
 #include "options.h"
 #include "function.h"
+#include "program.h"
 
 struct FunctionInfo {
     // the first instruction not doing stack frame stuff etc.
@@ -37,7 +38,7 @@ class Analysis
 {
 public:
     Analysis(IRDB_SDK::FileIR_t *ir);
-    void init(const Options &options);
+    void init(const Program &program, const Options &options);
 
     FunctionInfo analyseFunction(const Function &function);
     void printStatistics() const;
@@ -50,12 +51,12 @@ private:
     std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> inferAtomicInstructions(const Function &function, const std::set<IRDB_SDK::Instruction_t*> &spinLockInstructions) const;
     bool isDataConstant(IRDB_SDK::FileIR_t *ir, Instruction *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand);
     std::set<IRDB_SDK::Instruction_t *> findSpinLocks(IRDB_SDK::ControlFlowGraph_t *cfg) const;
-    std::set<IRDB_SDK::Function_t*> findNoReturnFunctions() const;
-    void computeFunctionRegisterWrites();
-    void findWrittenRegistersRecursive(IRDB_SDK::Function_t *function, std::set<IRDB_SDK::Function_t*> &visited, CapstoneHandle &capstone);
+    std::set<IRDB_SDK::Function_t*> findNoReturnFunctions(const Program &program) const;
+    void computeFunctionRegisterWrites(const Program &program);
+    void findWrittenRegistersRecursive(const Function *function, std::set<const Function *> &visited, CapstoneHandle &capstone);
     void updateDeadRegisters(const Function &function, IRDB_SDK::ControlFlowGraph_t *cfg);
     bool isNoReturnCall(IRDB_SDK::Instruction_t *instruction) const;
-    void computeMaxFunctionArguments();
+    void computeMaxFunctionArguments(const Program &program);
 
 private:
     IRDB_SDK::FileIR_t *ir;

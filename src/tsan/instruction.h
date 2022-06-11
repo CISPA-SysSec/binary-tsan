@@ -23,6 +23,8 @@ public:
     std::string getMnemonic() const { return decoded->getMnemonic(); }
     bool isCall() const { return decoded->isCall(); }
     bool isBranch() const { return decoded->isBranch(); }
+    bool isUnconditionalBranch() const { return decoded->isUnconditionalBranch(); }
+    bool isReturn() const { return decoded->isReturn(); }
 
     void setFallthrough(Instruction *fallthrough) { this->fallthrough = fallthrough; }
     void setTarget(Instruction *target) { this->target = target; }

@@ -12,7 +12,7 @@ class Program
 public:
     Program(IRDB_SDK::FileIR_t *file);
 
-    const std::vector<Function> getFunctions() const { return functions; }
+    const std::vector<Function> &getFunctions() const { return functions; }
 
 private:
     Instruction *mapInstruction(IRDB_SDK::Instruction_t *instruction);

@@ -13,14 +13,14 @@ using namespace IRDB_SDK;
 
 Analysis::Analysis(FileIR_t *ir) :
     ir(ir)
-{
-    noReturnFunctions = findNoReturnFunctions();
-    computeFunctionRegisterWrites();
-    computeMaxFunctionArguments();
-}
+{ }
 
-void Analysis::init(const Options &options)
+void Analysis::init(const Program &program, const Options &options)
 {
+    noReturnFunctions = findNoReturnFunctions(program);
+    computeFunctionRegisterWrites(program);
+    computeMaxFunctionArguments(program);
+
     this->options = options;
 
     if (options.deadRegisterAnalysisType == DeadRegisterAnalysisType::STARS) {
@@ -81,7 +81,7 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
     }
 
     // this analysis is fine with missing forward edges, it can always be run
-    const StackOffsetAnalysisCommon common(function.getEntryPoint());
+    const StackOffsetAnalysisCommon common(function.getEntryPoint()->getIRDBInstruction());
     const auto stackOffsetResult = FixedPointAnalysis::runAnalysis<StackOffsetAnalysis, StackOffsetAnalysisCommon>(&*cfg, {}, common);
     for (const auto &[instruction, analysis] : stackOffsetResult) {
         if (!analysis.isStackSafe()) {
@@ -89,7 +89,7 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
         }
     }
 
-    result.properEntryPoint = function.getEntryPoint();
+    result.properEntryPoint = function.getEntryPoint()->getIRDBInstruction();
     if (contains(result.properEntryPoint->getDisassembly(), "endbr")) {
         result.properEntryPoint = result.properEntryPoint->getFallthrough();
     }
@@ -220,7 +220,7 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
     return result;
 }
 
-void Analysis::computeMaxFunctionArguments()
+void Analysis::computeMaxFunctionArguments(const Program &program)
 {
     // some commonly used C functions
     const std::map<std::string, int> knownFunctionArguments = {
@@ -232,12 +232,12 @@ void Analysis::computeMaxFunctionArguments()
     };
 
     // TODO: this only works with the itanium cxx abi
-    for (Function_t *function : ir->getFunctions()) {
-        std::string functionName = function->getName();
+    for (const Function &function : program.getFunctions()) {
+        std::string functionName = function.getName();
 
         auto knownIt = knownFunctionArguments.find(functionName);
         if (knownIt != knownFunctionArguments.end()) {
-            maxFunctionArguments[function] = knownIt->second;
+            maxFunctionArguments[function.getIRDBFunction()] = knownIt->second;
             continue;
         }
 
@@ -269,7 +269,7 @@ void Analysis::computeMaxFunctionArguments()
                 maxArgumentCount += 2;
             }
 //            std::cout <<maxArgumentCount<<" "<<demangled<<std::endl;
-            maxFunctionArguments[function] = maxArgumentCount;
+            maxFunctionArguments[function.getIRDBFunction()] = maxArgumentCount;
         }
         if (demangledStr != NULL) {
             free(demangledStr);
@@ -519,7 +519,7 @@ std::set<Instruction_t*> Analysis::findSpinLocks(ControlFlowGraph_t *cfg) const
     return spinLockMemoryReads;
 }
 
-static void checkNoReturnRecursive(Function_t *function, std::set<Function_t*> &noReturnFunctions, std::set<Function_t*> &visited)
+static void checkNoReturnRecursive(const Function *function, std::set<Function_t*> &noReturnFunctions, std::set<const Function*> &visited)
 {
     if (visited.find(function) != visited.end()) {
         return;
@@ -534,26 +534,25 @@ static void checkNoReturnRecursive(Function_t *function, std::set<Function_t*> &
             functionName == "pthread_exitpart1@plt" || functionName == "__assert_failpart1@plt" ||
             functionName == "__cxa_throwpart1@plt" || functionName == "__cxa_rethrowpart1@plt" ||
             functionName == "__stack_chk_failpart1@plt" || contains(functionName, "__throw_")) {
-        noReturnFunctions.insert(function);
+        noReturnFunctions.insert(function->getIRDBFunction());
         return;
     }
 
     bool hasNoReturnCall = false;
-    for (Instruction_t *instruction : function->getInstructions()) {
-        const auto decoded = DecodedInstruction_t::factory(instruction);
+    for (Instruction *instruction : function->getInstructions()) {
         // if we have a return statement, the function will return
-        if (decoded->isReturn()) {
+        if (instruction->isReturn()) {
             return;
         }
 
-        const bool tailJump = decoded->isBranch() && !decoded->isCall() && getJumpInfo(instruction).isTailCall;
-        const bool isCall = decoded->isCall();
+        const bool tailJump = instruction->isBranch() && !instruction->isCall() && getJumpInfo(instruction->getIRDBInstruction()).isTailCall;
+        const bool isCall = instruction->isCall();
         if (tailJump || isCall) {
             if (instruction->getTarget() == nullptr || instruction->getTarget()->getFunction() == nullptr) {
                 return;
             }
-            checkNoReturnRecursive(instruction->getTarget()->getFunction(), noReturnFunctions, visited);
-            const bool isNoReturn = noReturnFunctions.find(instruction->getTarget()->getFunction()) != noReturnFunctions.end();
+            checkNoReturnRecursive(instruction->getTargetFunction(), noReturnFunctions, visited);
+            const bool isNoReturn = noReturnFunctions.find(instruction->getTargetFunction()->getIRDBFunction()) != noReturnFunctions.end();
             if (!isNoReturn && tailJump) {
                 return;
             }
@@ -563,24 +562,24 @@ static void checkNoReturnRecursive(Function_t *function, std::set<Function_t*> &
         }
     }
     if (hasNoReturnCall) {
-        noReturnFunctions.insert(function);
+        noReturnFunctions.insert(function->getIRDBFunction());
     }
 }
 
-std::set<Function_t*> Analysis::findNoReturnFunctions() const
+std::set<Function_t*> Analysis::findNoReturnFunctions(const Program &program) const
 {
     // TODO: additional criteria: at the caller, there is a nop after the call?
     std::set<Function_t*> noReturnFunctions;
-    std::set<Function_t*> visited;
+    std::set<const Function*> visited;
 
-    for (Function_t *function : ir->getFunctions()) {
-        checkNoReturnRecursive(function, noReturnFunctions, visited);
+    for (const Function &function : program.getFunctions()) {
+        checkNoReturnRecursive(&function, noReturnFunctions, visited);
     }
 
     return noReturnFunctions;
 }
 
-void Analysis::findWrittenRegistersRecursive(IRDB_SDK::Function_t *function, std::set<IRDB_SDK::Function_t*> &visited, CapstoneHandle &capstone)
+void Analysis::findWrittenRegistersRecursive(const Function *function, std::set<const Function*> &visited, CapstoneHandle &capstone)
 {
     if (function == nullptr) {
         return;
@@ -591,52 +590,46 @@ void Analysis::findWrittenRegistersRecursive(IRDB_SDK::Function_t *function, std
     visited.insert(function);
 
     CallerSaveRegisterSet writtenRegisters;
-    for (Instruction_t *instruction : function->getInstructions()) {
+    for (Instruction_t *instruction : function->getIRDBFunction()->getInstructions()) {
         writtenRegisters |= Register::getWrittenCallerSaveRegisters(capstone, instruction);
     }
     // set it here first in case of some indirect recursive functions
-    functionWrittenRegisters[function] = writtenRegisters;
+    functionWrittenRegisters[function->getIRDBFunction()] = writtenRegisters;
 
-    for (Instruction_t *instruction : function->getInstructions()) {
-        const auto decoded = DecodedInstruction_t::factory(instruction);
+    for (Instruction *instruction : function->getInstructions()) {
         // do not consider tail call jumps to a register since they could also stay in the function (switch tables or similar)
-        if (decoded->isUnconditionalBranch() && instruction->getTarget() != nullptr && instruction->getTarget()->getFunction() != function) {
-            Function_t *targetFunction = instruction->getTarget()->getFunction();
+        if (instruction->isUnconditionalBranch() && instruction->getTarget() != nullptr && instruction->getTarget()->getFunction() != function) {
+            Function *targetFunction = instruction->getTarget()->getFunction();
             findWrittenRegistersRecursive(targetFunction, visited, capstone);
-            writtenRegisters |= functionWrittenRegisters[targetFunction];
-        } else if (decoded->isUnconditionalBranch() && instruction->getTarget() == nullptr && instruction->getRelocations().size() > 0) {
+            writtenRegisters |= functionWrittenRegisters[targetFunction->getIRDBFunction()];
+        } else if (instruction->isUnconditionalBranch() && instruction->getTarget() == nullptr && instruction->getIRDBInstruction()->getRelocations().size() > 0) {
             // for a thunk, consider it to write all caller save registers
             writtenRegisters.set();
             break;
         }
-        if (decoded->isCall()) {
+        if (instruction->isCall()) {
             // indirect calls are considered to write all registers
-            if (instruction->getTarget() == nullptr) {
+            if (instruction->getTargetFunction() == nullptr) {
                 writtenRegisters.set();
                 break;
-            } else if (instruction->getTarget()->getFunction() != function) {
-                Function_t *targetFunction = instruction->getTarget()->getFunction();
+            } else if (instruction->getTargetFunction() != function) {
+                Function *targetFunction = instruction->getTargetFunction();
                 findWrittenRegistersRecursive(targetFunction, visited, capstone);
-                writtenRegisters |= functionWrittenRegisters[targetFunction];
+                writtenRegisters |= functionWrittenRegisters[targetFunction->getIRDBFunction()];
             }
         }
     }
-    functionWrittenRegisters[function] = writtenRegisters;
+    functionWrittenRegisters[function->getIRDBFunction()] = writtenRegisters;
 }
 
-void Analysis::computeFunctionRegisterWrites()
+void Analysis::computeFunctionRegisterWrites(const Program &program)
 {
-    std::set<Function_t*> visited;
+    std::set<const Function*> visited;
     CapstoneHandle capstone;
-    for (Function_t *function : ir->getFunctions()) {
-        findWrittenRegistersRecursive(function, visited, capstone);
+    for (const Function &function : program.getFunctions()) {
+        findWrittenRegistersRecursive(&function, visited, capstone);
     }
-//    for (Function_t *function : ir->getFunctions()) {
-//        auto regs = functionWrittenRegisters[function];
-//        if (regs.count() != regs.size()) {
-//            std::cout <<function->getName()<<" "<<regs.count()<<std::endl;
-//        }
-//    }
+    functionWrittenRegisters = {};
 }
 
 bool Analysis::isDataConstant(FileIR_t *ir, Instruction *instruction, const std::shared_ptr<DecodedOperand_t> operand)
@@ -665,15 +658,22 @@ bool Analysis::isDataConstant(FileIR_t *ir, Instruction *instruction, const std:
     return false;
 }
 
-static bool isAtomicOrXchg(Instruction_t *instruction)
+inline bool isAtomic(const Instruction *instruction)
 {
-    const auto decoded = DecodedInstruction_t::factory(instruction);
-    return isAtomic(instruction) || decoded->getMnemonic() == "xchg";
+    const std::string dataBits = instruction->getIRDBInstruction()->getDataBits();
+    return std::any_of(dataBits.begin(), dataBits.begin() + instruction->getDecoded()->getPrefixCount(), [](char c) {
+        return static_cast<unsigned char>(c) == 0xF0;
+    });
+}
+
+static bool isAtomicOrXchg(Instruction *instruction)
+{
+    return isAtomic(instruction) || instruction->getMnemonic() == "xchg";
 }
 
 std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions(const Function &function, const std::set<Instruction_t*> &spinLockInstructions) const
 {
-    const auto instructions = function.getIRDBInstructions();
+    const auto &instructions = function.getInstructions();
     const bool hasAtomic = std::any_of(instructions.begin(), instructions.end(), isAtomicOrXchg);
     if (!hasAtomic && spinLockInstructions.size() == 0) {
         return {};
@@ -682,13 +682,12 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
     PointerAnalysis functionEntry = PointerAnalysis::functionEntry();
     auto analysis = FixedPointAnalysis::runForward<PointerAnalysis>(function, functionEntry);
 
-    std::map<MemoryLocation, std::vector<Instruction_t*>> sameLocation;
-    for (Instruction_t *instruction : function.getIRDBInstructions()) {
-        const auto decoded = DecodedInstruction_t::factory(instruction);
-        if (decoded->getMnemonic() == "nop" || decoded->getMnemonic() == "lea") {
+    std::map<MemoryLocation, std::vector<Instruction*>> sameLocation;
+    for (Instruction *instruction : function.getInstructions()) {
+        if (instruction->getMnemonic() == "nop" || instruction->getMnemonic() == "lea") {
             continue;
         }
-        for (const auto &operand : decoded->getOperands()) {
+        for (const auto &operand : instruction->getDecoded()->getOperands()) {
             if (operand->isMemory() && operand->hasBaseRegister() && !operand->hasIndexRegister()) {
                 const std::string opString = operand->getString();
                 const std::string regName(opString.begin(), opString.begin() + 3);
@@ -696,7 +695,7 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
                 if (!is64bitRegister(reg)) {
                     continue;
                 }
-                auto analysisResult = analysis[instruction].getMemoryLocations();
+                auto analysisResult = analysis[instruction->getIRDBInstruction()].getMemoryLocations();
                 if (analysisResult.find(reg) != analysisResult.end()) {
                     MemoryLocation location = analysisResult[reg];
                     if (operand->hasMemoryDisplacement()) {
@@ -714,7 +713,7 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
     for (const auto &[pos, sameLocInstructions] : sameLocation) {
         const std::size_t atomicCount = std::count_if(sameLocInstructions.begin(), sameLocInstructions.end(), isAtomicOrXchg);
         const std::size_t spinLockCount = std::count_if(sameLocInstructions.begin(), sameLocInstructions.end(), [&spinLockInstructions](auto instruction) {
-            return spinLockInstructions.find(instruction) != spinLockInstructions.end();
+            return spinLockInstructions.find(instruction->getIRDBInstruction()) != spinLockInstructions.end();
         });
         const std::size_t totalCount = atomicCount + spinLockCount;
         if (totalCount == 0 || atomicCount == sameLocInstructions.size()) {
@@ -726,22 +725,21 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
         }
 //        std::cout <<"Same memory location set:"<<std::endl;
         for (auto instruction : sameLocInstructions) {
-            if (spinLockInstructions.find(instruction) != spinLockInstructions.end()) {
+            if (spinLockInstructions.find(instruction->getIRDBInstruction()) != spinLockInstructions.end()) {
 //                std::cout <<instruction->getDisassembly()<<" (spin lock read)"<<std::endl;
                 continue;
             }
             if (!isAtomicOrXchg(instruction)) {
-                const auto decoded = DecodedInstruction_t::factory(instruction);
-                if (decoded->getMnemonic() == "mov") {
+                if (instruction->getMnemonic() == "mov") {
                     if (spinLockCount == 0) {
-                        result[instruction] = __tsan_memory_order_relaxed;
+                        result[instruction->getIRDBInstruction()] = __tsan_memory_order_relaxed;
                     } else {
-                        for (auto operand : decoded->getOperands()) {
+                        for (auto operand : instruction->getDecoded()->getOperands()) {
                             if (operand->isMemory()) {
                                 if (operand->isRead()) {
-                                    result[instruction] = __tsan_memory_order_acquire;
+                                    result[instruction->getIRDBInstruction()] = __tsan_memory_order_acquire;
                                 } else {
-                                    result[instruction] = __tsan_memory_order_release;
+                                    result[instruction->getIRDBInstruction()] = __tsan_memory_order_release;
                                 }
                                 break;
                             }
@@ -751,7 +749,7 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
                     std::cout <<"WARNING: found non-atomic instruction to atomic like memory: "<<instruction->getDisassembly()<<std::endl;
                 }
             } else if (spinLockCount > 0) {
-                result[instruction] = __tsan_memory_order_acquire;
+                result[instruction->getIRDBInstruction()] = __tsan_memory_order_acquire;
             }
 //            std::cout <<disassembly(instruction)<<std::endl;
         }
@@ -766,21 +764,21 @@ std::set<Instruction_t*> Analysis::detectStackCanaryInstructions(const Function 
 
     std::set<Instruction_t*> result;
 
-    Instruction_t *canaryStackWrite = nullptr;
+    Instruction *canaryStackWrite = nullptr;
 
     // find the initial read of the canary value and its corresponding write to stack
-    Instruction_t *instruction = function.getEntryPoint();
+    Instruction *instruction = function.getEntryPoint();
     for (int i = 0;i<20;i++) {
         const std::string assembly = instruction->getDisassembly();
-        const auto decoded = DecodedInstruction_t::factory(instruction);
+        const auto &decoded = instruction->getDecoded();
         if (contains(assembly, CANARY_CHECK)) {
             if (decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() && decoded->getOperand(0)->isRegister()) {
-                Instruction_t *next = instruction->getFallthrough();
+                Instruction *next = instruction->getFallthrough();
                 if (next == nullptr) {
                     std::cout <<"ERROR: unexpected instruction termination"<<std::endl;
                     break;
                 }
-                const auto nextDecoded = DecodedInstruction_t::factory(next);
+                const auto &nextDecoded = next->getDecoded();
                 if (!nextDecoded->hasOperand(1) || !nextDecoded->getOperand(1)->isRegister() ||
                         decoded->getOperand(0)->getString() != nextDecoded->getOperand(1)->getString()) {
                     std::cout <<"ERROR: could not find canary stack write!"<<std::endl;
@@ -802,17 +800,17 @@ std::set<Instruction_t*> Analysis::detectStackCanaryInstructions(const Function 
     // find canary read/writes
     if (canaryStackWrite != nullptr) {
 //        std::cout <<"Ignore canary instruction: "<<canaryStackWrite->getDisassembly()<<std::endl;
-        result.insert(canaryStackWrite);
-        const auto decodedWrite = DecodedInstruction_t::factory(canaryStackWrite);
+        result.insert(canaryStackWrite->getIRDBInstruction());
+        const auto &decodedWrite = canaryStackWrite->getDecoded();
 
-        for (Instruction_t *instruction : function.getIRDBInstructions()) {
-            const std::string assembly = instruction->getDisassembly();
-            const auto decoded = DecodedInstruction_t::factory(instruction);
+        for (Instruction *instruction : function.getInstructions()) {
+            const std::string &assembly = instruction->getDisassembly();
+            const auto &decoded = instruction->getDecoded();
             const bool isCanaryStackRead = decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() &&
                     decoded->getOperand(1)->getString() == decodedWrite->getOperand(0)->getString();
             if (contains(assembly, CANARY_CHECK) || isCanaryStackRead) {
 //                std::cout <<"Ignore canary instruction: "<<assembly<<std::endl;
-                result.insert(instruction);
+                result.insert(instruction->getIRDBInstruction());
                 continue;
             }
         }
@@ -864,8 +862,8 @@ std::set<Instruction_t*> Analysis::detectStaticVariableGuards(const Function &fu
 
     // find all read accesses to the guard variables
     std::set<Instruction_t*> result;
-    for (Instruction_t *instruction : function.getIRDBInstructions()) {
-        const auto decoded = DecodedInstruction_t::factory(instruction);
+    for (Instruction *instruction : function.getInstructions()) {
+        const auto &decoded = instruction->getDecoded();
         if (decoded->getOperands().size() < 2 || !decoded->getOperand(1)->isMemory()) {
             continue;
         }
@@ -873,7 +871,7 @@ std::set<Instruction_t*> Analysis::detectStaticVariableGuards(const Function &fu
         const bool isGuardLocation = guardLocations.find(op1Str) != guardLocations.end();
         if (isGuardLocation) {
 //            std::cout <<"Found static variable guard read: "<<instruction->getDisassembly()<<std::endl;
-            result.insert(instruction);
+            result.insert(instruction->getIRDBInstruction());
         }
     }
     return result;
