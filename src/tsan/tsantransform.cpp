@@ -104,15 +104,15 @@ bool TSanTransform::executeStep()
         const std::vector<Instruction*> instructions = function.getInstructions();
 
         // instrument all memory operations
-        for (Instruction_t *instruction : info.instructionsToInstrument) {
-            const auto decoded = DecodedInstruction_t::factory(instruction);
+        for (Instruction *instruction : info.instructionsToInstrument) {
+            const auto &decoded = instruction->getDecoded();
             const DecodedOperandVector_t operands = decoded->getOperands();
             for (const auto &operand : operands) {
                 if (operand->isMemory()) {
                     if (options.dumpInstrumentedInstructions) {
-                        *options.dumpInstrumentedInstructions <<toHex(instruction->getAddress()->getVirtualOffset())<<std::endl;
+                        *options.dumpInstrumentedInstructions <<toHex(instruction->getVirtualOffset())<<std::endl;
                     }
-//                    std::cout <<"Instrument access: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
+//                    std::cout <<"Instrument access: "<<std::hex<<instruction->getVirtualOffset()<<" "<<instruction->getDisassembly()<<", "<<instruction->getFunction()->getName()<<std::endl;
                     instrumentMemoryAccess(instruction, operand, info);
                     // For instructions like rep movs with two memory operands, only call the handler once.
                     // It is correctly handed in the rep instruction handler.
@@ -808,7 +808,7 @@ std::optional<OperationInstrumentation> TSanTransform::getInstrumentation(Instru
     if (operand->isPcrel()) {
         const auto realOffset = operand->getMemoryDisplacement() + decoded->length();
         if (realOffset % bytes != 0) {
-            std::cout <<"Found unaligned: "<<instruction->getDisassembly()<<" "<<toHex(realOffset)<<" "<<toHex(instruction->getAddress()->getVirtualOffset())<<" "<<operand->getArgumentSizeInBytes()<<std::endl;
+//            std::cout <<"Found unaligned: "<<instruction->getDisassembly()<<" "<<toHex(realOffset)<<" "<<toHex(instruction->getVirtualOffset())<<" "<<operand->getArgumentSizeInBytes()<<std::endl;
 
             if (operand->isWritten()) {
                 return OperationInstrumentation({"call 0"}, {tsanUnalignedWrite[bytes]}, KEEP_ORIGINAL_INSTRUCTION, {});
@@ -826,14 +826,15 @@ std::optional<OperationInstrumentation> TSanTransform::getInstrumentation(Instru
     }
 }
 
-void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand, const FunctionInfo &info)
+void TSanTransform::instrumentMemoryAccess(Instruction *instruction, const std::shared_ptr<DecodedOperand_t> operand, const FunctionInfo &info)
 {
-    const auto decoded = DecodedInstruction_t::factory(instruction);
+    // TODO: reference to unique_ptr is sort of wrong
+    const auto &decoded = instruction->getDecoded();
 
-    const std::string instructionDisassembly = disassembly(instruction);
+    const std::string instructionDisassembly = disassembly(instruction->getIRDBInstruction());
 
     InstrumentationInfo instrumentationInfo;
-    instrumentationInfo.set_original_address(instruction->getAddress()->getVirtualOffset());
+    instrumentationInfo.set_original_address(instruction->getVirtualOffset());
     instrumentationInfo.set_disassembly(instructionDisassembly);
     instrumentationInfo.set_function_has_entry_exit(info.addEntryExitInstrumentation);
 
@@ -841,26 +842,27 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     if (!options.dryRun && (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
             (operand->isRead() && tsanRead[bytes][0].callTarget == nullptr) ||
             (operand->isWritten() && tsanWrite[bytes][0].callTarget == nullptr))) {
-        std::cout <<"WARNING: memory operation of size "<<bytes<<" is not instrumented: "<<instruction->getDisassembly()<<std::endl;
+        std::cout <<"WARNING: memory operation of size "<<std::dec<<bytes<<" is not instrumented: "<<instruction->getDisassembly()<<std::endl;
         return;
     }
 
     FileIR_t *ir = getFileIR();
 
-    const auto instr = getInstrumentation(instruction, operand, info);
+    const auto instr = getInstrumentation(instruction->getIRDBInstruction(), operand, info);
     // could not instrument - command line option or some other problem
     if (!instr) {
         return;
     }
     OperationInstrumentation instrumentation = *instr;
 
-    InstructionInserter inserter(ir, instruction, functionAnalysis.getInstructionCounter(InstrumentationType::MEMORY_ACCESS), options.dryRun);
+    const auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::MEMORY_ACCESS);
+    InstructionInserter inserter(ir, instruction->getIRDBInstruction(), instructionCounter, options.dryRun);
 
     std::vector<LibraryFunction> callTargets;
     callTargets.reserve(instrumentation.callTargets.size());
     CallerSaveRegisterSet requiredSaveRegisters;
     for (const auto &target : instrumentation.callTargets) {
-        LibraryFunction selectedTarget = selectFunctionVersion(instruction, target);
+        LibraryFunction selectedTarget = selectFunctionVersion(instruction->getIRDBInstruction(), target);
         bool hasDirectTarget = false;
         if (operand->isMemory() && operand->hasBaseRegister() && !operand->hasIndexRegister() && !operand->hasMemoryDisplacement()) {
             // TODO: direct conversion
@@ -888,7 +890,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction_t *instruction, const std
     });
     const bool saveXmmRegisters = options.saveXmmRegisters || hasXmmUnsafeFunction;
     const CallerSaveRegisterSet ignoreRegisters = instrumentation.noSaveRegisters | ~requiredSaveRegisters;
-    const SaveStateInfo saveState = saveStateToStack(inserter, instruction, ignoreRegisters, info, saveXmmRegisters);
+    const SaveStateInfo saveState = saveStateToStack(inserter, instruction->getIRDBInstruction(), ignoreRegisters, info, saveXmmRegisters);
 
     // the instruction pointer no longer points to the original instruction, make sure that it is not used
     instruction = nullptr;

@@ -22,6 +22,7 @@ public:
     IRDB_SDK::VirtualOffset_t getVirtualOffset() const { return instruction->getAddress()->getVirtualOffset(); }
     std::string getMnemonic() const { return decoded->getMnemonic(); }
     bool isCall() const { return decoded->isCall(); }
+    bool isBranch() const { return decoded->isBranch(); }
 
     void setFallthrough(Instruction *fallthrough) { this->fallthrough = fallthrough; }
     void setTarget(Instruction *target) { this->target = target; }

@@ -43,11 +43,10 @@ void Analysis::init(const Options &options)
 
 static bool isLeafFunction(const Function &function)
 {
-    const auto instructions = function.getIRDBInstructions();
-    return std::none_of(instructions.begin(), instructions.end(), [](const Instruction_t *i) {
-        const auto decoded = DecodedInstruction_t::factory(i);
+    const auto &instructions = function.getInstructions();
+    return std::none_of(instructions.begin(), instructions.end(), [](const Instruction *i) {
         // TODO: do tail calls count here?
-        return decoded->isCall();
+        return i->isCall();
     });
 }
 
@@ -57,7 +56,7 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
     updateDeadRegisters(function, &*cfg);
 
     totalAnalysedFunctions++;
-    totalAnalysedInstructions += function.getIRDBInstructions().size();
+    totalAnalysedInstructions += function.getInstructions().size();
 
     FunctionInfo result;
     result.isLeafFunction = isLeafFunction(function);
@@ -169,16 +168,15 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
         entryExitInstrumentedFunctions++;
     }
 
-    for (Instruction_t *instruction : function.getIRDBInstructions()) {
-        const auto decoded = DecodedInstruction_t::factory(instruction);
-        if (decoded->isBranch() || decoded->isCall()) {
+    for (Instruction *instruction : function.getInstructions()) {
+        if (instruction->isBranch() || instruction->isCall()) {
             continue;
         }
-        const std::string mnemonic = decoded->getMnemonic();
+        const std::string mnemonic = instruction->getMnemonic();
         if (mnemonic == "lea" || mnemonic == "nop" || startsWith(mnemonic, "prefetch")) {
             continue;
         }
-        if (notInstrumented.find(instruction) != notInstrumented.end()) {
+        if (notInstrumented.find(instruction->getIRDBInstruction()) != notInstrumented.end()) {
             totalNotInstrumented++;
             continue;
         }
@@ -189,15 +187,15 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
             continue;
         }
 
-        if (options.annotations.ignoreInstructions.find(instruction) != options.annotations.ignoreInstructions.end()) {
+        if (options.annotations.ignoreInstructions.find(instruction->getIRDBInstruction()) != options.annotations.ignoreInstructions.end()) {
             totalNotInstrumented++;
             continue;
         }
 
-        const auto stackIt = stackOffsetResult.find(instruction);
+        const auto stackIt = stackOffsetResult.find(instruction->getIRDBInstruction());
         const bool isStackLeaked = stackIt != stackOffsetResult.end() && stackIt->second.isStackLeaked();
 
-        const DecodedOperandVector_t operands = decoded->getOperands();
+        const DecodedOperandVector_t operands = instruction->getDecoded()->getOperands();
         for (const auto &operand : operands) {
             if (!operand->isMemory()) {
                 continue;
@@ -233,6 +231,7 @@ void Analysis::computeMaxFunctionArguments()
         {"ferrorpart1@plt", 1}, {"fclosepart1@plt", 1}
     };
 
+    // TODO: this only works with the itanium cxx abi
     for (Function_t *function : ir->getFunctions()) {
         std::string functionName = function->getName();
 
@@ -640,14 +639,13 @@ void Analysis::computeFunctionRegisterWrites()
 //    }
 }
 
-bool Analysis::isDataConstant(FileIR_t *ir, Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand)
+bool Analysis::isDataConstant(FileIR_t *ir, Instruction *instruction, const std::shared_ptr<DecodedOperand_t> operand)
 {
     // TODO: exeiop->sections.findByAddress(referenced_address);
     if (operand->hasBaseRegister()) {
         return false;
     }
-    const auto decoded = DecodedInstruction_t::factory(instruction);
-    const auto additionalOffset = operand->isPcrel() ? decoded->length() : 0;
+    const auto additionalOffset = operand->isPcrel() ? instruction->getDecoded()->length() : 0;
     const auto realOffset = operand->getMemoryDisplacement() + additionalOffset;
     for (DataScoop_t *s : ir->getDataScoops()) {
         if (s->getStart()->getVirtualOffset() == 0) {

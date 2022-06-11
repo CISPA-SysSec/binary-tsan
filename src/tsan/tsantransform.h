@@ -70,7 +70,7 @@ public:
 
 private:
     void registerDependencies();
-    void instrumentMemoryAccess(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand, const FunctionInfo &info);
+    void instrumentMemoryAccess(Instruction *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand, const FunctionInfo &info);
     void insertFunctionEntry(const Function &function, IRDB_SDK::Instruction_t *insertBefore);
     void insertFunctionExit(IRDB_SDK::Instruction_t *insertBefore);
     std::vector<std::string> getSaveRegisters(IRDB_SDK::Instruction_t *instruction, CallerSaveRegisterSet ignoreRegisters);
