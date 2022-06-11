@@ -33,7 +33,7 @@ void ExceptionHandling::handleFunction(const Function &function, InstructionInse
         return;
     }
 
-    const auto instructions = function.getInstructions();
+    const auto instructions = function.getIRDBInstructions();
 
     // create eh landing pad code
     Instruction_t *insertPoint = function.getEntryPoint();
@@ -97,7 +97,7 @@ void ExceptionHandling::handleFunction(const Function &function, InstructionInse
 
 bool ExceptionHandling::hasEmptyCallSite(const Function &function) const
 {
-    const auto instructions = function.getInstructions();
+    const auto instructions = function.getIRDBInstructions();
     return std::any_of(instructions.begin(), instructions.end(), [](const auto i) {
         return i->getEhCallSite() == nullptr || i->getEhCallSite()->getLandingPad() == nullptr;
     });

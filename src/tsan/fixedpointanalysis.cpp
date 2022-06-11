@@ -10,7 +10,7 @@ using namespace IRDB_SDK;
 std::pair<bool, bool> FixedPointAnalysis::canHandle(const Function &function)
 {
     bool hasRegisterJump = false;
-    for (Instruction_t *instruction : function.getInstructions()) {
+    for (Instruction_t *instruction : function.getIRDBInstructions()) {
         const auto decoded = DecodedInstruction_t::factory(instruction);
         if (decoded->isBranch() && !decoded->isCall() && decoded->hasOperand(0)) {
             if (decoded->getOperand(0)->isRegister()) {
@@ -159,7 +159,7 @@ std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(const Functio
     auto entry = function.getEntryPoint();
 
     std::set<Instruction_t*> work;
-    work.insert(function.getInstructions().begin(), function.getInstructions().end());
+    work.insert(function.getIRDBInstructions().begin(), function.getIRDBInstructions().end());
     while (work.size() > 0) {
         Instruction_t *instruction = *work.begin();
         work.erase(work.begin());

@@ -5,3 +5,11 @@ Instruction::Instruction(IRDB_SDK::Instruction_t *instruction) :
     decoded(IRDB_SDK::DecodedInstruction_t::factory(instruction)),
     disassembly(instruction->getDisassembly())
 { }
+
+Function *Instruction::getTargetFunction() const
+{
+    if (target == nullptr) {
+        return nullptr;
+    }
+    return target->function;
+}

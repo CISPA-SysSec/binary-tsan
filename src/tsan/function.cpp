@@ -7,4 +7,8 @@ Function::Function(const std::vector<Instruction *> &instructions, Instruction *
     entryPoint(entryPoint),
     name(name),
     irdb(irdb)
-{ }
+{
+    for (auto instruction : instructions) {
+        instruction->setFunction(this);
+    }
+}

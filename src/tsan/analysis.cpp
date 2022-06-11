@@ -43,7 +43,7 @@ void Analysis::init(const Options &options)
 
 static bool isLeafFunction(const Function &function)
 {
-    const auto instructions = function.getInstructions();
+    const auto instructions = function.getIRDBInstructions();
     return std::none_of(instructions.begin(), instructions.end(), [](const Instruction_t *i) {
         const auto decoded = DecodedInstruction_t::factory(i);
         // TODO: do tail calls count here?
@@ -57,7 +57,7 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
     updateDeadRegisters(function, &*cfg);
 
     totalAnalysedFunctions++;
-    totalAnalysedInstructions += function.getInstructions().size();
+    totalAnalysedInstructions += function.getIRDBInstructions().size();
 
     FunctionInfo result;
     result.isLeafFunction = isLeafFunction(function);
@@ -169,7 +169,7 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
         entryExitInstrumentedFunctions++;
     }
 
-    for (Instruction_t *instruction : function.getInstructions()) {
+    for (Instruction_t *instruction : function.getIRDBInstructions()) {
         const auto decoded = DecodedInstruction_t::factory(instruction);
         if (decoded->isBranch() || decoded->isCall()) {
             continue;
@@ -675,7 +675,7 @@ static bool isAtomicOrXchg(Instruction_t *instruction)
 
 std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions(const Function &function, const std::set<Instruction_t*> &spinLockInstructions) const
 {
-    const auto instructions = function.getInstructions();
+    const auto instructions = function.getIRDBInstructions();
     const bool hasAtomic = std::any_of(instructions.begin(), instructions.end(), isAtomicOrXchg);
     if (!hasAtomic && spinLockInstructions.size() == 0) {
         return {};
@@ -685,7 +685,7 @@ std::map<Instruction_t *, __tsan_memory_order> Analysis::inferAtomicInstructions
     auto analysis = FixedPointAnalysis::runForward<PointerAnalysis>(function, functionEntry);
 
     std::map<MemoryLocation, std::vector<Instruction_t*>> sameLocation;
-    for (Instruction_t *instruction : function.getInstructions()) {
+    for (Instruction_t *instruction : function.getIRDBInstructions()) {
         const auto decoded = DecodedInstruction_t::factory(instruction);
         if (decoded->getMnemonic() == "nop" || decoded->getMnemonic() == "lea") {
             continue;
@@ -807,7 +807,7 @@ std::set<Instruction_t*> Analysis::detectStackCanaryInstructions(const Function 
         result.insert(canaryStackWrite);
         const auto decodedWrite = DecodedInstruction_t::factory(canaryStackWrite);
 
-        for (Instruction_t *instruction : function.getInstructions()) {
+        for (Instruction_t *instruction : function.getIRDBInstructions()) {
             const std::string assembly = instruction->getDisassembly();
             const auto decoded = DecodedInstruction_t::factory(instruction);
             const bool isCanaryStackRead = decoded->hasOperand(1) && decoded->getOperand(1)->isMemory() &&
@@ -866,7 +866,7 @@ std::set<Instruction_t*> Analysis::detectStaticVariableGuards(const Function &fu
 
     // find all read accesses to the guard variables
     std::set<Instruction_t*> result;
-    for (Instruction_t *instruction : function.getInstructions()) {
+    for (Instruction_t *instruction : function.getIRDBInstructions()) {
         const auto decoded = DecodedInstruction_t::factory(instruction);
         if (decoded->getOperands().size() < 2 || !decoded->getOperand(1)->isMemory()) {
             continue;

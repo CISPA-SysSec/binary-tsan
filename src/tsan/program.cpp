@@ -11,6 +11,12 @@ Program::Program(IRDB_SDK::FileIR_t *file)
         instructions.emplace_back(instruction);
     }
 
+    for (auto &instruction : instructions) {
+        auto irdbInstruction = instruction.getIRDBInstruction();
+        instruction.setTarget(mapInstruction(irdbInstruction->getTarget()));
+        instruction.setFallthrough(mapInstruction(irdbInstruction->getFallthrough()));
+    }
+
     functions.reserve(file->getFunctions().size());
     functionIndex.reserve(file->getFunctions().size());
 

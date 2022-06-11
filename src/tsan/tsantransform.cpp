@@ -45,6 +45,9 @@ bool TSanTransform::executeStep()
     std::cout <<"Total instructions: "<<getFileIR()->getInstructions().size()<<std::endl;
     registerDependencies();
 
+    // TODO: the function analysis pass runs before this
+//    findAndMergeFunctions();
+
     Program program(getFileIR());
 
     for (const Function &function : program.getFunctions()) {
@@ -58,8 +61,6 @@ bool TSanTransform::executeStep()
 
     const std::vector<std::string> noInstrumentFunctions = {"_init", "_start", "__libc_csu_init", "__tsan_default_options", "_fini", "__libc_csu_fini",
                                                             "ThisIsNotAFunction", "__gmon_start__", "__do_global_ctors_aux", "__do_global_dtors_aux"};
-
-    findAndMergeFunctions();
 
     for (const Function &function : program.getFunctions()) {
         if (function.getEntryPoint() == nullptr) {
@@ -86,21 +87,21 @@ bool TSanTransform::executeStep()
         const FunctionInfo info = functionAnalysis.analyseFunction(function);
 
         // for the stack trace translation
-        for (Instruction_t *instruction : function.getInstructions()) {
-            const auto decoded = DecodedInstruction_t::factory(instruction);
-            if (decoded->isCall()) {
+        for (Instruction *instruction : function.getInstructions()) {
+            if (instruction->getDecoded()->isCall()) {
                 InstrumentationInfo instrumentationInfo;
-                instrumentationInfo.set_original_address(instruction->getAddress()->getVirtualOffset());
+                instrumentationInfo.set_original_address(instruction->getVirtualOffset());
                 instrumentationInfo.set_function_has_entry_exit(info.addEntryExitInstrumentation);
                 Instrumentation im;
-                im.instrumentation = instruction;
+                im.instrumentation = instruction->getIRDBInstruction();
                 im.info = instrumentationInfo;
                 instrumentationAttribution.push_back(im);
             }
         }
 
         // make a copy of the instruction set before changing it
-        const std::set<Instruction_t*> instructions = function.getInstructions();
+        // TODO: this is currently not necessary
+        const std::vector<Instruction*> instructions = function.getInstructions();
 
         // instrument all memory operations
         for (Instruction_t *instruction : info.instructionsToInstrument) {
@@ -125,16 +126,16 @@ bool TSanTransform::executeStep()
 
         // add instrumentation for the annotations
         getFileIR()->assembleRegistry();
-        for (Instruction_t *instruction : instructions) {
-            if (instruction->getTarget() == nullptr || instruction->getTarget()->getFunction() == nullptr) {
+        for (Instruction *instruction : instructions) {
+            if (instruction->getTargetFunction() == nullptr) {
                 continue;
             }
-            auto targetFunction = instruction->getTarget()->getFunction();
+            auto targetFunction = instruction->getTargetFunction()->getIRDBFunction();
             auto annotationIt = options.annotations.happensBefore.find(targetFunction);
             if (annotationIt == options.annotations.happensBefore.end()) {
                 continue;
             }
-            std::cout <<"Add instrumentation for annotation at: "<<std::hex<<instruction->getAddress()->getVirtualOffset()<<" "<<disassembly(instruction)<<std::endl;
+            std::cout <<"Add instrumentation for annotation at: "<<std::hex<<instruction->getVirtualOffset()<<" "<<disassembly(instruction->getIRDBInstruction())<<std::endl;
             instrumentAnnotation(instruction, annotationIt->second, info);
         }
 
@@ -238,9 +239,9 @@ void TSanTransform::insertFunctionEntry(const Function &function, Instruction_t 
     getFileIR()->assembleRegistry();
     Instruction_t *originalInstruction = inserter.getLastInserted()->getFallthrough();
     for (auto instruction : function.getInstructions()) {
-        const auto decoded = DecodedInstruction_t::factory(instruction);
-        if (instruction->getTarget() == insertBefore && !decoded->isCall()) {
-            instruction->setTarget(originalInstruction);
+        // TODO: the use of getIRDBInstruction here is not great
+        if (instruction->getIRDBInstruction()->getTarget() == insertBefore && !instruction->getDecoded()->isCall()) {
+            instruction->getIRDBInstruction()->setTarget(originalInstruction);
         }
     }
 }
@@ -293,13 +294,14 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
     }
 }
 
-void TSanTransform::instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, const std::vector<HappensBeforeAnnotation> &annotations, const FunctionInfo &info)
+void TSanTransform::instrumentAnnotation(Instruction *instruction, const std::vector<HappensBeforeAnnotation> &annotations, const FunctionInfo &info)
 {
-    InstructionInserter inserter(getFileIR(), instruction, functionAnalysis.getInstructionCounter(InstrumentationType::MEMORY_ACCESS), options.dryRun);
+    const auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::MEMORY_ACCESS);
+    InstructionInserter inserter(getFileIR(), instruction->getIRDBInstruction(), instructionCounter, options.dryRun);
     std::vector<HappensBeforeAnnotation> afterAnnotations;
     for (const auto &annotation : annotations) {
         if (annotation.isBefore) {
-            const SaveStateInfo saveState = saveStateToStack(inserter, instruction, {}, info, options.saveXmmRegisters);
+            const SaveStateInfo saveState = saveStateToStack(inserter, instruction->getIRDBInstruction(), {}, info, options.saveXmmRegisters);
             if (annotation.registerForPointer != "rdi") {
                 inserter.insertAssembly("mov rdi, " + annotation.registerForPointer);
             }
@@ -315,9 +317,8 @@ void TSanTransform::instrumentAnnotation(IRDB_SDK::Instruction_t *instruction, c
         return;
     }
 
-    const auto decoded = DecodedInstruction_t::factory(instruction);
-    if (!decoded->isCall()) {
-        std::cout <<"WARNING: skipping after annotations for instruction: "<<disassembly(instruction)<<std::endl;
+    if (!instruction->isCall()) {
+        std::cout <<"WARNING: skipping after annotations for instruction: "<<disassembly(instruction->getIRDBInstruction())<<std::endl;
         return;
     }
 
