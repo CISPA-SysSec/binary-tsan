@@ -71,20 +71,19 @@ public:
 private:
     void registerDependencies();
     void instrumentMemoryAccess(Instruction *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand, const FunctionInfo &info);
-    void insertFunctionEntry(const Function &function, IRDB_SDK::Instruction_t *insertBefore);
-    void insertFunctionExit(IRDB_SDK::Instruction_t *insertBefore);
+    void insertFunctionEntry(const Function &function, Instruction *insertBefore);
+    void insertFunctionExit(Instruction *insertBefore);
     std::vector<std::string> getSaveRegisters(IRDB_SDK::Instruction_t *instruction, CallerSaveRegisterSet ignoreRegisters);
-    std::optional<OperationInstrumentation> getInstrumentation(IRDB_SDK::Instruction_t *instruction,
+    std::optional<OperationInstrumentation> getInstrumentation(Instruction *instruction,
                                                                 const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand,
                                                                 const FunctionInfo &info) const;
     std::optional<OperationInstrumentation> getAtomicInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> &operand,
                                                                      const __tsan_memory_order memoryOrder) const;
-    std::optional<OperationInstrumentation> getRepInstrumentation(IRDB_SDK::Instruction_t *instruction, const std::unique_ptr<IRDB_SDK::DecodedInstruction_t> &decoded) const;
-    std::optional<OperationInstrumentation> getConditionalInstrumentation(const std::unique_ptr<IRDB_SDK::DecodedInstruction_t> &decoded,
-                                                                          const std::shared_ptr<IRDB_SDK::DecodedOperand_t> &operand) const;
+    std::optional<OperationInstrumentation> getRepInstrumentation(Instruction *instruction) const;
+    std::optional<OperationInstrumentation> getConditionalInstrumentation(Instruction *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> &operand) const;
     void instrumentAnnotation(Instruction *instruction, const std::vector<HappensBeforeAnnotation> &annotations, const FunctionInfo &info);
     LibraryFunctionOptions createWrapper(IRDB_SDK::Instruction_t *target, XMMSafety xmmSafety);
-    LibraryFunction selectFunctionVersion(IRDB_SDK::Instruction_t *before, const LibraryFunctionOptions &options) const;
+    LibraryFunction selectFunctionVersion(Instruction *before, const LibraryFunctionOptions &options) const;
     void findAndMergeFunctions();
 
     struct SaveStateInfo {

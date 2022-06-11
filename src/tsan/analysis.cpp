@@ -89,7 +89,7 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
         }
     }
 
-    result.properEntryPoint = function.getEntryPoint()->getIRDBInstruction();
+    result.properEntryPoint = function.getEntryPoint();
     if (contains(result.properEntryPoint->getDisassembly(), "endbr")) {
         result.properEntryPoint = result.properEntryPoint->getFallthrough();
     }
@@ -158,7 +158,7 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
     result.addEntryExitInstrumentation = false;
     if (result.exitPoints.size() > 0) {
         // TODO: there might be functions with an important variable location memory read in the jump instruction
-        const bool isStub = std::find(result.exitPoints.begin(), result.exitPoints.end(), result.properEntryPoint) != result.exitPoints.end();
+        const bool isStub = std::find(result.exitPoints.begin(), result.exitPoints.end(), result.properEntryPoint->getIRDBInstruction()) != result.exitPoints.end();
         if (!isStub) {
             result.addEntryExitInstrumentation = true;
             entryExitInstrumentedFunctions++;

@@ -143,7 +143,7 @@ bool TSanTransform::executeStep()
             // TODO: what if the first instruction is atomic and thus removed?
             insertFunctionEntry(function, info.properEntryPoint);
             for (Instruction_t *ret : info.exitPoints) {
-                insertFunctionExit(ret);
+                insertFunctionExit(program.mapInstruction(ret));
             }
 
             getFileIR()->assembleRegistry();
@@ -205,15 +205,16 @@ void TSanTransform::findAndMergeFunctions()
     getFileIR()->assembleRegistry();
 }
 
-void TSanTransform::insertFunctionEntry(const Function &function, Instruction_t *insertBefore)
+void TSanTransform::insertFunctionEntry(const Function &function, Instruction *insertBefore)
 {
     // TODO: is it necessary to save the flags here too? (if yes, then also fix the rsp adjustment)
     FileIR_t *ir = getFileIR();
     const LibraryFunction functionEntry = selectFunctionVersion(insertBefore, tsanFunctionEntry);
     CallerSaveRegisterSet ignoreRegisters = Register::xmmRegisterSet() | functionEntry.preserveRegisters;
     ignoreRegisters &= ~Register::registerSet({functionEntry.argumentRegister});
-    const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, ignoreRegisters);
-    InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(InstrumentationType::ENTRY_EXIT), options.dryRun);
+    const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore->getIRDBInstruction(), ignoreRegisters);
+    const auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::ENTRY_EXIT);
+    InstructionInserter inserter(ir, insertBefore->getIRDBInstruction(), instructionCounter, options.dryRun);
 
     // for this to work without any additional rsp wrangling, it must be inserted at the very start of the function
     for (std::string reg : registersToSave) {
@@ -241,24 +242,24 @@ void TSanTransform::insertFunctionEntry(const Function &function, Instruction_t 
     Instruction_t *originalInstruction = inserter.getLastInserted()->getFallthrough();
     for (auto instruction : function.getInstructions()) {
         // TODO: the use of getIRDBInstruction here is not great
-        if (instruction->getIRDBInstruction()->getTarget() == insertBefore && !instruction->getDecoded()->isCall()) {
+        if (instruction->getTarget() == insertBefore && !instruction->getDecoded()->isCall()) {
             instruction->getIRDBInstruction()->setTarget(originalInstruction);
         }
     }
 }
 
-void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
+void TSanTransform::insertFunctionExit(Instruction *insertBefore)
 {
     FileIR_t *ir = getFileIR();
     const LibraryFunction functionExit = selectFunctionVersion(insertBefore, tsanFunctionExit);
-    InstructionInserter inserter(ir, insertBefore, functionAnalysis.getInstructionCounter(InstrumentationType::ENTRY_EXIT), options.dryRun);
+    const auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::ENTRY_EXIT);
+    InstructionInserter inserter(ir, insertBefore->getIRDBInstruction(), instructionCounter, options.dryRun);
 
-    const auto decoded = DecodedInstruction_t::factory(insertBefore);
-    const bool isSimpleReturn = decoded->isReturn();
+    const bool isSimpleReturn = insertBefore->isReturn();
 
     // must be inserted directly before the return instruction
     if (isSimpleReturn) {
-        const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore, Register::xmmRegisterSet() | functionExit.preserveRegisters);
+        const std::vector<std::string> registersToSave = getSaveRegisters(insertBefore->getIRDBInstruction(), Register::xmmRegisterSet() | functionExit.preserveRegisters);
         for (std::string reg : registersToSave) {
             inserter.insertAssembly("push " + reg);
         }
@@ -270,7 +271,7 @@ void TSanTransform::insertFunctionExit(Instruction_t *insertBefore)
         }
     } else {
         // modified by the first insertion
-        Instruction_t *callTarget = insertBefore->getTarget();
+        Instruction_t *callTarget = insertBefore->getTarget()->getIRDBInstruction();
         // 16 byte stack alignment for function calls
         inserter.insertAssembly("sub rsp, 0x8");
         auto callInstruction = inserter.insertAssembly("call 0", callTarget);
@@ -357,13 +358,13 @@ void TSanTransform::instrumentAnnotation(Instruction *instruction, const std::ve
     }
 }
 
-LibraryFunction TSanTransform::selectFunctionVersion(IRDB_SDK::Instruction_t *before, const LibraryFunctionOptions &options) const
+LibraryFunction TSanTransform::selectFunctionVersion(Instruction *before, const LibraryFunctionOptions &options) const
 {
     // no need for the map lookup
     if (options.size() == 1) {
         return options[0];
     }
-    const CallerSaveRegisterSet dead = functionAnalysis.getDeadRegisters(before);
+    const CallerSaveRegisterSet dead = functionAnalysis.getDeadRegisters(before->getIRDBInstruction());
     for (const auto &f : options) {
         if (Register::hasCallerSaveRegister(dead, f.argumentRegister)) {
             return f;
@@ -574,16 +575,17 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     return {};
 }
 
-std::optional<OperationInstrumentation> TSanTransform::getRepInstrumentation(Instruction_t *instruction, const std::unique_ptr<DecodedInstruction_t> &decoded) const
+std::optional<OperationInstrumentation> TSanTransform::getRepInstrumentation(Instruction *instruction) const
 {
+    const auto &decoded = instruction->getDecoded();
     if (decoded->hasRelevantRepPrefix() || decoded->hasRelevantRepnePrefix()) {
 //        std::cout <<"Repeated: "<<instruction->getDisassembly()<<std::endl;
 
         const std::string repPrefix = decoded->hasRelevantRepPrefix() ? "rep " : "repne ";
 
         // the rep instructions that use two memory locations at rdi and rsi
-        const bool isMovs = startsWith(decoded->getMnemonic(), "movs");
-        const bool isCmps = startsWith(decoded->getMnemonic(), "cmps");
+        const bool isMovs = startsWith(instruction->getMnemonic(), "movs");
+        const bool isCmps = startsWith(instruction->getMnemonic(), "cmps");
         if (isMovs || isCmps) {
 
             const LibraryFunctionOptions &firstTsanCall = isMovs ? tsanWriteRange : tsanReadRange;
@@ -650,15 +652,14 @@ std::optional<OperationInstrumentation> TSanTransform::getRepInstrumentation(Ins
                 Register::registerSet({X86_REG_RDI, X86_REG_RCX, X86_REG_EFLAGS}));
         }
 
-        std::cout <<"WARNING: unhandled rep instruction: "<<disassembly(instruction)<<std::endl;
+        std::cout <<"WARNING: unhandled rep instruction: "<<instruction->getDisassembly()<<std::endl;
     }
     return {};
 }
 
-std::optional<OperationInstrumentation> TSanTransform::getConditionalInstrumentation(const std::unique_ptr<DecodedInstruction_t> &decoded,
-                                                                                     const std::shared_ptr<DecodedOperand_t> &operand) const
+std::optional<OperationInstrumentation> TSanTransform::getConditionalInstrumentation(Instruction *instruction, const std::shared_ptr<DecodedOperand_t> &operand) const
 {
-    const std::string mnemonic = decoded->getMnemonic();
+    const std::string mnemonic = instruction->getMnemonic();
     const bool isCMov = startsWith(mnemonic, "cmov");
     const bool isSet = startsWith(mnemonic, "set");
     if (isCMov || isSet) {
@@ -746,10 +747,10 @@ void TSanTransform::restoreStateFromStack(const SaveStateInfo &state, Instructio
     }
 }
 
-static uint instrumentationByteSize(const std::unique_ptr<DecodedInstruction_t> &decoded, const std::shared_ptr<DecodedOperand_t> &operand)
+static uint instrumentationByteSize(Instruction *instruction, const std::shared_ptr<DecodedOperand_t> &operand)
 {
     // due to a (known) bug in capstone, comiss and comisd memory operand sizes are wrong
-    const auto mnemonic = decoded->getMnemonic();
+    const auto mnemonic = instruction->getMnemonic();
     if (mnemonic == "comiss") {
         return 4;
     } else if (mnemonic == "comisd") {
@@ -767,21 +768,20 @@ static uint instrumentationByteSize(const std::unique_ptr<DecodedInstruction_t> 
     return bytes;
 }
 
-std::optional<OperationInstrumentation> TSanTransform::getInstrumentation(Instruction_t *instruction, const std::shared_ptr<DecodedOperand_t> operand,
+std::optional<OperationInstrumentation> TSanTransform::getInstrumentation(Instruction *instruction, const std::shared_ptr<DecodedOperand_t> operand,
                                                            const FunctionInfo &info) const
 {
-    const auto inferredIt = info.inferredAtomicInstructions.find(instruction);
+    const auto inferredIt = info.inferredAtomicInstructions.find(instruction->getIRDBInstruction());
     const bool isInferredAtomic = inferredIt != info.inferredAtomicInstructions.end();
-    const auto decoded = DecodedInstruction_t::factory(instruction);
     // the xchg instruction is always atomic, even without the lock prefix
-    const bool isExchange = decoded->getMnemonic() == "xchg";
-    const bool atomic = isAtomic(instruction) || isInferredAtomic || isExchange;
+    const bool isExchange = instruction->getMnemonic() == "xchg";
+    const bool atomic = isAtomic(instruction->getIRDBInstruction()) || isInferredAtomic || isExchange;
     if (atomic) {
         if (options.noInstrumentAtomics) {
             return {};
         }
         const __tsan_memory_order memOrder = isInferredAtomic ? inferredIt->second : __tsan_memory_order_acq_rel;
-        auto instrumentation = getAtomicInstrumentation(instruction, operand, memOrder);
+        auto instrumentation = getAtomicInstrumentation(instruction->getIRDBInstruction(), operand, memOrder);
         if (instrumentation.has_value()) {
             return instrumentation;
         }
@@ -792,22 +792,22 @@ std::optional<OperationInstrumentation> TSanTransform::getInstrumentation(Instru
     }
 
     // check for rep string instructions
-    auto repInstrumentation = getRepInstrumentation(instruction, decoded);
+    auto repInstrumentation = getRepInstrumentation(instruction);
     if (repInstrumentation.has_value()) {
         return repInstrumentation;
     }
 
     // check for conditional memory instructions (cmov)
-    auto conditionalInstrumentation = getConditionalInstrumentation(decoded, operand);
+    auto conditionalInstrumentation = getConditionalInstrumentation(instruction, operand);
     if (conditionalInstrumentation.has_value()) {
         return conditionalInstrumentation;
     }
 
     // For operations that read and write the memory, only emit the write (it is sufficient for race detection)
-    const uint bytes = instrumentationByteSize(decoded, operand);
+    const uint bytes = instrumentationByteSize(instruction, operand);
 
     if (operand->isPcrel()) {
-        const auto realOffset = operand->getMemoryDisplacement() + decoded->length();
+        const auto realOffset = operand->getMemoryDisplacement() + instruction->getDecoded()->length();
         if (realOffset % bytes != 0) {
 //            std::cout <<"Found unaligned: "<<instruction->getDisassembly()<<" "<<toHex(realOffset)<<" "<<toHex(instruction->getVirtualOffset())<<" "<<operand->getArgumentSizeInBytes()<<std::endl;
 
@@ -832,14 +832,15 @@ void TSanTransform::instrumentMemoryAccess(Instruction *instruction, const std::
     // TODO: reference to unique_ptr is sort of wrong
     const auto &decoded = instruction->getDecoded();
 
-    const std::string instructionDisassembly = disassembly(instruction->getIRDBInstruction());
+    // TODO: use the nicer function disassembly
+    const std::string instructionDisassembly = instruction->getDisassembly();
 
     InstrumentationInfo instrumentationInfo;
     instrumentationInfo.set_original_address(instruction->getVirtualOffset());
     instrumentationInfo.set_disassembly(instructionDisassembly);
     instrumentationInfo.set_function_has_entry_exit(info.addEntryExitInstrumentation);
 
-    const uint bytes = instrumentationByteSize(decoded, operand);
+    const uint bytes = instrumentationByteSize(instruction, operand);
     if (!options.dryRun && (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
             (operand->isRead() && tsanRead[bytes][0].callTarget == nullptr) ||
             (operand->isWritten() && tsanWrite[bytes][0].callTarget == nullptr))) {
@@ -849,7 +850,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction *instruction, const std::
 
     FileIR_t *ir = getFileIR();
 
-    const auto instr = getInstrumentation(instruction->getIRDBInstruction(), operand, info);
+    const auto instr = getInstrumentation(instruction, operand, info);
     // could not instrument - command line option or some other problem
     if (!instr) {
         return;
@@ -863,7 +864,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction *instruction, const std::
     callTargets.reserve(instrumentation.callTargets.size());
     CallerSaveRegisterSet requiredSaveRegisters;
     for (const auto &target : instrumentation.callTargets) {
-        LibraryFunction selectedTarget = selectFunctionVersion(instruction->getIRDBInstruction(), target);
+        LibraryFunction selectedTarget = selectFunctionVersion(instruction, target);
         bool hasDirectTarget = false;
         if (operand->isMemory() && operand->hasBaseRegister() && !operand->hasIndexRegister() && !operand->hasMemoryDisplacement()) {
             // TODO: direct conversion

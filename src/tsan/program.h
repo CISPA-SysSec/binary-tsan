@@ -14,7 +14,7 @@ public:
 
     const std::vector<Function> &getFunctions() const { return functions; }
 
-private:
+    // TODO: this should only be public during the refactoring
     Instruction *mapInstruction(IRDB_SDK::Instruction_t *instruction);
 
 private:

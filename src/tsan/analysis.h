@@ -14,7 +14,7 @@
 
 struct FunctionInfo {
     // the first instruction not doing stack frame stuff etc.
-    IRDB_SDK::Instruction_t *properEntryPoint;
+    Instruction *properEntryPoint;
     // the first instructions of the stack cleanups
     std::vector<IRDB_SDK::Instruction_t*> exitPoints;
     // all instructions with memory accesses that should be instrumented
