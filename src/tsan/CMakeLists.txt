@@ -27,6 +27,8 @@ add_executable(tsan
     program.cpp
     program.h
     instructioninserter.h
+    controlflowgraph.cpp
+    controlflowgraph.h
 )
 target_link_libraries(tsan
     PRIVATE irdb-sdk

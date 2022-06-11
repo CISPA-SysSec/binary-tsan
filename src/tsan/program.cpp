@@ -4,11 +4,11 @@ Program::Program(IRDB_SDK::FileIR_t *file)
 {
     // ensure that the instruction addresses stay stable
     instructions.reserve(file->getInstructions().size());
-    instructionIndex.reserve(file->getInstructions().size());
+    instructionMap.reserve(file->getInstructions().size());
 
     for (auto instruction : file->getInstructions()) {
-        instructionIndex.insert({instruction, instructions.size()});
         instructions.emplace_back(instruction);
+        instructionMap.insert({instruction, &instructions.back()});
     }
 
     for (auto &instruction : instructions) {
@@ -18,8 +18,6 @@ Program::Program(IRDB_SDK::FileIR_t *file)
     }
 
     functions.reserve(file->getFunctions().size());
-    functionIndex.reserve(file->getFunctions().size());
-
     for (auto function : file->getFunctions()) {
         std::vector<Instruction*> functionInstructions;
         functionInstructions.reserve(function->getInstructions().size());
@@ -27,7 +25,7 @@ Program::Program(IRDB_SDK::FileIR_t *file)
             functionInstructions.push_back(mapInstruction(instruction));
         }
         Instruction *entryPoint = mapInstruction(function->getEntryPoint());
-        functions.emplace_back(functionInstructions, entryPoint, function->getName(), function);
+        functions.emplace_back(functionInstructions, entryPoint, function->getName(), function, instructionMap);
     }
 }
 
@@ -36,5 +34,5 @@ Instruction *Program::mapInstruction(IRDB_SDK::Instruction_t *instruction)
     if (instruction == nullptr) {
         return nullptr;
     }
-    return &instructions[instructionIndex[instruction]];
+    return instructionMap[instruction];
 }

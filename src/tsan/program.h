@@ -21,8 +21,7 @@ private:
     std::vector<Instruction> instructions;
     std::vector<Function> functions;
 
-    std::unordered_map<IRDB_SDK::Instruction_t*, int> instructionIndex;
-    std::unordered_map<IRDB_SDK::Function_t*, int> functionIndex;
+    std::unordered_map<IRDB_SDK::Instruction_t*, Instruction*> instructionMap;
 };
 
 #endif // PROGRAM_H
