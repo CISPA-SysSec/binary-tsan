@@ -7,6 +7,7 @@
 #include <optional>
 
 #include "register.h"
+#include "instruction.h"
 
 struct MemoryLocation
 {
@@ -33,7 +34,7 @@ class PointerAnalysis
 public:
     // default constructor initializes the analysis for an unknown instruction
     static PointerAnalysis merge(const std::vector<PointerAnalysis> &parts);
-    PointerAnalysis afterInstruction(const IRDB_SDK::Instruction_t *instruction) const;
+    PointerAnalysis afterInstruction(const Instruction *instruction) const;
     bool differsFrom(const PointerAnalysis &other) const;
 
     static PointerAnalysis functionEntry();

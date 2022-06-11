@@ -121,8 +121,8 @@ std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runA
 
 template<typename Analysis>
 struct SimpleInstructionInfo {
-    std::vector<IRDB_SDK::Instruction_t*> predecessors;
-    std::vector<IRDB_SDK::Instruction_t*> successors;
+    std::vector<Instruction*> predecessors;
+    std::vector<Instruction*> successors;
     Analysis before;
     Analysis after;
 };
@@ -132,21 +132,20 @@ struct SimpleInstructionInfo {
 template<typename Analysis>
 std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(const Function &function, Analysis atFunctionEntry)
 {
-    std::map<Instruction_t*, SimpleInstructionInfo<Analysis>> instructionData;
-    const auto cfg = ControlFlowGraph_t::factory(function.getIRDBFunction());
-    for (const auto block : cfg->getBlocks()) {
-        const auto &instructions = block->getInstructions();
+    std::map<Instruction*, SimpleInstructionInfo<Analysis>> instructionData;
+    for (const auto &block : function.getCFG().getBlocks()) {
+        const auto &instructions = block.getInstructions();
         for (std::size_t i = 0;i<instructions.size();i++) {
             SimpleInstructionInfo<Analysis> info;
             if (i == 0) {
-                for (const auto pred : block->getPredecessors()) {
+                for (const auto pred : block.getPredecessors()) {
                     info.predecessors.push_back(pred->getInstructions().back());
                 }
             } else {
                 info.predecessors.push_back(instructions[i-1]);
             }
             if (i == instructions.size()-1) {
-                for (const auto succ : block->getSuccessors()) {
+                for (const auto succ : block.getSuccessors()) {
                     info.successors.push_back(succ->getInstructions()[0]);
                 }
             } else {
@@ -156,12 +155,12 @@ std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(const Functio
         }
     }
 
-    auto entry = function.getEntryPoint()->getIRDBInstruction();
+    auto entry = function.getEntryPoint();
 
-    std::set<Instruction_t*> work;
-    work.insert(function.getIRDBInstructions().begin(), function.getIRDBInstructions().end());
+    std::set<Instruction*> work;
+    work.insert(function.getInstructions().begin(), function.getInstructions().end());
     while (work.size() > 0) {
-        Instruction_t *instruction = *work.begin();
+        Instruction *instruction = *work.begin();
         work.erase(work.begin());
 
         SimpleInstructionInfo<Analysis> &info = instructionData[instruction];
@@ -185,9 +184,9 @@ std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(const Functio
         }
     }
 
-    std::map<Instruction_t *, Analysis> result;
+    std::map<Instruction_t*, Analysis> result;
     for (const auto &[instruction, info] : instructionData) {
-        result[instruction] = info.before;
+        result[instruction->getIRDBInstruction()] = info.before;
     }
     return result;
 }

@@ -31,11 +31,11 @@ PointerAnalysis PointerAnalysis::merge(const std::vector<PointerAnalysis> &parts
     return result;
 }
 
-PointerAnalysis PointerAnalysis::afterInstruction(const Instruction_t *instruction) const
+PointerAnalysis PointerAnalysis::afterInstruction(const Instruction *instruction) const
 {
     // TODO: syscall instruction
     PointerAnalysis result = *this;
-    const auto decoded = DecodedInstruction_t::factory(instruction);
+    const auto &decoded = instruction->getDecoded();
     const std::string mnemonic = decoded->getMnemonic();
     if (mnemonic == "mov" && decoded->hasOperand(1) && decoded->getOperand(0)->isRegister() && decoded->getOperand(1)->isRegister()) {
         const RegisterID source = strToRegister(decoded->getOperand(1)->getString());
@@ -90,7 +90,7 @@ PointerAnalysis PointerAnalysis::afterInstruction(const Instruction_t *instructi
                 const RegisterID destination = strToRegister(operand->getString());
                 const RegisterID dest64Bit = convertRegisterTo64bit(destination);
                 if (operand->getArgumentSizeInBytes() == 8) {
-                    result.registerPointers[dest64Bit] = MemoryLocation(static_cast<int64_t>(instruction->getAddress()->getVirtualOffset()), 0);
+                    result.registerPointers[dest64Bit] = MemoryLocation(static_cast<int64_t>(instruction->getVirtualOffset()), 0);
                 } else {
                     result.registerPointers[dest64Bit] = MemoryLocation::invalid();
                 }
