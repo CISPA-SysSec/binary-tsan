@@ -625,7 +625,6 @@ void Analysis::computeFunctionRegisterWrites(const Program &program)
     for (const Function &function : program.getFunctions()) {
         findWrittenRegistersRecursive(&function, visited, capstone);
     }
-    functionWrittenRegisters = {};
 }
 
 bool Analysis::isDataConstant(FileIR_t *ir, Instruction *instruction, const std::shared_ptr<DecodedOperand_t> operand)
