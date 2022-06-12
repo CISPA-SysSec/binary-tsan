@@ -8,7 +8,7 @@ Function::Function(const std::vector<Instruction*> &instructions, Instruction *e
     entryPoint(entryPoint),
     name(name),
     irdb(irdb),
-    cfg(irdb, instructionMap)
+    cfg(irdb, this, instructionMap)
 {
     for (auto instruction : instructions) {
         instruction->setFunction(this);

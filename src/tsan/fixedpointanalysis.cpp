@@ -31,7 +31,7 @@ std::pair<bool, bool> FixedPointAnalysis::canHandle(const Function &function)
 
 template<typename InstructionAnalysis, typename AnalysisCommon>
 struct InstructionInfo {
-    InstructionInfo(Instruction_t *instruction, const AnalysisCommon &common) :
+    InstructionInfo(Instruction *instruction, const AnalysisCommon &common) :
         data(instruction, common)
     { }
 
@@ -42,19 +42,18 @@ struct InstructionInfo {
 
 // TODO: deal with exit node -> entry node loop and nop blocks
 template<typename InstructionAnalysis, typename AnalysisCommon>
-std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runAnalysis(
-        ControlFlowGraph_t *cfg,
-        const std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> &removeEdges,
+std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runAnalysis(const ControlFlowGraph &cfg,
+        const std::set<std::pair<const BasicBlock *, const BasicBlock *> > &removeEdges,
         const AnalysisCommon &commonData)
 {
     using InstructionIndex = int;
 
-    const auto &allInstructions = cfg->getFunction()->getInstructions();
+    const auto &allInstructions = cfg.getFunction()->getInstructions();
 
     // initialize basic data
     std::vector<InstructionInfo<InstructionAnalysis, AnalysisCommon>> instructionData;
     instructionData.reserve(allInstructions.size());
-    std::map<Instruction_t*, InstructionIndex> instructionIndexMap;
+    std::map<Instruction*, InstructionIndex> instructionIndexMap;
     for (auto instruction : allInstructions) {
         instructionIndexMap[instruction] = instructionData.size();
         InstructionInfo<InstructionAnalysis, AnalysisCommon> info(instruction, commonData);
@@ -62,14 +61,14 @@ std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runA
     }
 
     // fill in instruction predecessors
-    for (const auto block : cfg->getBlocks()) {
-        const auto &instructions = block->getInstructions();
+    for (const auto &block : cfg.getBlocks()) {
+        const auto &instructions = block.getInstructions();
         for (std::size_t i = 0;i<instructions.size();i++) {
             auto &info = instructionData[instructionIndexMap[instructions[i]]];
             if (InstructionAnalysis::isForwardAnalysis()) {
                 if (i == instructions.size()-1) {
-                    for (const auto succ : block->getSuccessors()) {
-                        if (removeEdges.find({block, succ}) == removeEdges.end()) {
+                    for (const auto succ : block.getSuccessors()) {
+                        if (removeEdges.find({&block, succ}) == removeEdges.end()) {
                             info.nextInstructions.push_back(instructionIndexMap[succ->getInstructions()[0]]);
                         }
                     }
@@ -78,9 +77,9 @@ std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runA
                 }
             } else {
                 if (i == 0) {
-                    for (const auto pred : block->getPredecessors()) {
-                        if (removeEdges.find({pred, block}) == removeEdges.end()) {
-                            Instruction_t *prevInstruction = pred->getInstructions().back();
+                    for (const auto pred : block.getPredecessors()) {
+                        if (removeEdges.find({pred, &block}) == removeEdges.end()) {
+                            Instruction *prevInstruction = pred->getInstructions().back();
                             info.nextInstructions.push_back(instructionIndexMap[prevInstruction]);
                         }
                     }
@@ -90,6 +89,7 @@ std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runA
             }
         }
     }
+    // TODO: als pointer origin können auch returnregister bei funktionsaufrufen in frage kommen
 
     // update until fixed point is reached
     std::vector<bool> isInserted(allInstructions.size(), true);
@@ -113,7 +113,7 @@ std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runA
 
     std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> result;
     for (const auto &[instruction, index] : instructionIndexMap) {
-        result[instruction] = instructionData[index].data;
+        result[instruction->getIRDBInstruction()] = instructionData[index].data;
     }
     return result;
 }
@@ -195,6 +195,6 @@ std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(const Functio
 #include "pointeranalysis.h"
 template std::map<Instruction_t *, PointerAnalysis> FixedPointAnalysis::runForward<PointerAnalysis>(const Function &function, PointerAnalysis atFunctionEntry);
 #include "deadregisteranalysis.h"
-template std::map<Instruction_t*, DeadRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(ControlFlowGraph_t *function, const std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> &noReturnFunctions, const RegisterAnalysisCommon&);
-template std::map<Instruction_t*, UndefinedRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(ControlFlowGraph_t *function, const std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> &noReturnFunctions, const RegisterAnalysisCommon&);
-template std::map<Instruction_t*, StackOffsetAnalysis> FixedPointAnalysis::runAnalysis<StackOffsetAnalysis, StackOffsetAnalysisCommon>(ControlFlowGraph_t *function, const std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> &noReturnFunctions, const StackOffsetAnalysisCommon&);
+template std::map<Instruction_t*, DeadRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(const ControlFlowGraph &function, const std::set<std::pair<const BasicBlock*, const BasicBlock*>> &noReturnFunctions, const RegisterAnalysisCommon&);
+template std::map<Instruction_t*, UndefinedRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(const ControlFlowGraph &function, const std::set<std::pair<const BasicBlock*, const BasicBlock*>> &noReturnFunctions, const RegisterAnalysisCommon&);
+template std::map<Instruction_t*, StackOffsetAnalysis> FixedPointAnalysis::runAnalysis<StackOffsetAnalysis, StackOffsetAnalysisCommon>(const ControlFlowGraph &function, const std::set<std::pair<const BasicBlock*, const BasicBlock*>> &noReturnFunctions, const StackOffsetAnalysisCommon&);

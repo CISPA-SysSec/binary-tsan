@@ -52,8 +52,7 @@ static bool isLeafFunction(const Function &function)
 
 FunctionInfo Analysis::analyseFunction(const Function &function)
 {
-    const auto cfg = ControlFlowGraph_t::factory(function.getIRDBFunction());
-    updateDeadRegisters(function, &*cfg);
+    updateDeadRegisters(function);
 
     totalAnalysedFunctions++;
     totalAnalysedInstructions += function.getInstructions().size();
@@ -81,8 +80,8 @@ FunctionInfo Analysis::analyseFunction(const Function &function)
     }
 
     // this analysis is fine with missing forward edges, it can always be run
-    const StackOffsetAnalysisCommon common(function.getEntryPoint()->getIRDBInstruction());
-    const auto stackOffsetResult = FixedPointAnalysis::runAnalysis<StackOffsetAnalysis, StackOffsetAnalysisCommon>(&*cfg, {}, common);
+    const StackOffsetAnalysisCommon common(function.getEntryPoint());
+    const auto stackOffsetResult = FixedPointAnalysis::runAnalysis<StackOffsetAnalysis, StackOffsetAnalysisCommon>(function.getCFG(), {}, common);
     for (const auto &[instruction, analysis] : stackOffsetResult) {
         if (!analysis.isStackSafe()) {
             result.stackUnsafe.insert(instruction);
@@ -276,7 +275,7 @@ void Analysis::computeMaxFunctionArguments(const Program &program)
     }
 }
 
-void Analysis::updateDeadRegisters(const Function &function, ControlFlowGraph_t *cfg)
+void Analysis::updateDeadRegisters(const Function &function)
 {
     if (options.deadRegisterAnalysisType != DeadRegisterAnalysisType::CUSTOM) {
         return;
@@ -290,49 +289,47 @@ void Analysis::updateDeadRegisters(const Function &function, ControlFlowGraph_t 
     canDoRegisterAnalysisFunctions++;
 
     RegisterAnalysisCommon deadRegisterCommon(functionWrittenRegisters);
-    const auto analysisResult = FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(&*cfg, {}, deadRegisterCommon);
+    const auto analysisResult = FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(function.getCFG(), {}, deadRegisterCommon);
     for (const auto &[instruction, analysis] : analysisResult) {
         deadRegisters.insert({instruction, analysis.getDeadRegisters()});
     }
     if (options.useUndefinedRegisterAnalysis && canHandleForward) {
-        std::set<std::pair<BasicBlock_t*, BasicBlock_t*>> removeEdges;
-        for (const auto block : cfg->getBlocks()) {
-            const auto lastInstruction = block->getInstructions().back();
-            const auto lastDecoded = DecodedInstruction_t::factory(lastInstruction);
-            if (lastDecoded->getMnemonic() == "ud2") {
-                for (const auto succ : block->getSuccessors()) {
-                    removeEdges.insert({block, succ});
+        std::set<std::pair<const BasicBlock*, const BasicBlock*>> removeEdges;
+        for (const auto &block : function.getCFG().getBlocks()) {
+            const auto lastInstruction = block.getInstructions().back();
+            if (lastInstruction->getMnemonic() == "ud2") {
+                for (const auto succ : block.getSuccessors()) {
+                    removeEdges.insert({&block, succ});
                 }
                 continue;
             }
-            if (!lastDecoded->isCall()) {
+            if (!lastInstruction->isCall()) {
                 continue;
             }
             if (isNoReturnCall(lastInstruction)) {
-                for (const auto succ : block->getSuccessors()) {
-                    removeEdges.insert({block, succ});
+                for (const auto succ : block.getSuccessors()) {
+                    removeEdges.insert({&block, succ});
                 }
                 continue;
             }
-            for (const auto succ : block->getSuccessors()) {
-                const auto &edgeType = cfg->getEdgeType(block, succ);
+            for (const auto succ : block.getSuccessors()) {
+                const auto &edgeType = function.getCFG().getEdgeType(&block, succ);
                 if (edgeType.find(cetFallthroughEdge) == edgeType.end()) {
                     continue;
                 }
                 const auto instruction = succ->getInstructions()[0];
-                const auto decoded = DecodedInstruction_t::factory(instruction);
-                if (succ->getInstructions().size() == 1 && decoded->getMnemonic() == "nop") {
+                if (succ->getInstructions().size() == 1 && instruction->getMnemonic() == "nop") {
                     if (succ->getSuccessors().size() > 0 && (*succ->getSuccessors().begin())->getPredecessors().size() == 1) {
                         continue;
                     }
                 } else if (succ->getPredecessors().size() == 1) {
                     continue;
                 }
-                removeEdges.insert({block, succ});
+                removeEdges.insert({&block, succ});
 //                  std::cout <<"Remove edge: "<<function->getName()<<" "<<std::hex<<lastInstruction->getAddress()->getVirtualOffset()<<" "<<disassembly(lastInstruction)<<std::endl;
             }
         }
-        const auto undefinedResult = FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(&*cfg, removeEdges, deadRegisterCommon);
+        const auto undefinedResult = FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(function.getCFG(), removeEdges, deadRegisterCommon);
         const bool hasProblem = std::any_of(undefinedResult.begin(), undefinedResult.end(), [](const auto &r) {
             if (r.second.hasProblem()) {
                 std::cout <<std::hex<<r.first->getAddress()->getVirtualOffset()<<" "<<r.first->getDisassembly()<<std::endl;
@@ -876,15 +873,14 @@ std::set<Instruction_t*> Analysis::detectStaticVariableGuards(const Function &fu
     return result;
 }
 
-bool Analysis::isNoReturnCall(Instruction_t *instruction) const
+bool Analysis::isNoReturnCall(Instruction *instruction) const
 {
-    const auto decoded = DecodedInstruction_t::factory(instruction);
-    if (!decoded->isCall() || instruction->getTarget() == nullptr) {
+    if (!instruction->isCall() || instruction->getTarget() == nullptr) {
         return false;
     }
     // currently not included in the no return analysis
-    const bool isUnwindResume = targetFunctionName(instruction) == "_Unwind_Resumepart1@plt";
-    return noReturnFunctions.find(instruction->getTarget()->getFunction()) != noReturnFunctions.end() || isUnwindResume;
+    const bool isUnwindResume = targetFunctionName(instruction->getIRDBInstruction()) == "_Unwind_Resumepart1@plt";
+    return noReturnFunctions.find(instruction->getIRDBInstruction()->getTarget()->getFunction()) != noReturnFunctions.end() || isUnwindResume;
 }
 
 void Analysis::printStatistics() const

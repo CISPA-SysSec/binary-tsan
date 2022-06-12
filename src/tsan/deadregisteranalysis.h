@@ -6,6 +6,7 @@
 #include <capstone/x86.h>
 
 #include "register.h"
+#include "instruction.h"
 
 struct RegisterAnalysisCommon
 {
@@ -19,7 +20,7 @@ struct RegisterAnalysisCommon
 class DeadRegisterInstructionAnalysis
 {
 public:
-    DeadRegisterInstructionAnalysis(IRDB_SDK::Instruction_t *instruction, const RegisterAnalysisCommon &common);
+    DeadRegisterInstructionAnalysis(Instruction *instruction, const RegisterAnalysisCommon &common);
     // for std::map (should never be called)
     DeadRegisterInstructionAnalysis() {}
 
@@ -56,7 +57,7 @@ private:
 class UndefinedRegisterInstructionAnalysis
 {
 public:
-    UndefinedRegisterInstructionAnalysis(IRDB_SDK::Instruction_t *instruction, const RegisterAnalysisCommon &common);
+    UndefinedRegisterInstructionAnalysis(Instruction *instruction, const RegisterAnalysisCommon &common);
     // for std::map (should never be called)
     UndefinedRegisterInstructionAnalysis() {}
 

@@ -50,10 +50,10 @@ private:
 
 struct StackOffsetAnalysisCommon
 {
-    StackOffsetAnalysisCommon(IRDB_SDK::Instruction_t *functionEntry) :
+    StackOffsetAnalysisCommon(Instruction *functionEntry) :
         functionEntry(functionEntry)
     { }
-    IRDB_SDK::Instruction_t *functionEntry;
+    Instruction *functionEntry;
 };
 
 enum class OffsetState
@@ -126,7 +126,7 @@ struct StackOperation
 class StackOffsetAnalysis
 {
 public:
-    StackOffsetAnalysis(IRDB_SDK::Instruction_t *instruction, const StackOffsetAnalysisCommon &common);
+    StackOffsetAnalysis(Instruction *instruction, const StackOffsetAnalysisCommon &common);
     // for std::map (should never be called)
     StackOffsetAnalysis() {}
 

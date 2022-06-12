@@ -101,9 +101,9 @@ static std::vector<x86_reg> getWrittenRegisters(cs_insn *decoded)
     return writtenRegisters;
 }
 
-DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *instruction, const RegisterAnalysisCommon &common)
+DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction *instruction, const RegisterAnalysisCommon &common)
 {
-    const std::string instructionData = instruction->getDataBits();
+    const std::string instructionData = instruction->getIRDBInstruction()->getDataBits();
     cs_insn *decoded = nullptr;
     const int count = cs_disasm(common.capstoneHandle.handle, (uint8_t*)instructionData.data(), instructionData.size(), 0, 1, &decoded);
     if (count == 0) {
@@ -132,7 +132,7 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
         readRegs.set();
     }
 
-    const bool jumpToOtherFunction = decoded->mnemonic == std::string("jmp") && getJumpInfo(instruction).isTailCall;
+    const bool jumpToOtherFunction = decoded->mnemonic == std::string("jmp") && getJumpInfo(instruction->getIRDBInstruction()).isTailCall;
     if (isPartOfGroup(decoded, X86_GRP_CALL) || jumpToOtherFunction) {
         setBits(readRegs, X86_REG_RDI);
         setBits(readRegs, X86_REG_RSI);
@@ -146,7 +146,7 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
         }
 
         if (instruction->getTarget() != nullptr) {
-            auto targetIt = common.functionWrittenRegisters.find(instruction->getTarget()->getFunction());
+            auto targetIt = common.functionWrittenRegisters.find(instruction->getIRDBInstruction()->getTarget()->getFunction());
             if (targetIt != common.functionWrittenRegisters.end()) {
                 for (auto reg : callerSaveRegisters) {
                     // TODO: what if only a subregister is written?
@@ -174,7 +174,7 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction_t *
     before.set();
     after.set();
 
-    auto ownFunctionIt = common.functionWrittenRegisters.find(instruction->getFunction());
+    auto ownFunctionIt = common.functionWrittenRegisters.find(instruction->getIRDBInstruction()->getFunction());
     if (ownFunctionIt != common.functionWrittenRegisters.end()) {
         writtenInFunction = ownFunctionIt->second;
     }
@@ -232,9 +232,9 @@ CallerSaveRegisterSet DeadRegisterInstructionAnalysis::getDeadRegisters() const
 }
 
 // TODO: am anfang der funktion sind register die nicht für argumente da sind undefiniert (aufpassen mit EH handlern)
-UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instruction_t *instruction, const RegisterAnalysisCommon &common)
+UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instruction *instruction, const RegisterAnalysisCommon &common)
 {
-    const std::string instructionData = instruction->getDataBits();
+    const std::string instructionData = instruction->getIRDBInstruction()->getDataBits();
     cs_insn *decoded = nullptr;
     const int count = cs_disasm(common.capstoneHandle.handle, (uint8_t*)instructionData.data(), instructionData.size(), 0, 1, &decoded);
     if (count == 0) {
@@ -251,7 +251,7 @@ UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instr
     if (isPartOfGroup(decoded, X86_GRP_CALL)) {
         // all caller save registers and flags are undefined after a function call
         if (instruction->getTarget() != nullptr) {
-            auto targetIt = common.functionWrittenRegisters.find(instruction->getTarget()->getFunction());
+            auto targetIt = common.functionWrittenRegisters.find(instruction->getIRDBInstruction()->getTarget()->getFunction());
             if (targetIt != common.functionWrittenRegisters.end()) {
                 makeUndefined = targetIt->second;
             }

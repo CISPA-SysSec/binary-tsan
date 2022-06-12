@@ -2,9 +2,12 @@
 #define CONTROLFLOWGRAPH_H
 
 #include <irdb-core>
+#include <irdb-cfg>
 #include <unordered_map>
 
 #include "instruction.h"
+
+class Function;
 
 class BasicBlock
 {
@@ -34,12 +37,19 @@ private:
 class ControlFlowGraph
 {
 public:
-    ControlFlowGraph(IRDB_SDK::Function_t *function, const std::unordered_map<IRDB_SDK::Instruction_t*, Instruction*> &instructionMap);
+    ControlFlowGraph(IRDB_SDK::Function_t *irdbFunction, Function *function,
+                     const std::unordered_map<IRDB_SDK::Instruction_t*, Instruction*> &instructionMap);
 
     const std::vector<BasicBlock> &getBlocks() const { return blocks; }
 
+    Function* getFunction() const { return function; }
+
+    const IRDB_SDK::CFGEdgeType_t &getEdgeType(const BasicBlock *source, const BasicBlock *target) const;
+
 private:
     std::vector<BasicBlock> blocks;
+    std::map<std::pair<const BasicBlock*, const BasicBlock*>, IRDB_SDK::CFGEdgeType_t> edges;
+    Function *function;
 };
 
 #endif // CONTROLFLOWGRAPH_H

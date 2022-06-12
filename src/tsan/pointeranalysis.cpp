@@ -138,7 +138,7 @@ std::vector<RegisterID> PointerAnalysis::possibleRegisters()
 }
 
 
-StackOffsetAnalysis::StackOffsetAnalysis(IRDB_SDK::Instruction_t *instruction, const StackOffsetAnalysisCommon &common)
+StackOffsetAnalysis::StackOffsetAnalysis(Instruction *instruction, const StackOffsetAnalysisCommon &common)
 {
     if (common.functionEntry == instruction) {
         before.rspOffset.offset = 0;
@@ -147,7 +147,7 @@ StackOffsetAnalysis::StackOffsetAnalysis(IRDB_SDK::Instruction_t *instruction, c
         updateData();
     }
 
-    const auto decoded = DecodedInstruction_t::factory(instruction);
+    const auto &decoded = instruction->getDecoded();
     const auto mnemonic = decoded->getMnemonic();
     const auto disassembly = instruction->getDisassembly();
     if (disassembly == "mov rbp, rsp") {

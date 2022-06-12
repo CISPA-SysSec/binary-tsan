@@ -17,8 +17,8 @@ namespace FixedPointAnalysis
 
     template<typename InstructionAnalysis, typename AnalysisCommon>
     std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> runAnalysis(
-            IRDB_SDK::ControlFlowGraph_t *cfg,
-            const std::set<std::pair<IRDB_SDK::BasicBlock_t*, IRDB_SDK::BasicBlock_t*>> &removeEdges,
+            const ControlFlowGraph &cfg,
+            const std::set<std::pair<const BasicBlock*, const BasicBlock*>> &removeEdges,
             const AnalysisCommon &commonData);
 
     // TODO: check for syscalls

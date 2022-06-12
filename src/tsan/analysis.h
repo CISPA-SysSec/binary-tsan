@@ -54,8 +54,8 @@ private:
     std::set<IRDB_SDK::Function_t*> findNoReturnFunctions(const Program &program) const;
     void computeFunctionRegisterWrites(const Program &program);
     void findWrittenRegistersRecursive(const Function *function, std::set<const Function *> &visited, CapstoneHandle &capstone);
-    void updateDeadRegisters(const Function &function, IRDB_SDK::ControlFlowGraph_t *cfg);
-    bool isNoReturnCall(IRDB_SDK::Instruction_t *instruction) const;
+    void updateDeadRegisters(const Function &function);
+    bool isNoReturnCall(Instruction *instruction) const;
     void computeMaxFunctionArguments(const Program &program);
 
 private:
