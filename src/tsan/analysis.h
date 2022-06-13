@@ -38,7 +38,8 @@ class Analysis
 {
 public:
     Analysis(IRDB_SDK::FileIR_t *ir);
-    void init(const Program &program, const Options &options);
+    void init(const Options &options);
+    void analyseProgram(const Program &program);
 
     FunctionInfo analyseFunction(const Function &function);
     void printStatistics() const;

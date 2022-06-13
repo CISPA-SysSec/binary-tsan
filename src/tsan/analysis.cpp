@@ -15,12 +15,8 @@ Analysis::Analysis(FileIR_t *ir) :
     ir(ir)
 { }
 
-void Analysis::init(const Program &program, const Options &options)
+void Analysis::init(const Options &options)
 {
-    noReturnFunctions = findNoReturnFunctions(program);
-    computeFunctionRegisterWrites(program);
-    computeMaxFunctionArguments(program);
-
     this->options = options;
 
     if (options.deadRegisterAnalysisType == DeadRegisterAnalysisType::STARS) {
@@ -39,6 +35,13 @@ void Analysis::init(const Program &program, const Options &options)
             deadRegisters[instruction] = capstoneRegs;
         }
     }
+}
+
+void Analysis::analyseProgram(const Program &program)
+{
+    noReturnFunctions = findNoReturnFunctions(program);
+    computeFunctionRegisterWrites(program);
+    computeMaxFunctionArguments(program);
 }
 
 static bool isLeafFunction(const Function &function)

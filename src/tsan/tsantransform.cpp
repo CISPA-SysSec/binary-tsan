@@ -41,6 +41,8 @@ bool TSanTransform::executeStep()
 {
     FileIR_t *ir = getFileIR();
 
+    functionAnalysis.init(options);
+
     std::cout <<"Total instructions: "<<getFileIR()->getInstructions().size()<<std::endl;
     registerDependencies();
 
@@ -48,7 +50,7 @@ bool TSanTransform::executeStep()
 //    findAndMergeFunctions();
 
     Program program(getFileIR());
-    functionAnalysis.init(program, options);
+    functionAnalysis.analyseProgram(program);
 
     for (const Function &function : program.getFunctions()) {
         if (startsWith(function.getName(), "__tsan_func_entry")) {
