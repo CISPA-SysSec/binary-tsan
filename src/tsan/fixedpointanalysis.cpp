@@ -42,7 +42,7 @@ struct InstructionInfo {
 
 // TODO: deal with exit node -> entry node loop and nop blocks
 template<typename InstructionAnalysis, typename AnalysisCommon>
-std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runAnalysis(const ControlFlowGraph &cfg,
+std::map<Instruction *, InstructionAnalysis> FixedPointAnalysis::runAnalysis(const ControlFlowGraph &cfg,
         const std::set<std::pair<const BasicBlock *, const BasicBlock *> > &removeEdges,
         const AnalysisCommon &commonData)
 {
@@ -111,9 +111,9 @@ std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> FixedPointAnalysis::runA
         }
     }
 
-    std::map<IRDB_SDK::Instruction_t*, InstructionAnalysis> result;
+    std::map<Instruction*, InstructionAnalysis> result;
     for (const auto &[instruction, index] : instructionIndexMap) {
-        result[instruction->getIRDBInstruction()] = instructionData[index].data;
+        result[instruction] = instructionData[index].data;
     }
     return result;
 }
@@ -130,7 +130,7 @@ struct SimpleInstructionInfo {
 // TODO: get rid of this inefficient analysis and replace it with the one above
 // TODO: this does not work with exceptions
 template<typename Analysis>
-std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(const Function &function, Analysis atFunctionEntry)
+std::map<Instruction*, Analysis> FixedPointAnalysis::runForward(const Function &function, Analysis atFunctionEntry)
 {
     std::map<Instruction*, SimpleInstructionInfo<Analysis>> instructionData;
     for (const auto &block : function.getCFG().getBlocks()) {
@@ -184,17 +184,17 @@ std::map<Instruction_t *, Analysis> FixedPointAnalysis::runForward(const Functio
         }
     }
 
-    std::map<Instruction_t*, Analysis> result;
+    std::map<Instruction*, Analysis> result;
     for (const auto &[instruction, info] : instructionData) {
-        result[instruction->getIRDBInstruction()] = info.before;
+        result[instruction] = info.before;
     }
     return result;
 }
 
 // explicit instantiation since the template function is in a cpp file
 #include "pointeranalysis.h"
-template std::map<Instruction_t *, PointerAnalysis> FixedPointAnalysis::runForward<PointerAnalysis>(const Function &function, PointerAnalysis atFunctionEntry);
+template std::map<Instruction*, PointerAnalysis> FixedPointAnalysis::runForward<PointerAnalysis>(const Function &function, PointerAnalysis atFunctionEntry);
 #include "deadregisteranalysis.h"
-template std::map<Instruction_t*, DeadRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(const ControlFlowGraph &function, const std::set<std::pair<const BasicBlock*, const BasicBlock*>> &noReturnFunctions, const RegisterAnalysisCommon&);
-template std::map<Instruction_t*, UndefinedRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(const ControlFlowGraph &function, const std::set<std::pair<const BasicBlock*, const BasicBlock*>> &noReturnFunctions, const RegisterAnalysisCommon&);
-template std::map<Instruction_t*, StackOffsetAnalysis> FixedPointAnalysis::runAnalysis<StackOffsetAnalysis, StackOffsetAnalysisCommon>(const ControlFlowGraph &function, const std::set<std::pair<const BasicBlock*, const BasicBlock*>> &noReturnFunctions, const StackOffsetAnalysisCommon&);
+template std::map<Instruction*, DeadRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<DeadRegisterInstructionAnalysis, RegisterAnalysisCommon>(const ControlFlowGraph &function, const std::set<std::pair<const BasicBlock*, const BasicBlock*>> &noReturnFunctions, const RegisterAnalysisCommon&);
+template std::map<Instruction*, UndefinedRegisterInstructionAnalysis> FixedPointAnalysis::runAnalysis<UndefinedRegisterInstructionAnalysis, RegisterAnalysisCommon>(const ControlFlowGraph &function, const std::set<std::pair<const BasicBlock*, const BasicBlock*>> &noReturnFunctions, const RegisterAnalysisCommon&);
+template std::map<Instruction*, StackOffsetAnalysis> FixedPointAnalysis::runAnalysis<StackOffsetAnalysis, StackOffsetAnalysisCommon>(const ControlFlowGraph &function, const std::set<std::pair<const BasicBlock*, const BasicBlock*>> &noReturnFunctions, const StackOffsetAnalysisCommon&);

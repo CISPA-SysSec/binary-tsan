@@ -20,7 +20,7 @@ struct FunctionInfo {
     // all instructions with memory accesses that should be instrumented
     std::set<Instruction*> instructionsToInstrument;
     bool isLeafFunction;
-    std::set<IRDB_SDK::Instruction_t*> stackUnsafe;
+    std::set<Instruction*> stackUnsafe;
     // instruction like guard variable reads that count as atomic by thread sanitizer standards
     std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> inferredAtomicInstructions;
     bool addEntryExitInstrumentation;
@@ -43,15 +43,15 @@ public:
     FunctionInfo analyseFunction(const Function &function);
     void printStatistics() const;
     std::function<void()> getInstructionCounter(InstrumentationType type);
-    CallerSaveRegisterSet getDeadRegisters(IRDB_SDK::Instruction_t *instruction) const;
+    CallerSaveRegisterSet getDeadRegisters(Instruction *instruction) const;
 
 private:
-    std::set<IRDB_SDK::Instruction_t*> detectStaticVariableGuards(const Function &function) const;
-    std::set<IRDB_SDK::Instruction_t*> detectStackCanaryInstructions(const Function &function) const;
-    std::map<IRDB_SDK::Instruction_t*, __tsan_memory_order> inferAtomicInstructions(const Function &function, const std::set<IRDB_SDK::Instruction_t*> &spinLockInstructions) const;
+    std::set<Instruction*> detectStaticVariableGuards(const Function &function) const;
+    std::set<Instruction*> detectStackCanaryInstructions(const Function &function) const;
+    std::map<Instruction*, __tsan_memory_order> inferAtomicInstructions(const Function &function, const std::set<IRDB_SDK::Instruction_t*> &spinLockInstructions) const;
     bool isDataConstant(IRDB_SDK::FileIR_t *ir, Instruction *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand);
     std::set<IRDB_SDK::Instruction_t *> findSpinLocks(IRDB_SDK::ControlFlowGraph_t *cfg) const;
-    std::set<IRDB_SDK::Function_t*> findNoReturnFunctions(const Program &program) const;
+    std::set<const Function*> findNoReturnFunctions(const Program &program) const;
     void computeFunctionRegisterWrites(const Program &program);
     void findWrittenRegistersRecursive(const Function *function, std::set<const Function *> &visited, CapstoneHandle &capstone);
     void updateDeadRegisters(const Function &function);
@@ -62,9 +62,9 @@ private:
     IRDB_SDK::FileIR_t *ir;
     Options options;
 
-    std::set<IRDB_SDK::Function_t*> noReturnFunctions;
-    std::map<IRDB_SDK::Function_t*, CallerSaveRegisterSet> functionWrittenRegisters;
-    std::map<IRDB_SDK::Function_t*, int> maxFunctionArguments;
+    std::set<const Function*> noReturnFunctions;
+    std::map<const Function*, CallerSaveRegisterSet> functionWrittenRegisters;
+    std::map<const Function*, int> maxFunctionArguments;
 
     std::map<IRDB_SDK::Instruction_t*, CallerSaveRegisterSet> deadRegisters;
 

@@ -10,11 +10,11 @@
 
 struct RegisterAnalysisCommon
 {
-    RegisterAnalysisCommon(const std::map<IRDB_SDK::Function_t*, CallerSaveRegisterSet> &functionWrittenRegisters) :
+    RegisterAnalysisCommon(const std::map<const Function*, CallerSaveRegisterSet> &functionWrittenRegisters) :
         functionWrittenRegisters(functionWrittenRegisters)
     { }
     CapstoneHandle capstoneHandle;
-    const std::map<IRDB_SDK::Function_t*, CallerSaveRegisterSet> &functionWrittenRegisters;
+    const std::map<const Function*, CallerSaveRegisterSet> &functionWrittenRegisters;
 };
 
 class DeadRegisterInstructionAnalysis

@@ -364,7 +364,7 @@ LibraryFunction TSanTransform::selectFunctionVersion(Instruction *before, const 
     if (options.size() == 1) {
         return options[0];
     }
-    const CallerSaveRegisterSet dead = functionAnalysis.getDeadRegisters(before->getIRDBInstruction());
+    const CallerSaveRegisterSet dead = functionAnalysis.getDeadRegisters(before);
     for (const auto &f : options) {
         if (Register::hasCallerSaveRegister(dead, f.argumentRegister)) {
             return f;
@@ -375,7 +375,7 @@ LibraryFunction TSanTransform::selectFunctionVersion(Instruction *before, const 
 
 std::vector<std::string> TSanTransform::getSaveRegisters(Instruction *instruction, CallerSaveRegisterSet ignoreRegisters)
 {
-    const CallerSaveRegisterSet dead = functionAnalysis.getDeadRegisters(instruction->getIRDBInstruction());
+    const CallerSaveRegisterSet dead = functionAnalysis.getDeadRegisters(instruction);
     const CallerSaveRegisterSet registersToSave = ~(dead | ignoreRegisters);
     std::vector<std::string> result;
     for (std::size_t i = 0;i<registersToSave.size();i++) {
@@ -688,7 +688,7 @@ TSanTransform::SaveStateInfo TSanTransform::saveStateToStack(InstructionInserter
 {
     SaveStateInfo state;
 
-    const bool stackUnsafe = info.stackUnsafe.find(before->getIRDBInstruction()) != info.stackUnsafe.end() || info.isLeafFunction;
+    const bool stackUnsafe = info.stackUnsafe.find(before) != info.stackUnsafe.end() || info.isLeafFunction;
 
     if (!saveXmmRegisters) {
         ignoreRegisters |= Register::xmmRegisterSet();
@@ -703,7 +703,7 @@ TSanTransform::SaveStateInfo TSanTransform::saveStateToStack(InstructionInserter
     }
 
     bool eflagsAlive = true;
-    const CallerSaveRegisterSet deadRegisterSet = functionAnalysis.getDeadRegisters(before->getIRDBInstruction());
+    const CallerSaveRegisterSet deadRegisterSet = functionAnalysis.getDeadRegisters(before);
     eflagsAlive = !Register::hasCallerSaveRegister(deadRegisterSet, X86_REG_EFLAGS);
     state.flagsAreSaved = eflagsAlive && !Register::hasCallerSaveRegister(ignoreRegisters, X86_REG_EFLAGS);
 

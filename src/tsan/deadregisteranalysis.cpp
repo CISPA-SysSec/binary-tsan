@@ -146,7 +146,7 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction *in
         }
 
         if (instruction->getTarget() != nullptr) {
-            auto targetIt = common.functionWrittenRegisters.find(instruction->getIRDBInstruction()->getTarget()->getFunction());
+            auto targetIt = common.functionWrittenRegisters.find(instruction->getTargetFunction());
             if (targetIt != common.functionWrittenRegisters.end()) {
                 for (auto reg : callerSaveRegisters) {
                     // TODO: what if only a subregister is written?
@@ -174,7 +174,7 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction *in
     before.set();
     after.set();
 
-    auto ownFunctionIt = common.functionWrittenRegisters.find(instruction->getIRDBInstruction()->getFunction());
+    auto ownFunctionIt = common.functionWrittenRegisters.find(instruction->getFunction());
     if (ownFunctionIt != common.functionWrittenRegisters.end()) {
         writtenInFunction = ownFunctionIt->second;
     }
@@ -251,7 +251,7 @@ UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instr
     if (isPartOfGroup(decoded, X86_GRP_CALL)) {
         // all caller save registers and flags are undefined after a function call
         if (instruction->getTarget() != nullptr) {
-            auto targetIt = common.functionWrittenRegisters.find(instruction->getIRDBInstruction()->getTarget()->getFunction());
+            auto targetIt = common.functionWrittenRegisters.find(instruction->getTargetFunction());
             if (targetIt != common.functionWrittenRegisters.end()) {
                 makeUndefined = targetIt->second;
             }
