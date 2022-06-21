@@ -862,9 +862,7 @@ void TSanTransform::instrumentMemoryAccess(Instruction *instruction, const std::
     instrumentationInfo.set_function_has_entry_exit(info.addEntryExitInstrumentation);
 
     const uint bytes = instrumentationByteSize(instruction, operand);
-    if (!options.dryRun && (bytes >= tsanRead.size() || bytes >= tsanWrite.size() ||
-            (operand->isRead() && tsanRead[bytes][0].callTarget == nullptr) ||
-            (operand->isWritten() && tsanWrite[bytes][0].callTarget == nullptr))) {
+    if (bytes != 1 && bytes != 2 && bytes != 4 && bytes != 8 && bytes != 16) {
         std::cout <<"WARNING: memory operation of size "<<std::dec<<bytes<<" is not instrumented: "<<instruction->getDisassembly()<<std::endl;
         return;
     }
