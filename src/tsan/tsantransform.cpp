@@ -442,9 +442,13 @@ std::optional<OperationInstrumentation> TSanTransform::getAtomicInstrumentation(
     // possible atomic instructions: ADC, ADD, AND, BTC, BTR, BTS, CMPXCHG, CMPXCHG8B, CMPXCHG16B, DEC, INC, NEG, NOT, OR, SBB, SUB, XADD, XCHG and XOR.
     const uint bytes = operand->getArgumentSizeInBytes();
 
+    // cmpxchg16b has a 128 bit memory operand, this creates problems for toBytes
+    if (bytes == 16) {
+        std::cout <<"WARNING: can not handle 128 bit atomic instruction: "<<instruction->getDisassembly()<<std::endl;
+        return {};
+    }
+
     const auto &decoded = instruction->getDecoded();
-//    std::cout <<"Found atomic instruction with mnemonic: "<<decoded->getMnemonic()<<std::endl;
-    // TODO: 128 bit operations?
     const std::string mnemonic = decoded->getMnemonic();
     const std::string rsiReg = toBytes(RegisterID::rn_RSI, bytes);
     const std::string rdiReg = toBytes(RegisterID::rn_RDI, bytes);
