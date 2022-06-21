@@ -223,6 +223,7 @@ static OptionsManager registerTsanOptions(Options &options, OptionsPrivate &addi
     result.addStringOption("dump-instrumented-instructions", "filename", &additionalOptions.dumpInstrumentedInstructions, "Write the virtual offsets of all instrumented instructions into the file specified by <filename>.");
     result.addStringOption("instrument-only-functions", "filename", &additionalOptions.instrumentOnlyFrom, "Read the file specified by <filename> and only instrument functions with names in the file. The names must be mangled and in the same format as when they are dumped by --dump-function-names-to. One name per line.");
     result.addStringOption("annotations", "filename", &additionalOptions.annotationsFile, "Load the content from <filename> as annotations for additional information during the instrumentation.");
+    result.addStringOption("write-cfg", "functionname", &options.writeCFGFunctionName, "The (mangled) name a function name for which to export the control-flow graph to a dot file. Generates the file cfg.dot in the current working directory.");
 
     return result;
 }

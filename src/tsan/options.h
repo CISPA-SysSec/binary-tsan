@@ -32,6 +32,7 @@ struct Options
     bool useMemoryProfiler = false;
     std::shared_ptr<std::ofstream> dumpInstrumentedInstructions;
     Annotations annotations;
+    std::string writeCFGFunctionName;
 
     static void printOptionsHelp();
     static std::optional<Options> parseAndProcess(IRDB_SDK::FileIR_t *ir, const std::vector<std::string> &options);

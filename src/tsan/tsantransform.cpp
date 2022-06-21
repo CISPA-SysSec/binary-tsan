@@ -7,6 +7,7 @@
 #include "simplefile.h"
 #include "helper.h"
 #include "exceptionhandling.h"
+#include "cfgtodot.h"
 #include "program.h"
 
 using namespace IRDB_SDK;
@@ -57,6 +58,20 @@ bool TSanTransform::executeStep()
             std::cout <<"ERROR: this binary is already thread sanitized!"<<std::endl;
             return false;
         }
+    }
+
+    if (!options.writeCFGFunctionName.empty()) {
+        std::cout <<"Writing CFG for function: "<<options.writeCFGFunctionName<<std::endl;
+        const auto it = std::find_if(program.getFunctions().begin(), program.getFunctions().end(), [this](const auto &f) {
+            return f.getName() == options.writeCFGFunctionName;
+        });
+        if (it == program.getFunctions().end()) {
+            std::cout <<"Could not find function: "<<options.writeCFGFunctionName<<std::endl;
+            return false;
+        }
+        ofstream file("../cfg.dot", ios_base::binary);
+        file <<CFGToDot::createDotFromCFG(it->getCFG());
+        file.close();
     }
 
     ExceptionHandling exceptionHandling(ir, tsanFunctionExit[0].callTarget);
