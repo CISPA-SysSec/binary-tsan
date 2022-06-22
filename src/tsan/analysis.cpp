@@ -355,6 +355,9 @@ void Analysis::updateDeadRegisters(const Function &function)
 
 CallerSaveRegisterSet Analysis::getDeadRegisters(Instruction *instruction) const
 {
+    if (instruction == nullptr) {
+        return CallerSaveRegisterSet();
+    }
     const auto dead = deadRegisters.find(instruction->getIRDBInstruction());
     if (dead != deadRegisters.end()) {
         return dead->second;

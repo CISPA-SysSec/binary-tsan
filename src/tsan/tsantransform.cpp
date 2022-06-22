@@ -1032,6 +1032,7 @@ LibraryFunctionOptions TSanTransform::createWrapper(Instruction_t *target, XMMSa
         auto instruction = addNewAssembly("ret");
         instruction->getAddress()->setFileID(getFileIR()->getFile()->getBaseID());
         instruction->setFunction(target->getFunction());
+        getFileIR()->assembleRegistry();
         auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::WRAPPER);
         instructionCounter();
 
