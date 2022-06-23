@@ -146,7 +146,12 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction *in
         }
 
         if (instruction->getTarget() != nullptr) {
-            auto targetIt = common.functionWrittenRegisters.find(instruction->getTargetFunction());
+            const auto targetFunction = instruction->getTargetFunction();
+            // if the jump is not to the entrypoint, the calling convention does not apply
+            if (targetFunction == nullptr || instruction->getTarget() != targetFunction->getEntryPoint()) {
+                readRegs.set();
+            }
+            auto targetIt = common.functionWrittenRegisters.find(targetFunction);
             if (targetIt != common.functionWrittenRegisters.end()) {
                 for (auto reg : callerSaveRegisters) {
                     // TODO: what if only a subregister is written?
