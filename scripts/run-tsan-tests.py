@@ -15,7 +15,7 @@ clang = "clang"
 # TODO: do not hardcode
 translateStacktrace = "../ps-plugin/translate-stacktrace"
 testDirectory = os.path.realpath("../tests/")
-testSubDirectories = ["bugs", "repstring", "atomics", "llvm-tsan-tests", "llvm-tsan-tests/libcxx", "llvm-tsan-tests/libdispatch", "llvm-tsan-tests/Linux/"]
+testSubDirectories = ["bugs", "repstring", "atomics", "llvm-tsan-tests", "llvm-tsan-tests/libcxx", "llvm-tsan-tests/Linux/"]
 
 removeTempFolders = True
 
