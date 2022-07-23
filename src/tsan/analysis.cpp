@@ -443,10 +443,11 @@ static std::vector<Loop> findLoops(ControlFlowGraph_t *cfg)
     return loops;
 }
 
-std::set<Instruction_t*> Analysis::findSpinLocks(ControlFlowGraph_t *cfg) const
+std::set<Instruction_t*> Analysis::findSpinLocks(const Function &function) const
 {
+    const auto cfg = ControlFlowGraph_t::factory(function.getIRDBFunction());
     std::set<Instruction_t*> spinLockMemoryReads;
-    const auto loops = findLoops(cfg);
+    const auto loops = findLoops(cfg.get());
     for (const auto &loop : loops) {
         // any instruction that can not be present in a spin lock loop
         bool foundBad = false;
@@ -513,9 +514,9 @@ std::set<Instruction_t*> Analysis::findSpinLocks(ControlFlowGraph_t *cfg) const
                 }
             }
             if (!foundBad) {
-                const auto domGraph = DominatorGraph_t::factory(cfg);
+                const auto domGraph = DominatorGraph_t::factory(cfg.get());
                 const auto headerInstruction = loop.header->getInstructions()[0];
-                std::cout <<"Found spin lock loop in "<<cfg->getFunction()->getName()<<"  "<<std::hex<<headerInstruction->getAddress()->getVirtualOffset()
+                std::cout <<"Found spin lock loop in "<<function.getName()<<"  "<<std::hex<<headerInstruction->getAddress()->getVirtualOffset()
                          <<": "<<headerInstruction->getDisassembly()<<std::endl;
                 spinLockMemoryReads.insert(memoryRead);
             }
