@@ -6,8 +6,8 @@ Program::Program(IRDB_SDK::FileIR_t *file)
     instructions.reserve(file->getInstructions().size());
     instructionMap.reserve(file->getInstructions().size());
 
-    for (auto instruction : file->getInstructions()) {
-        instructions.emplace_back(instruction);
+     for (auto instruction : file->getInstructions()) {
+        instructions.emplace_back(instruction, capstoneHandle.handle);
         instructionMap.insert({instruction, &instructions.back()});
     }
 

@@ -2,6 +2,8 @@
 
 #include <stdexcept>
 
+#include "stringhelper.h"
+
 using namespace IRDB_SDK;
 
 // TODO: use cs_reg_name instead
@@ -378,32 +380,6 @@ bool Register::hasCallerSaveRegister(const CallerSaveRegisterSet &registers, x86
     return false;
 }
 
-CallerSaveRegisterSet Register::getWrittenCallerSaveRegisters(CapstoneHandle &capstone, Instruction_t *instruction)
-{
-    CallerSaveRegisterSet writtenRegisters;
-    const std::string instructionData = instruction->getDataBits();
-    cs_insn *decoded = nullptr;
-    const int count = cs_disasm(capstone.handle, (uint8_t*)instructionData.data(), instructionData.size(), 0, 1, &decoded);
-    if (count == 0) {
-        throw std::invalid_argument("could not disassemble instruction");
-    }
-    for (int i = 0;i<decoded->detail->regs_write_count;i++) {
-        const x86_reg reg = (x86_reg)decoded->detail->regs_write[i];
-        setCallerSaveRegister(writtenRegisters, reg);
-    }
-    auto x86 = decoded->detail->x86;
-    for (int i = 0;i<x86.op_count;i++) {
-        const auto &op = x86.operands[i];
-        if (op.type == X86_OP_REG) {
-            if (op.access & CS_AC_WRITE) {
-                setCallerSaveRegister(writtenRegisters, op.reg);
-            }
-        }
-    }
-    cs_free(decoded, 1);
-    return writtenRegisters;
-}
-
 CallerSaveRegisterSet Register::registerSet(const std::vector<x86_reg> &regs)
 {
     CallerSaveRegisterSet result;
@@ -421,4 +397,85 @@ CallerSaveRegisterSet Register::xmmRegisterSet()
         result[baseIndex + i] = true;
     }
     return result;
+}
+
+static bool isFalseRead(cs_insn *decoded)
+{
+    // instructions like xor eax, eax do not read eax for practical purposes
+    const std::string mnemonic = std::string(decoded->mnemonic);
+    const bool isXorOrSbb = mnemonic == "xor" || mnemonic == "sbb" ||
+            mnemonic == "pxor" || mnemonic == "xorps" || mnemonic == "xorpd" ||
+            mnemonic == "pcmpeqd";
+    auto x86 = decoded->detail->x86;
+    const bool sameRegisters = x86.op_count == 2 && x86.operands[0].type == X86_OP_REG && x86.operands[1].type == X86_OP_REG && x86.operands[0].reg == x86.operands[1].reg;
+    if (isXorOrSbb && sameRegisters) {
+        return true;
+    }
+
+    const bool isOr = mnemonic == "or";
+    const bool isRegImm = x86.operands[0].type == X86_OP_REG && x86.operands[1].type == X86_OP_IMM;
+    const bool isOnes = x86.operands[1].imm == -1 || (x86.operands[1].size == 4 && x86.operands[1].imm == 0xffffffff);
+    if (isOr && isRegImm && isOnes) {
+        return true;
+    }
+    return false;
+}
+
+// TODO: if sse masks are used, the written operand is also read
+std::vector<x86_reg> Register::getReadRegisters(cs_insn *decoded, bool checkFalseReads)
+{
+    // TODO: use cs_regs_access instead
+    std::vector<x86_reg> readRegisters;
+    readRegisters.reserve(decoded->detail->regs_read_count + 1);
+    const bool isRepInstruction = startsWith(decoded->mnemonic, "rep ") || startsWith(decoded->mnemonic, "repe ") || startsWith(decoded->mnemonic, "repne ");
+    for (int i = 0;i<decoded->detail->regs_read_count;i++) {
+        const x86_reg reg = (x86_reg)decoded->detail->regs_read[i];
+        // the rep instructions are classified as reading the eflags register,
+        // but they do not depend on the values of the eflags before the instruction
+        if (reg != X86_REG_EFLAGS || !isRepInstruction) {
+            readRegisters.push_back(reg);
+        }
+    }
+    // instructions like xor rax, rax do not read their explicit operands for practical purposes
+    if (checkFalseReads && isFalseRead(decoded)) {
+        return readRegisters;
+    }
+    auto x86 = decoded->detail->x86;
+    for (int i = 0;i<x86.op_count;i++) {
+        const auto &op = x86.operands[i];
+        if (op.type == X86_OP_REG) {
+            // TODO: special cases in zipr
+            if (op.access & CS_AC_READ) {
+                readRegisters.push_back(op.reg);
+            }
+        } else if (op.type == X86_OP_MEM) {
+            readRegisters.push_back(op.mem.base);
+            readRegisters.push_back(op.mem.index);
+        }
+    }
+    return readRegisters;
+}
+
+std::vector<x86_reg> Register::getWrittenRegisters(cs_insn *decoded)
+{
+    std::vector<x86_reg> writtenRegisters;
+    writtenRegisters.reserve(decoded->detail->regs_write_count + 1);
+    for (int i = 0;i<decoded->detail->regs_write_count;i++) {
+        const x86_reg reg = (x86_reg)decoded->detail->regs_write[i];
+        writtenRegisters.push_back(reg);
+    }
+    auto x86 = decoded->detail->x86;
+    for (int i = 0;i<x86.op_count;i++) {
+        const auto &op = x86.operands[i];
+        if (op.type == X86_OP_REG) {
+            if (op.access & CS_AC_WRITE) {
+                writtenRegisters.push_back(op.reg);
+            }
+        }
+    }
+    // add registers that are missing in the capstone list
+    if (decoded->mnemonic == std::string("lock cmpxchg") || decoded->mnemonic == std::string("cmpxchg")) {
+        writtenRegisters.push_back(X86_REG_EFLAGS);
+    }
+    return writtenRegisters;
 }

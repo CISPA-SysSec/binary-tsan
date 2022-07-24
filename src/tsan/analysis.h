@@ -54,7 +54,7 @@ private:
     std::set<IRDB_SDK::Instruction_t *> findSpinLocks(const Function &function) const;
     std::set<const Function*> findNoReturnFunctions(const Program &program) const;
     void computeFunctionRegisterWrites(const Program &program);
-    void findWrittenRegistersRecursive(const Function *function, std::set<const Function *> &visited, CapstoneHandle &capstone);
+    void findWrittenRegistersRecursive(const Function *function, std::set<const Function *> &visited);
     void updateDeadRegisters(const Function &function);
     bool isNoReturnCall(Instruction *instruction) const;
     void computeMaxFunctionArguments(const Program &program);

@@ -1036,7 +1036,7 @@ LibraryFunctionOptions TSanTransform::createWrapper(Instruction_t *target, XMMSa
         auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::WRAPPER);
         instructionCounter();
 
-        Instruction instructionWrapper(instruction);
+        Instruction instructionWrapper(instruction, handle.handle);
         InstructionInserter inserter(getFileIR(), &instructionWrapper, instructionCounter, options.dryRun);
 
         FunctionInfo info;

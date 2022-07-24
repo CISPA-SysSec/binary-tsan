@@ -18,6 +18,8 @@ public:
         cs_option(handle, CS_OPT_DETAIL, CS_OPT_ON);
         cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
     }
+    CapstoneHandle(const CapstoneHandle&) = delete;
+    CapstoneHandle(CapstoneHandle&&) = delete;
     ~CapstoneHandle() {
         cs_close(&handle);
     }
@@ -41,9 +43,10 @@ namespace Register
     CallerSaveRegisterSet registerSet(const std::vector<x86_reg> &regs);
     CallerSaveRegisterSet xmmRegisterSet();
 
-    CallerSaveRegisterSet getWrittenCallerSaveRegisters(CapstoneHandle &capstone, IRDB_SDK::Instruction_t *instruction);
-
     x86_reg generalPurposeRegisterTo64Bit(const x86_reg reg);
+
+    std::vector<x86_reg> getWrittenRegisters(cs_insn *decoded);
+    std::vector<x86_reg> getReadRegisters(cs_insn *decoded, bool checkFalseReads);
 };
 
 #endif // REGISTER_H

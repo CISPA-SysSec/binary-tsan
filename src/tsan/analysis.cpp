@@ -585,7 +585,7 @@ std::set<const Function*> Analysis::findNoReturnFunctions(const Program &program
     return noReturnFunctions;
 }
 
-void Analysis::findWrittenRegistersRecursive(const Function *function, std::set<const Function*> &visited, CapstoneHandle &capstone)
+void Analysis::findWrittenRegistersRecursive(const Function *function, std::set<const Function*> &visited)
 {
     if (function == nullptr) {
         return;
@@ -596,8 +596,10 @@ void Analysis::findWrittenRegistersRecursive(const Function *function, std::set<
     visited.insert(function);
 
     CallerSaveRegisterSet writtenRegisters;
-    for (Instruction_t *instruction : function->getIRDBFunction()->getInstructions()) {
-        writtenRegisters |= Register::getWrittenCallerSaveRegisters(capstone, instruction);
+    for (Instruction *instruction : function->getInstructions()) {
+        for (x86_reg reg : instruction->getWrittenRegisters()) {
+            Register::setCallerSaveRegister(writtenRegisters, reg);
+        }
     }
     // set it here first in case of some indirect recursive functions
     functionWrittenRegisters[function] = writtenRegisters;
@@ -606,7 +608,7 @@ void Analysis::findWrittenRegistersRecursive(const Function *function, std::set<
         // do not consider tail call jumps to a register since they could also stay in the function (switch tables or similar)
         if (instruction->isUnconditionalBranch() && instruction->getTarget() != nullptr && instruction->getTarget()->getFunction() != function) {
             Function *targetFunction = instruction->getTarget()->getFunction();
-            findWrittenRegistersRecursive(targetFunction, visited, capstone);
+            findWrittenRegistersRecursive(targetFunction, visited);
             writtenRegisters |= functionWrittenRegisters[targetFunction];
         } else if (instruction->isUnconditionalBranch() && instruction->getTarget() == nullptr && instruction->getIRDBInstruction()->getRelocations().size() > 0) {
             // for a thunk, consider it to write all caller save registers
@@ -620,7 +622,7 @@ void Analysis::findWrittenRegistersRecursive(const Function *function, std::set<
                 break;
             } else if (instruction->getTargetFunction() != function) {
                 Function *targetFunction = instruction->getTargetFunction();
-                findWrittenRegistersRecursive(targetFunction, visited, capstone);
+                findWrittenRegistersRecursive(targetFunction, visited);
                 writtenRegisters |= functionWrittenRegisters[targetFunction];
             }
         }
@@ -631,9 +633,8 @@ void Analysis::findWrittenRegistersRecursive(const Function *function, std::set<
 void Analysis::computeFunctionRegisterWrites(const Program &program)
 {
     std::set<const Function*> visited;
-    CapstoneHandle capstone;
     for (const Function &function : program.getFunctions()) {
-        findWrittenRegistersRecursive(&function, visited, capstone);
+        findWrittenRegistersRecursive(&function, visited);
     }
 }
 

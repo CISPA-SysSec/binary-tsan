@@ -143,6 +143,8 @@ private:
     LibraryFunctionOptions tsanRelease;
 
     const std::string MOVE_OPERAND_RDI = "__move_operand_to_rdi";
+
+    CapstoneHandle handle;
 };
 
 #endif // TSANTRANSFORM_H

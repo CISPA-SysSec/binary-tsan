@@ -6,6 +6,8 @@
 
 #include "instruction.h"
 #include "function.h"
+#include "register.h"
+
 
 class Program
 {
@@ -22,6 +24,8 @@ private:
     std::vector<Function> functions;
 
     std::unordered_map<IRDB_SDK::Instruction_t*, Instruction*> instructionMap;
+
+    CapstoneHandle capstoneHandle;
 };
 
 #endif // PROGRAM_H
