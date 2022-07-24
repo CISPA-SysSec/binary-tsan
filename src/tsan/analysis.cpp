@@ -463,15 +463,15 @@ std::set<Instruction_t*> Analysis::findSpinLocks(const Function &function, Progr
     for (const auto &loop : loops) {
         // any instruction that can not be present in a spin lock loop
         bool foundBad = false;
-        Instruction_t *memoryRead = nullptr;
-        std::shared_ptr<DecodedOperand_t> readOperand;
+        std::set<Instruction_t*> memoryReads;
+        FullRegisterSet readRegisters;
         for (const auto block : loop.nodes) {
             for (auto instruction : block->getInstructions()) {
                 const auto decoded = DecodedInstruction_t::factory(instruction);
                 if (decoded->isCall()) {
                     // some functions calls are allowed in a spin lock
                     const std::string targetName = targetFunctionName(instruction);
-                    if (!contains(targetName, "usleep") && !contains(targetName, "sched_yield")) {
+                    if (!contains(targetName, "usleep") && !contains(targetName, "sched_yield") && targetName != "sleeppart1@plt") {
                         foundBad = true;
                         break;
                     }
@@ -492,16 +492,14 @@ std::set<Instruction_t*> Analysis::findSpinLocks(const Function &function, Progr
                         break;
                     }
                     if (operand->isRead() && operand->isMemory()) {
-                        if (memoryRead != nullptr) {
-                            foundBad = true;
-                            break;
-                        }
                         if (!startsWith(decoded->getMnemonic(), "mov")) {
                             foundBad = true;
                             break;
                         }
-                        memoryRead = instruction;
-                        readOperand = operand;
+                        const auto wrappedInstruction = program.mapInstruction(instruction);
+                        const auto instructionReadRegisters = getGP64BitRegisters(wrappedInstruction->getReadRegisters());
+                        readRegisters |= instructionReadRegisters;
+                        memoryReads.insert(instruction);
                     }
                 }
             }
@@ -509,9 +507,7 @@ std::set<Instruction_t*> Analysis::findSpinLocks(const Function &function, Progr
                 break;
             }
         }
-        if (!foundBad && memoryRead != nullptr) {
-            const auto wrappedInstruction = program.mapInstruction(memoryRead);
-            const auto readRegisters = getGP64BitRegisters(wrappedInstruction->getReadRegisters());
+        if (!foundBad && memoryReads.size() > 0) {
             for (const auto block : loop.nodes) {
                 for (auto instruction : block->getInstructions()) {
                     const auto decoded = DecodedInstruction_t::factory(instruction);
@@ -531,7 +527,7 @@ std::set<Instruction_t*> Analysis::findSpinLocks(const Function &function, Progr
                 const auto headerInstruction = loop.header->getInstructions()[0];
                 std::cout <<"Found spin lock loop in "<<function.getName()<<"  "<<std::hex<<headerInstruction->getAddress()->getVirtualOffset()
                          <<": "<<headerInstruction->getDisassembly()<<std::endl;
-                spinLockMemoryReads.insert(memoryRead);
+                spinLockMemoryReads.insert(memoryReads.begin(), memoryReads.end());
             }
         }
     }
