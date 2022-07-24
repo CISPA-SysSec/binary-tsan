@@ -53,7 +53,7 @@ static bool isLeafFunction(const Function &function)
     });
 }
 
-FunctionInfo Analysis::analyseFunction(const Function &function)
+FunctionInfo Analysis::analyseFunction(const Function &function, Program &program)
 {
     updateDeadRegisters(function);
 
@@ -443,7 +443,19 @@ static std::vector<Loop> findLoops(ControlFlowGraph_t *cfg)
     return loops;
 }
 
-std::set<Instruction_t*> Analysis::findSpinLocks(const Function &function) const
+static FullRegisterSet getGP64BitRegisters(const std::vector<x86_reg> &registers)
+{
+    FullRegisterSet result;
+    for (auto reg : registers) {
+        const auto fullRegister = Register::generalPurposeRegisterTo64Bit(reg);
+        if (fullRegister != X86_REG_INVALID) {
+            result.set(fullRegister);
+        }
+    }
+    return result;
+}
+
+std::set<Instruction_t*> Analysis::findSpinLocks(const Function &function, Program &program) const
 {
     const auto cfg = ControlFlowGraph_t::factory(function.getIRDBFunction());
     std::set<Instruction_t*> spinLockMemoryReads;
@@ -498,14 +510,16 @@ std::set<Instruction_t*> Analysis::findSpinLocks(const Function &function) const
             }
         }
         if (!foundBad && memoryRead != nullptr) {
+            const auto wrappedInstruction = program.mapInstruction(memoryRead);
+            const auto readRegisters = getGP64BitRegisters(wrappedInstruction->getReadRegisters());
             for (const auto block : loop.nodes) {
                 for (auto instruction : block->getInstructions()) {
                     const auto decoded = DecodedInstruction_t::factory(instruction);
                     for (auto operand : decoded->getOperands()) {
                         if (operand->isWritten()) {
-                            // TODO: implicit register writes
-                            if ((readOperand->hasBaseRegister() && operand->getRegNumber() == readOperand->getBaseRegister()) ||
-                                    (readOperand->hasIndexRegister() && operand->getRegNumber() == readOperand->getIndexRegister())) {
+                            const auto wrappedWrite = program.mapInstruction(instruction);
+                            const auto writtenRegisters = getGP64BitRegisters(wrappedWrite->getWrittenRegisters());
+                            if ((readRegisters & writtenRegisters).any()) {
                                 foundBad = true;
                                 break;
                             }
@@ -514,7 +528,6 @@ std::set<Instruction_t*> Analysis::findSpinLocks(const Function &function) const
                 }
             }
             if (!foundBad) {
-                const auto domGraph = DominatorGraph_t::factory(cfg.get());
                 const auto headerInstruction = loop.header->getInstructions()[0];
                 std::cout <<"Found spin lock loop in "<<function.getName()<<"  "<<std::hex<<headerInstruction->getAddress()->getVirtualOffset()
                          <<": "<<headerInstruction->getDisassembly()<<std::endl;

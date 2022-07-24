@@ -41,7 +41,7 @@ public:
     void init(const Options &options);
     void analyseProgram(const Program &program);
 
-    FunctionInfo analyseFunction(const Function &function);
+    FunctionInfo analyseFunction(const Function &function, Program &program);
     void printStatistics() const;
     std::function<void()> getInstructionCounter(InstrumentationType type);
     CallerSaveRegisterSet getDeadRegisters(Instruction *instruction) const;
@@ -51,7 +51,7 @@ private:
     std::set<Instruction*> detectStackCanaryInstructions(const Function &function) const;
     std::map<Instruction*, __tsan_memory_order> inferAtomicInstructions(const Function &function, const std::set<IRDB_SDK::Instruction_t*> &spinLockInstructions) const;
     bool isDataConstant(IRDB_SDK::FileIR_t *ir, Instruction *instruction, const std::shared_ptr<IRDB_SDK::DecodedOperand_t> operand);
-    std::set<IRDB_SDK::Instruction_t *> findSpinLocks(const Function &function) const;
+    std::set<IRDB_SDK::Instruction_t *> findSpinLocks(const Function &function, Program &program) const;
     std::set<const Function*> findNoReturnFunctions(const Program &program) const;
     void computeFunctionRegisterWrites(const Program &program);
     void findWrittenRegistersRecursive(const Function *function, std::set<const Function *> &visited);

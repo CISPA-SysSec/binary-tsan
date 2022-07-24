@@ -101,7 +101,7 @@ bool TSanTransform::executeStep()
             continue;
         }
 
-        const FunctionInfo info = functionAnalysis.analyseFunction(function);
+        const FunctionInfo info = functionAnalysis.analyseFunction(function, program);
 
         // for the stack trace translation
         for (Instruction *instruction : function.getInstructions()) {
