@@ -58,9 +58,12 @@ def getInstrumentTime(options):
         execName = name
         if name in executableNames:
             execName = executableNames[name]
-        instDir = os.path.join(sys.argv[2], "pkgs/apps/" + name + "/inst/")
-        binaryIn = instDir + "amd64-linux.gcc/bin/" + execName
-        outDir = instDir + "amd64-linux.gcc.btsan"
+        subfolder = "apps"
+        if name == "dedup" or name == "canneal" or name == "streamcluster":
+            subfolder = "kernels"
+        instDir = os.path.join(sys.argv[2], "pkgs", subfolder, name, "inst")
+        binaryIn = os.path.join(instDir, "amd64-linux.gcc", "bin", execName) # TODO: pre removed
+        outDir = os.path.join(instDir, "amd64-linux.gcc.btsan")
         hasOutDir = os.path.isdir(outDir)
         if not hasOutDir:
             os.mkdir(outDir)
@@ -81,13 +84,13 @@ def getCompileTime(typeSelect):
     startDir = os.getcwd()
     os.chdir(sys.argv[2])
     
-    print("Compiling tools")
     tools = []
     if "raytrace" in tests:
         tools.append("cmake")
     if "x264" in tests:
         tools.append("yasm")
     if len(tools) > 0:
+        print("Compiling tools")
         clearCommand = ["./bin/parsecmgmt", "-a", "uninstall", "-p"] + typeSelect + typeSelect
         res = subprocess.run(clearCommand, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         compileCommand = ["./bin/parsecmgmt", "-a", "build", "-p"] + tools + typeSelect
