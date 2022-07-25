@@ -12,11 +12,12 @@ if len(sys.argv) != 3:
 instrumentBinaries = False
 benchmarkHelgrind = True
 runTarget = "simsmall"
-timeout = 220
-iterations = 5
-baseCommand = ["./bin/parsecmgmt", "-a", "run", "-i", runTarget, "-n", "2"]
+timeout = 300
+iterations = 1
+# raytrace will always be executed with one thread since it deadlocks otherwise
+threads = 2
+baseCommand = ["./bin/parsecmgmt", "-a", "run", "-i", runTarget]
 
-# x264, vips, raytrace, bodytrack, facesim, ferret are destroyed by zipr (even when no thread sanitizer code runs)
 # Warning: ferret requires libjpeg.so.62, package libjpeg62-dev must be installed
 tests = ["blackscholes", "ferret", "fluidanimate", "freqmine", "swaptions"]#["blackscholes", "ferret", "fluidanimate", "freqmine", "swaptions"]["ferret"]#
 # the test name is used if not present here
@@ -44,7 +45,10 @@ def getTimes(runCommand):
             try:
                 environmentVariables = dict(os.environ)
                 #environmentVariables["TSAN_OPTIONS"] = "report_bugs=0"
-                p = subprocess.Popen(runCommand + ["-p", testcase], start_new_session=True, env=environmentVariables, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                numThreads = threads
+                if testcase == "raytrace":
+                    numThreads = 1
+                p = subprocess.Popen(runCommand + ["-p", testcase, "-n", str(numThreads)], start_new_session=True, env=environmentVariables, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
                 outs, errs = p.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
                 os.killpg(os.getpgid(p.pid), signal.SIGTERM)
@@ -97,9 +101,12 @@ if instrumentBinaries:
         execName = name
         if name in executableNames:
             execName = executableNames[name]
-        instDir = os.path.join(sys.argv[2], "pkgs/apps/" + name + "/inst/")
-        binaryIn = instDir + "amd64-linux.gcc/bin/" + execName # TODO: pre removed
-        outDir = instDir + "amd64-linux.gcc.btsan"
+        subfolder = "apps"
+        if name == "dedup" or name == "canneal" or name == "streamcluster":
+            subfolder = "kernels"
+        instDir = os.path.join(sys.argv[2], "pkgs", subfolder, name, "inst")
+        binaryIn = os.path.join(instDir, "amd64-linux.gcc", "bin", execName) # TODO: pre removed
+        outDir = os.path.join(instDir, "amd64-linux.gcc.btsan")
         hasOutDir = os.path.isdir(outDir)
         if not hasOutDir:
             os.mkdir(outDir)
