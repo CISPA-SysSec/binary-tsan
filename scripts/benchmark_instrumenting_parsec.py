@@ -81,9 +81,23 @@ def getCompileTime(typeSelect):
     startDir = os.getcwd()
     os.chdir(sys.argv[2])
     
+    print("Compiling tools")
+    tools = []
+    if "raytrace" in tests:
+        tools.append("cmake")
+    if "x264" in tests:
+        tools.append("yasm")
+    if len(tools) > 0:
+        clearCommand = ["./bin/parsecmgmt", "-a", "uninstall", "-p"] + typeSelect + typeSelect
+        res = subprocess.run(clearCommand, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        compileCommand = ["./bin/parsecmgmt", "-a", "build", "-p"] + tools + typeSelect
+        subprocess.run(compileCommand, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    
     result = {}
     for testcase in tests:
-        clearCommand = ["./bin/parsecmgmt", "-a", "uninstall", "-p", testcase] + typeSelect
+        # the compilation time for the libraries has to be in the time for every program separately
+        libraries = ["glib", "gsl", "hooks", "libjpeg", "libxml2", "meas", "parmacs", "ssl", "tbblib", "uptcpip", "zlib"]
+        clearCommand = ["./bin/parsecmgmt", "-a", "uninstall", "-p", testcase] + libraries + typeSelect
         res = subprocess.run(clearCommand, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         runCommand = ["./bin/parsecmgmt", "-a", "build", "-p", testcase] + typeSelect
         
