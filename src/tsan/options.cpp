@@ -211,6 +211,7 @@ static OptionsManager registerTsanOptions(Options &options, OptionsPrivate &addi
     result.addFlagOption("use-wrapper-functions", &options.useWrapperFunctions, true, "Use wrapper functions for calling the thread sanitizer runtime. This slows down the instrumented binary, but creates far fewer instructions, making instrumenting larger binaries possible.");
     result.addFlagOption("no-instrument-stack", &options.instrumentStackAccess, false, "If used, do not instrument instructions that access the stack of the current function.");
     result.addFlagOption("use-memory-profiler", &options.useMemoryProfiler, true, "Use the memory profiler instead of the thread sanitizer run-time library. It prints the output at program termination.");
+    result.addFlagOption("disable-heuristics", &options.useHeuristics, false, "Disables all heuristics used to detect atomic instructions.");
 
     const std::vector<std::pair<std::string, int>> registerOptions = {
         {"none", (int)DeadRegisterAnalysisType::NONE},

@@ -30,6 +30,7 @@ struct Options
     bool useWrapperFunctions = false;
     bool instrumentStackAccess = true;
     bool useMemoryProfiler = false;
+    bool useHeuristics = true;
     std::shared_ptr<std::ofstream> dumpInstrumentedInstructions;
     Annotations annotations;
     std::string writeCFGFunctionName;

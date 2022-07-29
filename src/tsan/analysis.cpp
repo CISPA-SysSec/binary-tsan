@@ -66,23 +66,25 @@ FunctionInfo Analysis::analyseFunction(const Function &function, Program &progra
     const std::set<Instruction*> notInstrumented = detectStackCanaryInstructions(function);
     stackCanaryInstructions += notInstrumented.size();
 
-    const std::set<Instruction_t*> spinLockInstructions = {};//findSpinLocks(cfg.get());
+    if (options.useHeuristics) {
+        const std::set<Instruction_t*> spinLockInstructions = findSpinLocks(function, program);
 
-    const auto inferred = inferAtomicInstructions(function, spinLockInstructions);;
-    for (const auto &[instruction, memOrder] : inferred) {
-        result.inferredAtomicInstructions[instruction->getIRDBInstruction()] = memOrder;
-    }
-    pointerInferredAtomics += result.inferredAtomicInstructions.size();
-    for (const auto guardInstruction : detectStaticVariableGuards(function)) {
-        result.inferredAtomicInstructions[guardInstruction->getIRDBInstruction()] = __tsan_memory_order_acquire;
-        staticVariableGuards++;
-    }
-    for (const auto spinLock : spinLockInstructions) {
-        result.inferredAtomicInstructions[spinLock] = __tsan_memory_order_acquire;
-        spinLocks++;
-    }
-    for (const auto &[instruction, memOrder] : options.annotations.atomicInstructions) {
-        result.inferredAtomicInstructions[instruction] = memOrder;
+        const auto inferred = inferAtomicInstructions(function, spinLockInstructions);
+        for (const auto &[instruction, memOrder] : inferred) {
+            result.inferredAtomicInstructions[instruction->getIRDBInstruction()] = memOrder;
+        }
+        pointerInferredAtomics += result.inferredAtomicInstructions.size();
+        for (const auto guardInstruction : detectStaticVariableGuards(function)) {
+            result.inferredAtomicInstructions[guardInstruction->getIRDBInstruction()] = __tsan_memory_order_acquire;
+            staticVariableGuards++;
+        }
+        for (const auto spinLock : spinLockInstructions) {
+            result.inferredAtomicInstructions[spinLock] = __tsan_memory_order_acquire;
+            spinLocks++;
+        }
+        for (const auto &[instruction, memOrder] : options.annotations.atomicInstructions) {
+            result.inferredAtomicInstructions[instruction] = memOrder;
+        }
     }
 
     // this analysis is fine with missing forward edges, it can always be run
