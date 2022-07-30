@@ -839,6 +839,7 @@ std::set<Instruction*> Analysis::detectStaticVariableGuards(const Function &func
 {
     // find locations of all static variable guards
     std::set<std::string> guardLocations;
+    std::set<int> pcrelGuardOffsets;
     for (const auto &block : function.getCFG().getBlocks()) {
         const auto &instructions = block.getInstructions();
         if (instructions.size() < 2) {
@@ -862,17 +863,22 @@ std::set<Instruction*> Analysis::detectStaticVariableGuards(const Function &func
             if (writtenRegister != "rdi") {
                 continue;
             }
-            if (!decoded->hasOperand(1) || !decoded->getOperand(1)->isConstant()) {
+            if (!decoded->hasOperand(1)) {
                 break;
             }
-            // TODO: this only works if the getString function is consistent
-            // if it is created by disecting the disassembly, this is not the case
-            // Therefore, make sure that it is a canonical form
-            const std::string guardLocation = decoded->getOperand(1)->getString();
-//            std::cout <<"Found static variable guard location: "<<guardLocation<<std::endl;
-            guardLocations.insert(guardLocation);
+
+            if (decoded->getOperand(1)->isConstant()) {
+                // TODO: this only works if the getString function is consistent
+                // if it is created by disecting the disassembly, this is not the case
+                // Therefore, it has to be in a canonical form
+                const std::string guardLocation = decoded->getOperand(1)->getString();
+                guardLocations.insert(guardLocation);
+            } else if (decoded->getOperand(1)->isPcrel()) {
+                const auto realOffset = decoded->getOperand(1)->getMemoryDisplacement() + instruction->getDecoded()->length();
+                pcrelGuardOffsets.insert(realOffset);
+            }
         }
-        if (guardLocations.size() == 0) {
+        if (guardLocations.size() == 0 && pcrelGuardOffsets.size() == 0) {
             std::cout <<"WARNING: could not find static variable guard location! "<<std::hex<<last->getVirtualOffset()<<" "<<function.getName()<<std::endl;
         }
     }
@@ -884,11 +890,23 @@ std::set<Instruction*> Analysis::detectStaticVariableGuards(const Function &func
         if (decoded->getOperands().size() < 2 || !decoded->getOperand(1)->isMemory()) {
             continue;
         }
-        const std::string op1Str = decoded->getOperand(1)->getString();
-        const bool isGuardLocation = guardLocations.find(op1Str) != guardLocations.end();
-        if (isGuardLocation) {
-//            std::cout <<"Found static variable guard read: "<<instruction->getDisassembly()<<std::endl;
-            result.insert(instruction);
+        if (instruction->getMnemonic() == "lea") {
+            continue;
+        }
+        if (decoded->getOperand(1)->isConstant()) {
+            const std::string op1Str = decoded->getOperand(1)->getString();
+            const bool isGuardLocation = guardLocations.find(op1Str) != guardLocations.end();
+            if (isGuardLocation) {
+//                std::cout <<"Found static variable guard read: "<<std::hex<<instruction->getVirtualOffset()<<" "<<instruction->getDisassembly()<<std::endl;
+                result.insert(instruction);
+            }
+        } else if (decoded->getOperand(1)->isPcrel()) {
+            const auto realOffset = decoded->getOperand(1)->getMemoryDisplacement() + instruction->getDecoded()->length();
+            const bool isGuardLocation = pcrelGuardOffsets.find(realOffset) != pcrelGuardOffsets.end();
+            if (isGuardLocation) {
+//                std::cout <<"Found static variable guard read: "<<std::hex<<instruction->getVirtualOffset()<<" "<<instruction->getDisassembly()<<std::endl;
+                result.insert(instruction);
+            }
         }
     }
     return result;
