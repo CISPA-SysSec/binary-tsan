@@ -35,7 +35,7 @@ fi
 # the basic run command without additional tsan options
 inputbase=$(basename $1)
 tempdir=tsan_temp.${inputbase}.$$
-runCommand="$PSZ $1 $2 --tempdir ${tempdir} -c rida -c move_globals -o --elftables-only -o --no-use-stars --step-option zipr:\"--zipr:seed 42\" -c tsan -o --register-analysis=custom"
+runCommand="$PSZ $1 $2 --tempdir ${tempdir} -c rida -c move_globals -o --elftables-only -o --no-use-stars --step-option zipr:\"--zipr:seed 42\" -c tsan"
 
 # add tsan options to the run command
 i=$(($#-3))
