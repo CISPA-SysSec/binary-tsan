@@ -12,6 +12,8 @@
 
 using namespace IRDB_SDK;
 
+std::map<std::string, std::string> InstructionCache::instructionMap;
+
 TSanTransform::TSanTransform(FileIR_t *file) :
     Transform_t(file),
     functionAnalysis(file)
