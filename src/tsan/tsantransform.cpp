@@ -47,6 +47,13 @@ bool TSanTransform::executeStep()
     functionAnalysis.init(options);
 
     std::cout <<"Total instructions: "<<getFileIR()->getInstructions().size()<<std::endl;
+
+    for (auto s : getFileIR()->getDataScoops()) {
+        if (s->getName() == ".rodata") {
+            s->setWriteable();
+        }
+    }
+
     registerDependencies();
 
     // TODO: the function analysis pass runs before this
