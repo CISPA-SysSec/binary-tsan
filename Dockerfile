@@ -62,10 +62,10 @@ RUN cd /home/zuser && wget http://parsec.cs.princeton.edu/download/3.0/parsec-3.
 
 COPY scripts/parsec_diff /home/zuser
 
-RUN cd /home/zuser/parsec-3.0 && git init . && git apply /home/zuser/parsec_diff && ./env.sh && ./bin/parsecmgmt -a build -p blackscholes bodytrack facesim ferret fluidanimate freqmine swaptions vips raytrace;
+RUN cd /home/zuser/parsec-3.0 && git init . && git apply /home/zuser/parsec_diff && ./env.sh && ./bin/parsecmgmt -a build -p blackscholes bodytrack facesim ferret fluidanimate freqmine swaptions vips raytrace canneal dedup streamcluster x264;
 
 # WARNING: raytrace must be last due to a bug in the parsecmgmt script
-RUN cd /home/zuser/parsec-3.0 && ./env.sh && ./bin/parsecmgmt -a build -c gcc-tsan -p blackscholes bodytrack facesim ferret fluidanimate freqmine swaptions vips raytrace;
+RUN cd /home/zuser/parsec-3.0 && ./env.sh && ./bin/parsecmgmt -a build -c gcc-tsan -p blackscholes bodytrack facesim ferret fluidanimate freqmine swaptions vips raytrace canneal dedup streamcluster x264;
 
 COPY --from=btsan /opt/btsan /opt/btsan
 
