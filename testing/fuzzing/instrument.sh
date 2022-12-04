@@ -25,11 +25,11 @@ echo "--------------------------------"
 #echo ""
 #echo "--------------------------------"
 #
-#echo "BUILD ZAFL"
-#../zafl.sh $PWD/targets/$target $PWD/targets_instrumented/$target.zaf
-#echo ""
-#echo ""
-#echo "--------------------------------"
+echo "BUILD ZAFL"
+../zafl.sh $PWD/targets/$target $PWD/targets_instrumented/$target.zaf
+echo ""
+echo ""
+echo "--------------------------------"
 
 echo "BUILD SAN-ZAFL"
 ../zafl.sh $PWD/targets/$target $PWD/targets_instrumented/$target.sanzaf -T
