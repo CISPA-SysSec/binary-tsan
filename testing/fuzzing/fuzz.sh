@@ -10,4 +10,6 @@ else
     target=$1
 fi
 
-afl-fuzz -m none -i ./in -o ./out -- $target @@
+echo "Fuzzing target: $target \n"
+
+afl-fuzz -m none -t 10000 -i ./in -o ./out -- $target @@ $2 $3 $3 $5
