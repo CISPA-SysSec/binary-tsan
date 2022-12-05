@@ -1,7 +1,8 @@
 #!/bin/bash
 
 last=$PWD
-target=$1
+targetpath=$1
+target = basename $targetpath
 
 echo "SETUP ENVIRONMENT"
 cd /home/joschua/Desktop/CISPA/Projekte/zipr/
@@ -18,21 +19,21 @@ echo ""
 echo ""
 echo "--------------------------------"
 
-#echo "BUILD SANITIZED"
-#../../build/thread-sanitizer.sh $PWD/targets/$target $PWD/targets_instrumented/$target.san
-#
-#echo ""
-#echo ""
-#echo "--------------------------------"
-#
+echo "BUILD SANITIZED"
+../../build/thread-sanitizer.sh $PWD/$targetpath $PWD/targets_instrumented/$target.san
+
+echo ""
+echo ""
+echo "--------------------------------"
+
 echo "BUILD ZAFL"
-../zafl.sh $PWD/targets/$target $PWD/targets_instrumented/$target.zaf
+../zafl.sh $PWD/$targetpath $PWD/targets_instrumented/$target.zaf
 echo ""
 echo ""
 echo "--------------------------------"
 
 echo "BUILD SAN-ZAFL"
-../zafl.sh $PWD/targets/$target $PWD/targets_instrumented/$target.sanzaf -T
+../zafl.sh $PWD/$targetpath $PWD/targets_instrumented/$target.sanzaf -T
 echo ""
 echo ""
 echo "--------------------------------"
