@@ -8,4 +8,4 @@ cd /home/joschua/Desktop/CISPA/Projekte/zafl/
 cd $last
 
 
-$( dirname -- "$0"; )/../../zafl/bin/zafl.sh -r 42 $3 $4 $5 $6 $7 $8 $9 -M $1 $2
+$( dirname -- "$0"; )/../../zafl/bin/zafl.sh -r 42 $3 $4 $5 $6 $7 $8 $9 -J -M $1 $2
