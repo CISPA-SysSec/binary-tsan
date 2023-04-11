@@ -13,13 +13,13 @@ instrumentBinaries = False
 benchmarkHelgrind = True
 runTarget = "simsmall"
 timeout = 300
-iterations = 1
+iterations = 5
 # raytrace will always be executed with one thread since it deadlocks otherwise
-threads = 2
+threads = 16
 baseCommand = ["./bin/parsecmgmt", "-a", "run", "-i", runTarget]
 
 # Warning: ferret requires libjpeg.so.62, package libjpeg62-dev must be installed
-tests = ["blackscholes", "ferret", "fluidanimate", "freqmine", "swaptions"]#["blackscholes", "ferret", "fluidanimate", "freqmine", "swaptions"]["ferret"]#
+tests = ["facesim", "x264"]#"blackscholes", "bodytrack", "facesim", "fluidanimate", "freqmine", "swaptions", "streamcluster", "vips",  "x264"]#["canneal", "dedup", "ferret", "raytrace"]#
 # the test name is used if not present here
 executableNames = {
     "raytrace": "rtview"
@@ -29,7 +29,7 @@ def timeStrToNumber(timeStr):
     parts = timeStr.split("m")
     if len(parts) != 2 or timeStr == "timeout":
         return 0
-    return int(parts[0]) * 60 + float(parts[1][:-1])
+    return int(parts[0]) * 60 + float(parts[1][:-1].replace(",", "."))
 
 def getTimes(runCommand):
     startDir = os.getcwd()
