@@ -42,24 +42,26 @@ bool TSanTransform::parseArgs(const std::vector<std::string> &options)
 
 bool TSanTransform::executeStep()
 {
+    
     FileIR_t *ir = getFileIR();
 
     functionAnalysis.init(options);
-
+    
     std::cout <<"Total instructions: "<<getFileIR()->getInstructions().size()<<std::endl;
-
+    
     for (auto s : getFileIR()->getDataScoops()) {
         if (s->getName() == ".rodata") {
             s->setWriteable();
         }
     }
-
+    
     registerDependencies();
-
+    
     // TODO: the function analysis pass runs before this
 //    findAndMergeFunctions();
 
     Program program(getFileIR());
+    
     functionAnalysis.analyseProgram(program);
 
     for (const Function &function : program.getFunctions()) {
@@ -82,12 +84,12 @@ bool TSanTransform::executeStep()
         file <<CFGToDot::createDotFromCFG(it->getCFG());
         file.close();
     }
-
+    
     ExceptionHandling exceptionHandling(ir, tsanFunctionExit[0].callTarget);
 
     const std::vector<std::string> noInstrumentFunctions = {"_init", "_start", "__libc_csu_init", "__tsan_default_options", "_fini", "__libc_csu_fini",
                                                             "ThisIsNotAFunction", "__gmon_start__", "__do_global_ctors_aux", "__do_global_dtors_aux"};
-
+    
     for (const Function &function : program.getFunctions()) {
         if (function.getEntryPoint() == nullptr) {
             continue;
@@ -111,7 +113,7 @@ bool TSanTransform::executeStep()
         }
 
         const FunctionInfo info = functionAnalysis.analyseFunction(function, program);
-
+        
         // for the stack trace translation
         for (Instruction *instruction : function.getInstructions()) {
             if (instruction->getDecoded()->isCall()) {
@@ -128,7 +130,7 @@ bool TSanTransform::executeStep()
         // make a copy of the instruction set before changing it
         // TODO: this is currently not necessary
         const std::vector<Instruction*> instructions = function.getInstructions();
-
+        
         // instrument all memory operations
         for (Instruction *instruction : info.instructionsToInstrument) {
             const auto &decoded = instruction->getDecoded();
@@ -149,8 +151,9 @@ bool TSanTransform::executeStep()
                 }
             }
         }
-
+        
         // add instrumentation for the annotations
+        
         getFileIR()->assembleRegistry();
         for (Instruction *instruction : instructions) {
             if (instruction->getTargetFunction() == nullptr) {
@@ -182,6 +185,14 @@ bool TSanTransform::executeStep()
     }
 
     functionAnalysis.printStatistics();
+
+    for (auto s : getFileIR()->getDataScoops()) {
+        if (s->getName() == ".rodata") {
+            s->clearWriteable();
+        }
+    }
+    
+    getFileIR()->assembleRegistry();
 
     return true;
 }
@@ -1085,7 +1096,7 @@ void TSanTransform::registerDependencies()
         if (options.useMemoryProfiler) {
             elfDeps->prependLibraryDepedencies(MEMPROFLOCATION);
         } else if (options.useCustomLibTsan) {
-            elfDeps->prependLibraryDepedencies(LIBTSANLOCATION);
+            elfDeps->prependLibraryDepedencies("liblibtsan.so");
         } else {
             elfDeps->prependLibraryDepedencies("libtsan.so.0");
         }

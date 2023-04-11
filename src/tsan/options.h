@@ -4,6 +4,7 @@
 #include "annotations.h"
 
 #include <fstream>
+#include <optional>
 #include <memory>
 
 enum class DeadRegisterAnalysisType {

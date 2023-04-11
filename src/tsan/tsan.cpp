@@ -8,6 +8,7 @@
 #include <iostream>
 
 int main(int argc, char* argv[]) {
+
     const std::string program_name = std::string(argv[0]);
     const auto variantID = std::strtol(argv[1], nullptr, 10);
 
@@ -32,10 +33,9 @@ int main(int argc, char* argv[]) {
     // stand-alone transforms must create and read the main file's IR from the database
     auto this_file = pidp->getMainFile();
     auto url = this_file->getURL();
-
     // declare for later so we can return the right value
     bool success = false;
-
+    
     // now try to load the IR and execute a transform
     try {
         // Create and download the file's IR.
@@ -77,7 +77,7 @@ int main(int argc, char* argv[]) {
         std::cout<< program_name << ": Unexpected error file url: " << url << std::endl;
         return 2;
     }
-
+    
     // return success code to driver (as a shell-style return value).  0=success, 1=warnings, 2=errors
     return success ? 0 : 2;
 }
