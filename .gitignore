@@ -2,3 +2,6 @@ build*
 CMakeLists.txt.user
 *peasoup_executable*
 /.project
+eval
+scripts/tsan_temp*
+testing
