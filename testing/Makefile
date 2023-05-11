@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-all: test.san test.fuzz test.zaf test.sanzaf
+all: test.san test.fuzz test.zaf test.sanzaf testsanitized testsanitizedclang
 
 test.sanzaf: test
 	@echo "BUILD SAN-ZAFL"
@@ -29,6 +29,22 @@ test.fuzz: test
 test.san: test
 	@echo "BUILD SANITIZED"
 	../build/thread-sanitizer.sh ./test ./test.san
+	@echo ""
+	@echo ""
+	@echo "--------------------------------"
+
+testsanitized: clean
+	@echo "BUILD TEST TSAN GCC"
+	g++ -std=c++17 -g test.cpp -lpthread  -fsanitize=thread -o test.tsan
+	# cp ./test ./fuzzing/test
+	@echo ""
+	@echo ""
+	@echo "--------------------------------"
+
+testsanitizedclang: clean
+	@echo "BUILD TEST TSAN CLANG"
+	clang++ -std=c++17 -g test.cpp -lpthread  -fsanitize=thread -o test.tsanclang
+	# cp ./test ./fuzzing/test
 	@echo ""
 	@echo ""
 	@echo "--------------------------------"

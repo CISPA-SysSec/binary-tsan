@@ -9,17 +9,30 @@ if len(sys.argv) != 3:
     exit(1)
 
 # if set to false, previously instrumented binaries are used
-instrumentBinaries = False
-benchmarkHelgrind = True
+instrumentBinaries = True
+
+benchmarkDefault = True
+benchmarkBinTSAN = True
+benchmarkCompTSAN = False
+benchmarkHelgrind = False
+
+
+
+benchmarkWithoutDRA = False
+benchmarkWithSTARS = True
+
 runTarget = "simsmall"
-timeout = 300
-iterations = 5
+timeout = 60*60
+iterations = 1
 # raytrace will always be executed with one thread since it deadlocks otherwise
-threads = 16
+threads = 4
 baseCommand = ["./bin/parsecmgmt", "-a", "run", "-i", runTarget]
 
 # Warning: ferret requires libjpeg.so.62, package libjpeg62-dev must be installed
-tests = ["facesim", "x264"]#"blackscholes", "bodytrack", "facesim", "fluidanimate", "freqmine", "swaptions", "streamcluster", "vips",  "x264"]#["canneal", "dedup", "ferret", "raytrace"]#
+# ["dedup", "ferret", "blackscholes", "streamcluster", "fluidanimate", "swaptions", "vips", "bodytrack", "raytrace"]
+# ["canneal", "facesim", "x264"] # not working
+# ["freqmine"] # excluded because does not use pthreads
+tests = ["raytrace"]#["dedup", "ferret", "blackscholes", "streamcluster", "fluidanimate", "swaptions", "vips", "bodytrack", "raytrace"]
 # the test name is used if not present here
 executableNames = {
     "raytrace": "rtview"
@@ -37,6 +50,7 @@ def getTimes(runCommand):
     
     result = {}
     for testcase in tests:
+        print(testcase)
         result[testcase] = "not found"
         totalTime = 0
         minWarnings = 1000000
@@ -48,7 +62,9 @@ def getTimes(runCommand):
                 numThreads = threads
                 if testcase == "raytrace":
                     numThreads = 1
-                p = subprocess.Popen(runCommand + ["-p", testcase, "-n", str(numThreads)], start_new_session=True, env=environmentVariables, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                fullCommand = runCommand + ["-p", testcase, "-n", str(numThreads)]
+                print(fullCommand)
+                p = subprocess.Popen(fullCommand, start_new_session=True, env=environmentVariables, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
                 outs, errs = p.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
                 os.killpg(os.getpgid(p.pid), signal.SIGTERM)
@@ -84,18 +100,8 @@ def getTimes(runCommand):
     os.chdir(startDir)
     return result
 
-print("Running base executables")
-baseTimes = getTimes(baseCommand)
 
-print("Running regular thread sanitizer")
-tsanTimes = getTimes(baseCommand + ["-c", "gcc-tsan"])
-
-
-if benchmarkHelgrind:
-    print("Running with helgrind")
-    valgrindTimes = getTimes(baseCommand + ["-s", "time valgrind --tool=helgrind "])
-
-if instrumentBinaries:
+def instrBin(instrCommand):
     print("Instrumenting binaries")
     for name in tests:
         execName = name
@@ -107,25 +113,83 @@ if instrumentBinaries:
         instDir = os.path.join(sys.argv[2], "pkgs", subfolder, name, "inst")
         binaryIn = os.path.join(instDir, "amd64-linux.gcc", "bin", execName) # TODO: pre removed
         outDir = os.path.join(instDir, "amd64-linux.gcc.btsan")
+
+        if(instrCommand == "--register-analysis=none"):
+            outDir = os.path.join(instDir, "amd64-linux.gcc.btsan-noDRA")
+        elif(instrCommand == "--register-analysis=stars"):
+            outDir = os.path.join(instDir, "amd64-linux.gcc.btsan-starDRA")
+
         hasOutDir = os.path.isdir(outDir)
         if not hasOutDir:
             os.mkdir(outDir)
             os.mkdir(outDir + "/bin")
         binaryOut = outDir + "/bin/" + execName
         
-        res = subprocess.run([sys.argv[1], binaryIn, binaryOut], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if(instrCommand == ""):
+            print(" ".join(([sys.argv[1], binaryIn, binaryOut])))
+            res = subprocess.run([sys.argv[1], binaryIn, binaryOut], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        else:
+            print(" ".join(([sys.argv[1], binaryIn, binaryOut, instrCommand])))
+            res = subprocess.run([sys.argv[1], binaryIn, binaryOut, instrCommand], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         if res.returncode != 0:
             print("Instrumenting " + name + " failed!")
             exit(1)
+    return
 
-print("Running binary thread sanitized binaries")
-btsanTimes = getTimes(baseCommand + ["-x", "btsan"])
+
+
+if(benchmarkDefault):
+    print("Running base executables")
+    baseTimes = getTimes(baseCommand)
+
+if(benchmarkCompTSAN):
+    print("Running regular thread sanitizer")
+    tsanTimes = getTimes(baseCommand + ["-c", "gcc-tsan"])
+
+
+if benchmarkHelgrind:
+    print("Running with helgrind")
+    valgrindTimes = getTimes(baseCommand + ["-s", "time valgrind --tool=helgrind "])
+
+
+if instrumentBinaries:
+    if(benchmarkBinTSAN):
+        pass
+        #instrBin("")
+    if(benchmarkWithoutDRA):
+        instrBin("--register-analysis=none")
+    if(benchmarkWithSTARS):
+        instrBin("--register-analysis=stars")
+
+
+if(benchmarkBinTSAN):
+    print("Running binary thread sanitized binaries")
+    btsanTimes = getTimes(baseCommand + ["-x", "btsan"])
+
+
+if(benchmarkWithoutDRA):
+    print("Running binary thread sanitized binaries")
+    btsanNoDRATimes = getTimes(baseCommand + ["-x", "btsan-noDRA"])
+
+if(benchmarkWithSTARS):
+    print("Running binary thread sanitized binaries")
+    btsanStarDRATimes = getTimes(baseCommand + ["-x", "btsan-starDRA"])
+
+
+
 
 for name in tests:
     print(name + ": ")
-    print("    * base: ".ljust(20) + str(baseTimes[name][0]))
-    print("    * tsan: ".ljust(20) + str(tsanTimes[name][0]))
-    print("    * btsan: ".ljust(20) + str(btsanTimes[name][0]))
+    if(benchmarkDefault): 
+        print("    * base: ".ljust(20) + str(baseTimes[name][0]))
+    if(benchmarkCompTSAN): 
+        print("    * tsan: ".ljust(20) + str(tsanTimes[name][0]))
+    if(benchmarkBinTSAN): 
+        print("    * btsan: ".ljust(20) + str(btsanTimes[name][0]))
+    if(benchmarkWithoutDRA): 
+        print("    * btsan without DRA: ".ljust(20) + str(btsanNoDRATimes[name][0]))
+    if(benchmarkWithSTARS): 
+        print("    * btsan with STARS DRA: ".ljust(20) + str(btsanStarDRATimes[name][0]))
     if benchmarkHelgrind:
         print("    * helgrind: ".ljust(20) + str(valgrindTimes[name][0]))
 
@@ -133,14 +197,22 @@ print("")
 
 dataString = "["
 for name in tests:
-    if baseTimes[name][0] == 0:
-        continue
-    dataString = dataString + "(\"" + name + "\", [" + str(baseTimes[name])
-    dataString = dataString + ", " + str(tsanTimes[name])
-    dataString = dataString + ", " + str(btsanTimes[name])
+    if(benchmarkDefault):
+        if baseTimes[name][0] == 0:
+            continue
+        dataString = dataString + "(\"" + name + "\", [" + str(baseTimes[name])
+    if(benchmarkCompTSAN):
+        dataString = dataString + ", " + str(tsanTimes[name])
+    if(benchmarkBinTSAN):
+        dataString = dataString + ", " + str(btsanTimes[name])
+    if(benchmarkWithoutDRA):
+        dataString = dataString + ", " + str(btsanNoDRATimes[name])
+    if(benchmarkWithSTARS):
+        dataString = dataString + ", " + str(btsanStarDRATimes[name])
     if benchmarkHelgrind:
         dataString = dataString + ", " + str(valgrindTimes[name])
     dataString = dataString + "]), "
 dataString = dataString + "]"
+
 print(dataString)
 
