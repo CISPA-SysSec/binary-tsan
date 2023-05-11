@@ -5,3 +5,4 @@ CMakeLists.txt.user
 eval
 scripts/tsan_temp*
 testing
+scripts/*.instrinfo
