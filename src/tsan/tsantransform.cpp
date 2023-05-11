@@ -60,17 +60,20 @@ bool TSanTransform::executeStep()
     // TODO: the function analysis pass runs before this
 //    findAndMergeFunctions();
 
+    //input program
     Program program(getFileIR());
     
     functionAnalysis.analyseProgram(program);
 
+    //check if program is already thread sanitized
     for (const Function &function : program.getFunctions()) {
         if (startsWith(function.getName(), "__tsan_func_entry")) {
             std::cout <<"ERROR: this binary is already thread sanitized!"<<std::endl;
             return false;
         }
     }
-
+    
+    //write CFG
     if (!options.writeCFGFunctionName.empty()) {
         std::cout <<"Writing CFG for function: "<<options.writeCFGFunctionName<<std::endl;
         const auto it = std::find_if(program.getFunctions().begin(), program.getFunctions().end(), [this](const auto &f) {
@@ -85,12 +88,16 @@ bool TSanTransform::executeStep()
         file.close();
     }
     
+    //detect exception handling
     ExceptionHandling exceptionHandling(ir, tsanFunctionExit[0].callTarget);
 
     const std::vector<std::string> noInstrumentFunctions = {"_init", "_start", "__libc_csu_init", "__tsan_default_options", "_fini", "__libc_csu_fini",
                                                             "ThisIsNotAFunction", "__gmon_start__", "__do_global_ctors_aux", "__do_global_dtors_aux"};
     
+    //start instrumentation of functions
     for (const Function &function : program.getFunctions()) {
+        //do not instrument a lot of stuff
+
         if (function.getEntryPoint() == nullptr) {
             continue;
         }
@@ -153,7 +160,6 @@ bool TSanTransform::executeStep()
         }
         
         // add instrumentation for the annotations
-        
         getFileIR()->assembleRegistry();
         for (Instruction *instruction : instructions) {
             if (instruction->getTargetFunction() == nullptr) {
@@ -168,6 +174,7 @@ bool TSanTransform::executeStep()
             instrumentAnnotation(instruction, annotationIt->second, info);
         }
 
+        //instrument function entries and exits
         if (info.addEntryExitInstrumentation && options.instrumentFunctionEntryExit) {
             // TODO: what if the first instruction is atomic and thus removed?
             insertFunctionEntry(function, info.properEntryPoint);
@@ -1085,6 +1092,7 @@ void TSanTransform::registerDependencies()
 {
     auto elfDeps = ElfDependencies_t::factory(getFileIR());
 
+
     // for shared libraries, it is not necessary (and sometimes harmful) to add this as the executable will also have it
     if (options.addLibTsanDependency) {
         elfDeps->prependLibraryDepedencies("libgcc_s.so.1");
@@ -1093,14 +1101,16 @@ void TSanTransform::registerDependencies()
         elfDeps->prependLibraryDepedencies("libpthread.so.0");
         elfDeps->prependLibraryDepedencies("libdl.so.2");
         elfDeps->prependLibraryDepedencies("libc.so.6");
+
         if (options.useMemoryProfiler) {
-            elfDeps->prependLibraryDepedencies(MEMPROFLOCATION);
+            elfDeps->prependLibraryDepedencies("libprofiler.so");
         } else if (options.useCustomLibTsan) {
             elfDeps->prependLibraryDepedencies("liblibtsan.so");
         } else {
             elfDeps->prependLibraryDepedencies("libtsan.so.0");
         }
     }
+      
     if (options.useWrapperFunctions) {
         tsanFunctionEntry = createWrapper(elfDeps->appendPltEntry("__tsan_func_entry"), XMM_SAFE);
         tsanFunctionExit = createWrapper(elfDeps->appendPltEntry("__tsan_func_exit"), XMM_SAFE);
@@ -1108,6 +1118,7 @@ void TSanTransform::registerDependencies()
         tsanFunctionEntry = {{elfDeps->appendPltEntry("__tsan_func_entry"), XMM_SAFE}};
         tsanFunctionExit = {{elfDeps->appendPltEntry("__tsan_func_exit"), XMM_SAFE}};
     }
+    
     for (int s : {1, 2, 4, 8, 16}) {
         if (options.useWrapperFunctions) {
             tsanWrite[s] = createWrapper(elfDeps->appendPltEntry("__tsan_write" + std::to_string(s) + "_pc"), XMM_SAFE);
@@ -1132,11 +1143,13 @@ void TSanTransform::registerDependencies()
             tsanAtomicCompareExchangeVal[s] = {{elfDeps->appendPltEntry("__tsan_atomic" + std::to_string(s * 8) + "_compare_exchange_val"), XMM_UNSAFE}};
         }
     }
+    
     // TODO: these are not xmm safe
+    
     tsanReadRange = {{elfDeps->appendPltEntry("__tsan_read_range"), XMM_UNSAFE}};
     tsanWriteRange = {{elfDeps->appendPltEntry("__tsan_write_range"), XMM_UNSAFE}};
     tsanAcquire = {{elfDeps->appendPltEntry("__tsan_acquire"), XMM_UNSAFE}};
     tsanRelease = {{elfDeps->appendPltEntry("__tsan_release"), XMM_UNSAFE}};
-
+    
     getFileIR()->assembleRegistry();
 }
