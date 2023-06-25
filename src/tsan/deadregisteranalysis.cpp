@@ -96,9 +96,9 @@ DeadRegisterInstructionAnalysis::DeadRegisterInstructionAnalysis(Instruction *in
 
     cs_free(decoded, 1);
 
-    // initially consider all registers dead
-    before.set();
-    after.set();
+    // initially consider all registers alive
+    before.reset();
+    after.reset();
 
     auto ownFunctionIt = common.functionWrittenRegisters.find(instruction->getFunction());
     if (ownFunctionIt != common.functionWrittenRegisters.end()) {
@@ -157,7 +157,7 @@ CallerSaveRegisterSet DeadRegisterInstructionAnalysis::getDeadRegisters() const
     return result & writtenInFunction;
 }
 
-// TODO: am anfang der funktion sind register die nicht für argumente da sind undefiniert (aufpassen mit EH handlern)
+// TODO: at the beginning of the function, registers are undefined, if they are not used for arguments. (watch out with eh handlers)
 UndefinedRegisterInstructionAnalysis::UndefinedRegisterInstructionAnalysis(Instruction *instruction, const RegisterAnalysisCommon &common)
 {
     const std::string instructionData = instruction->getIRDBInstruction()->getDataBits();
