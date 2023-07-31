@@ -45,6 +45,7 @@ bool TSanTransform::executeStep()
     
     FileIR_t *ir = getFileIR();
 
+    //do regular instrumentation
     functionAnalysis.init(options);
     
     std::cout <<"Total instructions: "<<getFileIR()->getInstructions().size()<<std::endl;
@@ -56,6 +57,18 @@ bool TSanTransform::executeStep()
     }
     
     registerDependencies();
+
+    //add init call in .preinit_array section
+    /*
+    const auto ptrsize = getFileIR()->getArchitectureBitWidth()/8;
+    auto text_start=ir->addNewAddress(ir->getFile()->getBaseID(), 0);
+    auto newdata = "AAAABBBB";//tsanInit[0].callTarget->getAddress()->getFileID();
+    
+    auto contents = std::string(newdata);//string(newdata, ptrsize);
+    auto text_end=ir->addNewAddress(ir->getFile()->getBaseID(), contents.size()-1);
+
+    getFileIR()->addNewDataScoop(".preinit_array", text_start, text_end, nullptr, 0x3, false, contents); 
+    */   
     
     // TODO: the function analysis pass runs before this
 //    findAndMergeFunctions();
@@ -103,6 +116,22 @@ bool TSanTransform::executeStep()
         }
         const std::string functionName = function.getName();
         const bool ignoreFunction = std::find(noInstrumentFunctions.begin(), noInstrumentFunctions.end(), functionName) != noInstrumentFunctions.end();
+        /*
+        if(functionName == "_init") {
+            printf("_init detected!");
+
+            //TODO: change the counter type to something uniquely new
+            const auto instructionCounter = functionAnalysis.getInstructionCounter(InstrumentationType::ENTRY_EXIT);
+
+            InstructionInserter inserter(ir, function.getEntryPoint(), instructionCounter, options.dryRun);
+            
+            auto insertBefore = function.getEntryPoint();
+            const LibraryFunction functionInit = selectFunctionVersion(insertBefore, tsanInit);
+            inserter.insertAssembly("call 0", functionInit.callTarget);
+
+        }
+        */
+
         if (ignoreFunction) {
             continue;
         }
@@ -195,7 +224,7 @@ bool TSanTransform::executeStep()
 
     for (auto s : getFileIR()->getDataScoops()) {
         if (s->getName() == ".rodata") {
-            s->clearWriteable();
+            //s->clearWriteable();
         }
     }
     
@@ -1150,6 +1179,7 @@ void TSanTransform::registerDependencies()
     tsanWriteRange = {{elfDeps->appendPltEntry("__tsan_write_range"), XMM_UNSAFE}};
     tsanAcquire = {{elfDeps->appendPltEntry("__tsan_acquire"), XMM_UNSAFE}};
     tsanRelease = {{elfDeps->appendPltEntry("__tsan_release"), XMM_UNSAFE}};
+    tsanInit = {{elfDeps->appendPltEntry("__tsan_init"), XMM_UNSAFE}};
     
     getFileIR()->assembleRegistry();
 }

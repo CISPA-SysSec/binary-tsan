@@ -141,6 +141,7 @@ private:
     // void(int*)
     LibraryFunctionOptions tsanAcquire;
     LibraryFunctionOptions tsanRelease;
+    LibraryFunctionOptions tsanInit;
 
     const std::string MOVE_OPERAND_RDI = "__move_operand_to_rdi";
 
