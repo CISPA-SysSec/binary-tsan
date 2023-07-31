@@ -25,10 +25,12 @@ benchmarkWithSTARS = False
 
 runTarget = "simsmall"
 timeout = 60*60
-iterations = 3
+iterations = 5
 # raytrace will always be executed with one thread since it deadlocks otherwise
 threads = 4
-baseCommand = ["/home/joschua/Desktop/CISPA/Projekte/tools/PARSEC/parsec-3.0/bin/parsecmgmt", "-a", "run", "-i", runTarget]
+baseCommand = [sys.argv[2]+"/bin/parsecmgmt", "-a", "run", "-i", runTarget]
+#output folder
+OUTPUT_FOLDER = "/home/XXXXXXXXXXX/PARSEC_outputs/"
 
 # Warning: ferret requires libjpeg.so.62, package libjpeg62-dev must be installed
 # ["dedup", "ferret", "blackscholes", "streamcluster", "fluidanimate", "swaptions", "vips", "bodytrack", "raytrace"]
@@ -77,7 +79,7 @@ def getTimes(runCommand, benchType):
 
             #if("helgrind" in " ".join(runCommand)):
                 #print("log written")
-            with open("/home/joschua/Desktop/CISPA/Projekte/binary-tsan/scripts/PARSEC_outputs/"+testcase+"."+benchType+str((i+1)), "wb") as binary_file:
+            with open(OUTPUT_FOLDER+"/"+testcase+"."+benchType+str((i+1)), "wb") as binary_file:
                 binary_file.write(outs)
 
             #print(outStr)
