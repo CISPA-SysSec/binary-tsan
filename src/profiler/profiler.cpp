@@ -133,6 +133,8 @@ SANITIZER_INTERFACE_ATTRIBUTE void __tsan_write4_pc(void*, void *pc) { logAccess
 SANITIZER_INTERFACE_ATTRIBUTE void __tsan_write8_pc(void*, void *pc) { logAccess(pc); }
 SANITIZER_INTERFACE_ATTRIBUTE void __tsan_write16_pc(void*, void *pc) { logAccess(pc); }
 
+SANITIZER_INTERFACE_ATTRIBUTE void __tsan_init(void*) { }
+
 SANITIZER_INTERFACE_ATTRIBUTE void __tsan_acquire(void*) { }
 SANITIZER_INTERFACE_ATTRIBUTE void __tsan_release(void*) { }
 

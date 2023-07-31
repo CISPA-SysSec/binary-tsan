@@ -53,6 +53,19 @@ static bool isLeafFunction(const Function &function)
     });
 }
 
+inline bool isAtomic(const Instruction *instruction)
+{
+    const std::string dataBits = instruction->getIRDBInstruction()->getDataBits();
+    return std::any_of(dataBits.begin(), dataBits.begin() + instruction->getDecoded()->getPrefixCount(), [](char c) {
+        return static_cast<unsigned char>(c) == 0xF0;
+    });
+}
+
+static bool isAtomicOrXchg(Instruction *instruction)
+{
+    return isAtomic(instruction) || instruction->getMnemonic() == "xchg";
+}
+
 FunctionInfo Analysis::analyseFunction(const Function &function, Program &program)
 {
     updateDeadRegisters(function);
@@ -175,6 +188,10 @@ FunctionInfo Analysis::analyseFunction(const Function &function, Program &progra
     }
 
     for (Instruction *instruction : function.getInstructions()) {
+        
+        if(isAtomicOrXchg(instruction))
+            prefixAtomics++;
+
         if (instruction->isBranch() || instruction->isCall()) {
             continue;
         }
@@ -675,19 +692,6 @@ bool Analysis::isDataConstant(FileIR_t *ir, Instruction *instruction, const std:
     return false;
 }
 
-inline bool isAtomic(const Instruction *instruction)
-{
-    const std::string dataBits = instruction->getIRDBInstruction()->getDataBits();
-    return std::any_of(dataBits.begin(), dataBits.begin() + instruction->getDecoded()->getPrefixCount(), [](char c) {
-        return static_cast<unsigned char>(c) == 0xF0;
-    });
-}
-
-static bool isAtomicOrXchg(Instruction *instruction)
-{
-    return isAtomic(instruction) || instruction->getMnemonic() == "xchg";
-}
-
 std::map<Instruction*, __tsan_memory_order> Analysis::inferAtomicInstructions(const Function &function, const std::set<Instruction_t*> &spinLockInstructions) const
 {
     const auto &instructions = function.getInstructions();
@@ -946,6 +950,7 @@ void Analysis::printStatistics() const
     std::cout <<"\t\t- Constant Memory Read: "<<constantMemoryRead<<std::endl;
     std::cout <<"\t\t- Stack Memory: "<<stackMemory<<std::endl;
     std::cout <<"\t* Inferred Atomics:"<<std::endl;
+    std::cout <<"\t\t- Lock Prefix and Xchg(not inferred): "<<prefixAtomics<<std::endl;
     std::cout <<"\t\t- Pointer Inference: "<<pointerInferredAtomics<<std::endl;
     std::cout <<"\t\t- Static Variable Guards: "<<staticVariableGuards<<std::endl;
     std::cout <<"\t\t- Spin Locks: "<<spinLocks<<std::endl;

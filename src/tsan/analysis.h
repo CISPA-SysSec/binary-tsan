@@ -90,6 +90,7 @@ private:
     std::size_t constantMemoryRead = 0;
     std::size_t stackMemory = 0;
     // atomics
+    std::size_t prefixAtomics = 0;
     std::size_t pointerInferredAtomics = 0;
     std::size_t staticVariableGuards = 0;
     std::size_t spinLocks = 0;
