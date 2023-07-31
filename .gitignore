@@ -6,3 +6,5 @@ eval
 scripts/tsan_temp*
 testing
 scripts/*.instrinfo
+scripts/PARSEC_outputs
+.vscode
