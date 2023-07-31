@@ -23,14 +23,28 @@ echo ""
 echo "--------------------------------"
 
 echo "BUILD SANITIZED"
-../build/thread-sanitizer.sh $PWD/$targetpath $PWD/instrumented/$target.san
+../build/thread-sanitizer.sh $PWD/$targetpath $PWD/instrumented/$target.san 
+#--use-system-libtsan #--register-analysis=none
+#../build/thread-sanitizer.sh $PWD/$targetpath $PWD/instrumented/$target.noatom --no-instrument-atomics 
 
+
+echo "BUILD NODRA"
+../build/thread-sanitizer.sh $PWD/$targetpath $PWD/instrumented/$target.nodra --register-analysis=none 
+
+echo "BUILD STAR"
+../build/thread-sanitizer.sh $PWD/$targetpath $PWD/instrumented/$target.star --register-analysis=stars
+#--use-system-libtsan
+#--no-add-tsan-calls
+#--no-instrument-stack 
+#--use-memory-profiler
+#--dry-run
+#--register-analysis=(none|stars|custom)
 echo ""
 echo ""
 echo "--------------------------------"
 
 echo "BUILD ZAFL"
-./zafl.sh $PWD/$targetpath $PWD/instrumented/$target.zaf
+#./zafl.sh $PWD/$targetpath $PWD/instrumented/$target.zaf
 echo ""
 echo ""
 echo "--------------------------------"
@@ -38,7 +52,7 @@ echo "--------------------------------"
 
 
 echo "BUILD SAN-ZAFL"
-./zafl.sh $PWD/$targetpath $PWD/instrumented/$target.sanzaf -T
+#./zafl.sh $PWD/$targetpath $PWD/instrumented/$target.sanzaf -T
 echo ""
 echo ""
 echo "--------------------------------"
