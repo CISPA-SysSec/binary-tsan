@@ -1,3 +1,5 @@
+#! /usr/bin/python3
+
 import sys
 import os
 import subprocess
@@ -11,7 +13,7 @@ if len(sys.argv) != 3:
 # if set to false, previously instrumented binaries are used
 instrumentBinaries = True
 
-benchmarkDefault = True
+benchmarkDefault = False
 benchmarkBinTSAN = True
 benchmarkCompTSAN = False
 benchmarkHelgrind = False
@@ -19,20 +21,20 @@ benchmarkHelgrind = False
 
 
 benchmarkWithoutDRA = False
-benchmarkWithSTARS = True
+benchmarkWithSTARS = False
 
 runTarget = "simsmall"
 timeout = 60*60
-iterations = 1
+iterations = 3
 # raytrace will always be executed with one thread since it deadlocks otherwise
 threads = 4
-baseCommand = ["./bin/parsecmgmt", "-a", "run", "-i", runTarget]
+baseCommand = ["/home/joschua/Desktop/CISPA/Projekte/tools/PARSEC/parsec-3.0/bin/parsecmgmt", "-a", "run", "-i", runTarget]
 
 # Warning: ferret requires libjpeg.so.62, package libjpeg62-dev must be installed
 # ["dedup", "ferret", "blackscholes", "streamcluster", "fluidanimate", "swaptions", "vips", "bodytrack", "raytrace"]
 # ["canneal", "facesim", "x264"] # not working
 # ["freqmine"] # excluded because does not use pthreads
-tests = ["raytrace"]#["dedup", "ferret", "blackscholes", "streamcluster", "fluidanimate", "swaptions", "vips", "bodytrack", "raytrace"]
+tests = ["fluidanimate", "ferret", "vips", "streamcluster", "bodytrack"]#, "fluidanimate", "streamcluster"]#["dedup", "ferret", "blackscholes", "streamcluster", "fluidanimate", "swaptions", "vips", "bodytrack", "raytrace"]
 # the test name is used if not present here
 executableNames = {
     "raytrace": "rtview"
@@ -44,13 +46,13 @@ def timeStrToNumber(timeStr):
         return 0
     return int(parts[0]) * 60 + float(parts[1][:-1].replace(",", "."))
 
-def getTimes(runCommand):
+def getTimes(runCommand, benchType):
     startDir = os.getcwd()
     os.chdir(sys.argv[2])
     
     result = {}
     for testcase in tests:
-        print(testcase)
+        #print(testcase)
         result[testcase] = "not found"
         totalTime = 0
         minWarnings = 1000000
@@ -72,6 +74,13 @@ def getTimes(runCommand):
                 totalTime = 0
                 break
             outStr = str(outs)
+
+            #if("helgrind" in " ".join(runCommand)):
+                #print("log written")
+            with open("/home/joschua/Desktop/CISPA/Projekte/binary-tsan/scripts/PARSEC_outputs/"+testcase+"."+benchType+str((i+1)), "wb") as binary_file:
+                binary_file.write(outs)
+
+            #print(outStr)
             errorCount = 0
             for line in outStr.split("\\n"):
                 if "Segmentation fault" in line or "ThreadSanitizer: SEGV" in line:
@@ -140,22 +149,21 @@ def instrBin(instrCommand):
 
 if(benchmarkDefault):
     print("Running base executables")
-    baseTimes = getTimes(baseCommand)
+    baseTimes = getTimes(baseCommand, "default")
 
 if(benchmarkCompTSAN):
     print("Running regular thread sanitizer")
-    tsanTimes = getTimes(baseCommand + ["-c", "gcc-tsan"])
+    tsanTimes = getTimes(baseCommand + ["-c", "gcc-tsan"], "tsan")
 
 
 if benchmarkHelgrind:
     print("Running with helgrind")
-    valgrindTimes = getTimes(baseCommand + ["-s", "time valgrind --tool=helgrind "])
+    valgrindTimes = getTimes(baseCommand + ["-s", "time valgrind --tool=helgrind "], "hel")
 
 
 if instrumentBinaries:
     if(benchmarkBinTSAN):
-        pass
-        #instrBin("")
+        instrBin("")
     if(benchmarkWithoutDRA):
         instrBin("--register-analysis=none")
     if(benchmarkWithSTARS):
@@ -164,16 +172,16 @@ if instrumentBinaries:
 
 if(benchmarkBinTSAN):
     print("Running binary thread sanitized binaries")
-    btsanTimes = getTimes(baseCommand + ["-x", "btsan"])
+    btsanTimes = getTimes(baseCommand + ["-x", "btsan"], "san")
 
 
 if(benchmarkWithoutDRA):
     print("Running binary thread sanitized binaries")
-    btsanNoDRATimes = getTimes(baseCommand + ["-x", "btsan-noDRA"])
+    btsanNoDRATimes = getTimes(baseCommand + ["-x", "btsan-noDRA"], "nodra")
 
 if(benchmarkWithSTARS):
     print("Running binary thread sanitized binaries")
-    btsanStarDRATimes = getTimes(baseCommand + ["-x", "btsan-starDRA"])
+    btsanStarDRATimes = getTimes(baseCommand + ["-x", "btsan-starDRA"], "start")
 
 
 
