@@ -8,7 +8,7 @@ This project contains a binary only thread sanitizer based on the binary rewriti
 For dependencies, apart from the ones required by zipr, this framework also uses protobuf.
 
 To compile the thread sanitizer, you must have a fully compiled instance of zipr on your computer.
-It can currently be found here: https://git.zephyr-software.com/opensrc/zipr.
+It can currently be found here: https://git.zephyr-software.com/opensrc/zipr. Alternatively, you may use our fork of zipr, which supports debugging symbols, which can be found here: https://anonymous.4open.science/r/zipr-debugging
 
 After compiling zipr, clone this repository and enter it. Execute the following commands to compile it:
 ```
