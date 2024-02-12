@@ -1,0 +1,36 @@
+,,,,,,,
+,Targets,Benchmark,CompileTime,CompileTime TSAN,InstrumentationTime,Factor TSAN,Factor Instrum vs CompileTime
+,canneal,PARSEC,3.00,3.00,4.01,1.00,1.33
+,dedup,PARSEC,2.00,2.00,14.02,1.00,7.00
+,ferret,PARSEC,8.51,9.01,54.06,1.06,6.35
+,blackscholes,PARSEC,1.00,1.00,2.00,1.00,2.00
+,streamcluster,PARSEC,1.50,1.50,4.51,1.00,3.00
+,fluidanimate,PARSEC,2.00,2.00,4.01,1.00,2.00
+,freqmine,PARSEC,3.00,3.50,10.01,1.17,3.33
+,swaptions,PARSEC,2.50,2.50,7.01,1.00,2.80
+,vips,PARSEC,88.35,89.58,859.91,1.01,9.73
+,facesim ,PARSEC,130.14,150.93,401.92,1.16,3.09
+,bodytrack ,PARSEC,27.57,31.39,66.07,1.14,2.40
+,x264 ,PARSEC,19.94,21.27,77.08,1.07,3.87
+,raytrace ,PARSEC,26.36,33.21,748.78,1.26,28.41
+,505.mcf_r ,SPEC,1.91,1.925,3.23,1.01,1.69
+,531.deepsjeng_r ,SPEC,3.407,3.473,16.414,1.02,4.82
+,541.leela_r ,SPEC,4.951,5.424,23.372,1.10,4.72
+,548.exchange2_r ,SPEC,9.48,9.523,24.596,1.00,2.59
+,557.xz_r,SPEC,3.585,3.817,14.218,1.06,3.97
+,520.omnetpp_r ,SPEC,15.75,18.403,201.433,1.17,12.79
+,523.xalancbmk_r,SPEC,33.02,39.759,633.038,1.20,19.17
+,525.x264_r,SPEC,11.315,12.606,133.127,1.11,11.77
+,,,,,,,
+,,,,,,,
+,,,,,,,
+,,,,,,,
+,,,,,,,
+,,,,,,,
+,,,,,,,
+,,,,,,,
+,,,,,,,
+,,,,,,,
+,,,,,,,
+,,,,,,,
+,AVERAGE,,19.01,21.23,157.28,1.07,6.52

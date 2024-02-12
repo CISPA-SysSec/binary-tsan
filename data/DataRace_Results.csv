@@ -1,0 +1,14 @@
+,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,
+,,Programm,TestedAs,DR TSAN,DR BINTSAN,FP,FN,HG,HG FP,HG FN,Stddev (BTSAN),BT NOATOM,NOATOM FP,NOATOM FN
+,,ffmpeg,Fuzzing,290,95,830,195,74,2120,216,13.5,101,1458,189
+,,bodytrack,Benchmark,6,1,6,5,1,9,5,0,,,
+,,QtNotepad,Manual,3,3,1,0,3,3,0,0.6,,,
+,,streamcluster,Benchmark,4,4,0,0,4,1,0,0,,,
+,,axel,Manual,4,3,0,1,3,3,0,0.6,,,
+,,vips,Benchmark,3,3,0,0,2,2,1,0.6,,,
+,,lrzip,Fuzzing,2,2,0,0,2,2,0,0,0,0,2
+,,rar,Fuzzing,N/A,1,N/A,N/A,0,N/A,N/A,0,0,0,1
+,,unrar,Fuzzing,1,1,0,0,0,0,1,0,0,0,1
+,,ferret,Benchmark,1,1,0,0,0,2,1,0,,,
+,,fluidanimate,Benchmark,1,1,0,0,1,1,0,0,,,

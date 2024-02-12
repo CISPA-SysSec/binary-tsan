@@ -1,0 +1,9 @@
+Target:,Atomics:,Pointer Inference:,Static Variable Guards:,Spin Locks:,Total,Atomics-IR
+libQt5Core,8292,5711,6,0,14009,21174
+ffmpeg,145,38,0,13,196,223
+reaper,106,10,0,12,128,N/A
+QtNotepad,57,51,0,0,108,112
+lrzip,0,4,0,1,5,0
+rar,0,4,0,1,5,N/A
+sqlite3,1,0,0,0,1,34
+x265,0,0,0,1,1,0
