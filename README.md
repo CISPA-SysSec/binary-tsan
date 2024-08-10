@@ -1,7 +1,7 @@
  
 # Binary Only Thread Sanitizer
 
-This repository is part of our paper [A Binary-level Thread Sanitizer or Why Sanitizing on the Binary Level is Hard](https://github.com/CISPA-SysSec/binary-tsan/paper/schilling_2024_bintsan.pdf)*.
+This repository is part of our paper [A Binary-level Thread Sanitizer or Why Sanitizing on the Binary Level is Hard](https://github.com/CISPA-SysSec/binary-tsan/blob/master/paper/schilling_2024_bintsan.pdf)*.
 
 The repository contains the binary only thread sanitizer (binTSAN) based on the binary rewriting toolkit zipr.
 
@@ -44,7 +44,7 @@ A list and description of all options can be shown with:
 
 # Paper
 
-If your research finds one or several components of VANDALIR useful, please cite [our paper](https://github.com/CISPA-SysSec/binary-tsan/paper/schilling_2024_bintsan.pdf):
+If your research finds one or several components of VANDALIR useful, please cite [our paper](https://github.com/CISPA-SysSec/binary-tsan/blob/master/paper/schilling_2024_bintsan.pdf):
 
 
 ```
